@@ -219,6 +219,86 @@ export function createInteractiveWindow(
   return { container, parts };
 }
 
+/** 左右推拉窗：白色塑钢外框 + 中竖梃 + 两扇可推拉玻璃扇（左扇左滑、右扇右滑）。
+ *  闭合时两扇于中梃处相接覆盖整窗，开启时各向外侧滑移半个窗宽，完全错开露出洞口。 */
+export function createSlidingWindow(
+  spec: WindowSpec,
+  materials: MaterialMap,
+  floor?: FloorConfig,
+): InteractiveBuildResult {
+  const { w, h, x, y, z, rotY } = spec;
+  const halfW = w / 2;
+  const frameT = 0.06;
+  const leafW = halfW - frameT; // 每扇宽
+  const leafH = h - 2 * frameT;
+  const halfLeaf = leafW / 2;
+  const travel = halfW; // 每扇滑移半个窗宽
+  const pvc = materials.pvc;
+
+  const container = new THREE.Group();
+
+  // 外框四边（白色塑钢）
+  const frameBars: Array<[number, number, number, number]> = [
+    [w, frameT, 0, h / 2 - frameT / 2],
+    [w, frameT, 0, -h / 2 + frameT / 2],
+    [frameT, h, -halfW + frameT / 2, 0],
+    [frameT, h, halfW - frameT / 2, 0],
+  ];
+  for (const [bw, bh, bx, by] of frameBars) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.1), pvc);
+    bar.position.set(bx, by, 0);
+    container.add(bar);
+  }
+  // 中竖梃
+  const mullion = new THREE.Mesh(new THREE.BoxGeometry(frameT, h - 2 * frameT, 0.1), pvc);
+  mullion.position.set(0, 0, 0);
+  container.add(mullion);
+
+  const buildLeaf = (): THREE.Group => {
+    const leaf = new THREE.Group();
+    const bars: Array<[number, number, number, number]> = [
+      [leafW, frameT, 0, leafH / 2 - frameT / 2],
+      [leafW, frameT, 0, -leafH / 2 + frameT / 2],
+      [frameT, leafH, -leafW / 2 + frameT / 2, 0],
+      [frameT, leafH, leafW / 2 - frameT / 2, 0],
+    ];
+    for (const [bw, bh, bx, by] of bars) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.08), pvc);
+      bar.position.set(bx, by, 0);
+      leaf.add(bar);
+    }
+    const glass = new THREE.Mesh(
+      new THREE.BoxGeometry(leafW - 2 * frameT, leafH - 2 * frameT, 0.03),
+      materials.glass,
+    );
+    leaf.add(glass);
+    return leaf;
+  };
+
+  // 左扇：闭合居中 -halfLeaf，开启向左滑 travel
+  const leftLeaf = buildLeaf();
+  leftLeaf.position.set(-halfLeaf, 0, 0);
+  const leftPart = markInteractive(leftLeaf, 'window', 0);
+  leftPart.userData.slideX = { closed: -halfLeaf, open: -halfLeaf - travel };
+  container.add(leftLeaf);
+
+  // 右扇：闭合居中 +halfLeaf，开启向右滑 travel
+  const rightLeaf = buildLeaf();
+  rightLeaf.position.set(halfLeaf, 0, 0);
+  const rightPart = markInteractive(rightLeaf, 'window', 0);
+  rightPart.userData.slideX = { closed: halfLeaf, open: halfLeaf + travel };
+  container.add(rightLeaf);
+
+  container.position.set(x, y, z);
+  container.rotation.y = rotY;
+  if (floor) {
+    container.position.y = floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = floor.wallH / H;
+  }
+
+  return { container, parts: [leftPart, rightPart] };
+}
+
 /** 单扇内门：绕一侧立边旋转开合，材质由 spec.materialKey 指定（wood / frostedGlass） */
 export function createInteriorDoor(
   spec: InteriorDoorSpec,

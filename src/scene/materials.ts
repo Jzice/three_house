@@ -1,6 +1,47 @@
 import * as THREE from 'three';
 import type { MaterialMap } from '../types';
 
+/** 程序化生成卵石碎拼贴图（不规则椭圆石块 + 深色缝隙），按约 2.5m 平铺 */
+function createPavingTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，卵石贴图生成失败');
+
+  ctx.fillStyle = '#8a8478'; // 石块间深色缝隙
+  ctx.fillRect(0, 0, S, S);
+
+  const palette = ['#b7b0a4', '#c6c0b4', '#a8a296', '#bfb8ab', '#cbc4b8', '#9e988c', '#b1a99c'];
+  let seed = 7;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 150; i++) {
+    ctx.fillStyle = palette[Math.floor(rand() * palette.length)];
+    ctx.beginPath();
+    ctx.ellipse(
+      rand() * S,
+      rand() * S,
+      12 + rand() * 22,
+      10 + rand() * 18,
+      rand() * Math.PI,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90, 85, 75, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 /** 程序化生成单块瓷砖贴图（含四周砖缝），按 TILE_SIZE 平铺 */
 function createTileTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -46,6 +87,8 @@ export function createMaterials(): MaterialMap {
     railing: new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.4, metalness: 0.6 }),
     // 阳台栏杆：深灰色金属
     railingGray: new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.5, metalness: 0.5 }),
+    // 白色塑钢（推拉窗框）
+    pvc: new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.55, metalness: 0.0 }),
     column: new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.8 }),
     copper: new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.4, metalness: 0.6 }),
     glass: new THREE.MeshStandardMaterial({
@@ -64,6 +107,12 @@ export function createMaterials(): MaterialMap {
       opacity: 0.5,
       metalness: 0.0,
       roughness: 0.9,
+    }),
+    // 院子铺装：卵石碎拼
+    paving: new THREE.MeshStandardMaterial({
+      map: createPavingTexture(),
+      roughness: 0.9,
+      metalness: 0.0,
     }),
   };
 }

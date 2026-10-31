@@ -5,7 +5,8 @@ import {
   getRooms2D,
   getStairs2D,
   getWalls2D,
-  INITIAL_DIMENSIONS,
+  getYard2D,
+  getDimensions2D,
   PLATFORM_FRONT_Z,
 } from '../config/houseConfig';
 
@@ -46,7 +47,9 @@ export function createFloorplan2D(
   let scale = 50;
   let offsetX = 0;
   let offsetY = 0;
-  let dimensions: Dimension[] = INITIAL_DIMENSIONS.map((d) => ({ ...d }));
+  let dimensions: Dimension[] = [];
+  // 记录上次绘制的楼层，楼层切换时重置为该层的尺寸标注
+  let lastFloorIndex = -1;
   let isMeasuring = false;
   let measureStart: { x: number; z: number } | null = null;
   let draggingDim: Dimension | null = null;
@@ -104,14 +107,45 @@ export function createFloorplan2D(
     const h = minimap ? MINIMAP_H : window.innerHeight;
     canvas.width = w;
     canvas.height = h;
-    scale = Math.min(w / 15, h / 13);
+
+    const floor = callbacks.getFloor();
+    // 楼层切换时重置为该层对应的尺寸标注（用户在本层新增的测量随之清空）
+    if (floor.index !== lastFloorIndex) {
+      dimensions = getDimensions2D(floor).map((d) => ({ ...d }));
+      lastFloorIndex = floor.index;
+    }
+    // 1F 带院子时缩小比例以容纳院子（深约 ±8.1m），其余层维持原视野
+    const fitYard = !!floor.yard;
+    scale = Math.min(w / (fitYard ? 18.5 : 15), h / (fitYard ? 17.5 : 13));
     offsetX = w / 2;
     offsetY = h / 2;
     ctx.clearRect(0, 0, w, h);
 
-    const floor = callbacks.getFloor();
     const rooms = getRooms2D(floor);
     const walls = getWalls2D(floor);
+
+    // ---- 院子（铺装 + 围墙线 + 东面院门缺口，后院梯形斜边） ----
+    const yard = getYard2D(floor);
+    if (yard) {
+      ctx.fillStyle = '#d9d4ca';
+      ctx.beginPath();
+      yard.pts.forEach((p, i) =>
+        i === 0 ? ctx.moveTo(getX(p.x), getY(p.z)) : ctx.lineTo(getX(p.x), getY(p.z)),
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = '#9aa0a6';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      // 东面院门缺口（用铺装色盖掉围墙线）
+      ctx.strokeStyle = '#d9d4ca';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(getX(yard.pts[1].x), getY(yard.gateZ - yard.gateW / 2));
+      ctx.lineTo(getX(yard.pts[1].x), getY(yard.gateZ + yard.gateW / 2));
+      ctx.stroke();
+    }
 
     // ---- 房间色块 ----
     for (const room of rooms) {

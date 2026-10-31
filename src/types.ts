@@ -10,11 +10,13 @@ export type MaterialKey =
   | 'stair'
   | 'railing'
   | 'railingGray'
+  | 'pvc'
   | 'column'
   | 'copper'
   | 'glass'
   | 'wood'
-  | 'frostedGlass';
+  | 'frostedGlass'
+  | 'paving';
 
 export type MaterialMap = Record<MaterialKey, THREE.MeshStandardMaterial>;
 
@@ -111,6 +113,34 @@ export interface RoofConfig {
   bounds: { x0: number; x1: number; z0: number; z1: number };
 }
 
+/** 院子配置：环绕房屋的铺装与围墙（如 1F） */
+export interface YardConfig {
+  /** 自外墙皮向外扩展的距离（米，东/南/北；西边可用 extendWest 覆盖） */
+  extend: number;
+  /** 西侧外扩距离（默认取 extend；设 0 表示到房屋西墙为止、不设西围墙） */
+  extendWest?: number;
+  /** 后院（北侧）梯形：东北角剩余深度（米，西北角深 = extend，斜边连向东北） */
+  rearEastDepth?: number;
+  /** 后院西北角直角段长度（米）：从该角沿北边直行多少后开始变斜，默认 0 */
+  rearStraight?: number;
+  /** 铺装面离地高度（米，= 1F 室内地坪） */
+  paveH: number;
+  /** 围墙高（米） */
+  fenceH: number;
+  /** 西侧围墙高（米，默认取 fenceH） */
+  fenceHWest?: number;
+  /** 北侧（后院斜边）围墙高（米，默认取 fenceH） */
+  fenceHNorth?: number;
+  /** 围墙厚（米） */
+  fenceT: number;
+  /** 压顶厚（米） */
+  capT: number;
+  /** 院门宽（米，东面开口） */
+  gateW: number;
+  /** 院门中心 z（默认 0 居中；东南角取 ydZ - fenceT - gateW/2 ≈ 6.68） */
+  gateZ?: number;
+}
+
 /** 楼层配置：基础标高、层高与楼梯参数（楼梯按层独立配置） */
 export interface FloorConfig {
   /** 楼层序号，0 = 1F，1 = 2F，2 = 3F */
@@ -135,6 +165,8 @@ export interface FloorConfig {
   balcony?: BalconyConfig;
   /** 本层平屋顶（可选，如 3F 半层顶） */
   roof?: RoofConfig;
+  /** 本层院子（可选，如 1F 环绕铺装与围墙） */
+  yard?: YardConfig;
 }
 
 /** 窗的放置位置与朝向 */
@@ -145,6 +177,8 @@ export interface WindowSpec {
   y: number;
   z: number;
   rotY: number;
+  /** 开启样式：平开（默认）或左右推拉 */
+  style?: 'casement' | 'sliding';
 }
 
 /** 2D 平面图上的一条尺寸标注 */

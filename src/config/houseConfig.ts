@@ -20,11 +20,21 @@ export const H = 3.5;
 
 /** 两层楼房：1F 层高 3.5m；2F 在其上方、层高 3.0m（敞顶，后区按定制合并） */
 export const FLOORS: FloorConfig[] = [
-  { index: 0, name: '1F', baseY: 0, wallH: H, stair: { steps1: 14, steps2: 9, platformH: 2.2, run1Length: 4.4, run2Length: 2.4 } },
+  {
+    index: 0,
+    name: '1F',
+    // 房屋整体抬离地面：1F 室内地坪完成面 = 0.30m（baseY 0.255 + 楼板面 0.045）
+    baseY: 0.255,
+    wallH: H,
+    stair: { steps1: 14, steps2: 9, platformH: 2.2, run1Length: 4.4, run2Length: 2.4 },
+    // 1F 院子：东/南/北外扩 3m、西边到房屋西墙为止，卵石铺装（面高 0.30m）+ 0.5m 实体矮围墙，
+    // 东面临街开 2.4m 院门（位于东南角，贴南围墙）
+    yard: { extend: 3, extendWest: 0, rearEastDepth: 0.5, rearStraight: 2, paveH: 0.3, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, capT: 0.05, gateW: 2.4, gateZ: 6.68 },
+  },
   {
     index: 1,
     name: '2F',
-    baseY: H,
+    baseY: 0.255 + H,
     wallH: 3.0,
     stair: { steps1: 9, steps2: 9, platformH: 1.5, run1Length: 2.4, run2Length: 2.4 },
     // 南墙阳台：出挑 1.3m，长度与南墙一致并两端各外延 0.3m
@@ -33,7 +43,7 @@ export const FLOORS: FloorConfig[] = [
   {
     index: 2,
     name: '3F',
-    baseY: 6.5, // 1F 3.5 + 2F 层高 3.0
+    baseY: 0.255 + H + 3.0, // 6.755
     wallH: 2.5,
     // 北半层（前缘对齐 2F 卧室1 北墙 z=0.5）+ 南侧大阳台（延伸至正面墙并向前挑空 1.5m，
     // 两端外延至 x=±4.8）；无楼梯。平屋顶独立为第 4 层（index 3），
@@ -43,7 +53,7 @@ export const FLOORS: FloorConfig[] = [
   {
     index: 3,
     name: '屋顶',
-    baseY: 9.0, // 3F 墙顶 = 屋面板底
+    baseY: 0.255 + H + 3.0 + 2.5, // 9.255 = 3F 墙顶 = 屋面板底
     wallH: 0,
     // 平屋顶四周挑空：北/东/西各 0.3m、南 0.8m（外墙皮 x=±4.62 / z=-5.12，正面墙外皮 z=0.62）
     roof: { slabT: 0.15, parapetH: 0.5, parapetT: 0.2, bounds: { x0: -4.92, x1: 4.92, z0: -5.42, z1: 1.42 } },
@@ -262,11 +272,11 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
   if (floor.index === 3) return []; // 屋顶层无窗
   if (floor.index === 2) {
     return [
-      { w: 1.8, h: 1.8, x: -2.75, y: 1.8, z: 0.5, rotY: 0 },
-      { w: 1.8, h: 1.8, x: 2.75, y: 1.8, z: 0.5, rotY: 0 },
+      { w: 1.2, h: 1.2, x: -2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
+      { w: 1.2, h: 1.2, x: 2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
     ];
   }
-  return [...WINDOWS, { w: 1.0, h: 1.8, x: -2.67, y: 1.8, z: -5.0, rotY: Math.PI }];
+  return [...WINDOWS, { w: 1.0, h: 1.4, x: -2.67, y: 1.2, z: -5.0, rotY: Math.PI }];
 }
 
 /** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心） */
@@ -382,16 +392,18 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
       box(T_EXT, H, 5.5, -4.5, H / 2, -2.37), // 西外墙 z∈[-5.12,0.38]
       box(T_EXT, H, 5.5, 4.5, H / 2, -2.37), // 东外墙
       box(8.76, H, T_EXT, 0, H / 2, -5.0), // 北墙（整面封闭）
-      // 正面墙 z∈[0.38,0.62]，含两角
-      box(0.97, H, T_EXT, -4.135, H / 2, 0.5),
-      box(1.8, 0.9, T_EXT, -2.75, 0.45, 0.5), // 西窗窗台
-      box(1.8, H - SILL_TOP, T_EXT, -2.75, SILL_TOP + (H - SILL_TOP) / 2, 0.5), // 西窗上段
-      box(1.4, H, T_EXT, -1.15, H / 2, 0.5), // 西窗—门之间
+      // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
+      box(0.97, H, T_EXT, -4.135, H / 2, 0.5), // 左角
+      box(0.3, H, T_EXT, -3.5, H / 2, 0.5), // 左角—西窗 填充
+      box(1.2, 1.2, T_EXT, -2.75, 0.6, 0.5), // 西窗窗台（高 1.2、宽 1.2）
+      box(1.2, 1.1, T_EXT, -2.75, 2.95, 0.5), // 西窗上段（高 1.1、宽 1.2）
+      box(1.7, H, T_EXT, -1.3, H / 2, 0.5), // 西窗—门 填充
       header(0.9, T_EXT, 0, 0.5, DOOR_H), // 门头（门洞 x∈[-0.45,0.45]）
-      box(1.4, H, T_EXT, 1.15, H / 2, 0.5), // 门—东窗之间
-      box(1.8, 0.9, T_EXT, 2.75, 0.45, 0.5), // 东窗窗台
-      box(1.8, H - SILL_TOP, T_EXT, 2.75, SILL_TOP + (H - SILL_TOP) / 2, 0.5), // 东窗上段
-      box(0.97, H, T_EXT, 4.135, H / 2, 0.5),
+      box(1.7, H, T_EXT, 1.3, H / 2, 0.5), // 门—东窗 填充
+      box(1.2, 1.2, T_EXT, 2.75, 0.6, 0.5), // 东窗窗台（高 1.2、宽 1.2）
+      box(1.2, 1.1, T_EXT, 2.75, 2.95, 0.5), // 东窗上段（高 1.1、宽 1.2）
+      box(0.3, H, T_EXT, 3.5, H / 2, 0.5), // 东窗—右角 填充
+      box(0.97, H, T_EXT, 4.135, H / 2, 0.5), // 右角
     ];
   }
   return EXTERIOR_WALLS.map((w) => {
@@ -408,12 +420,13 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
       return header(2.2, T_EXT, -0.2, 5.0, DOOR_H);
     }
     // 北墙原后门区（x∈[-3.17,-2.17]，楼梯休息平台正后方）：铜色门板改窗台
+    // 窗台压低至 0.5，使整窗位于休息平台半层（≈2.1）之下、避开平台
     if (w.material === 'copper' && Math.abs(w.x + 2.67) < 1e-6 && Math.abs(w.z + 5.0) < 1e-6) {
-      return box(1.0, 0.9, T_EXT, -2.67, 0.45, -5.0);
+      return box(1.0, 0.5, T_EXT, -2.67, 0.25, -5.0);
     }
-    // 北墙原后门区上段：门头改窗上段（窗台 0.9 / 窗顶 2.7，与其它窗一致）
+    // 北墙原后门区上段：窗上段自 1.9 起（窗顶 1.9 < 休息平台 2.1，避开半层）
     if (Math.abs(w.x + 2.67) < 1e-6 && Math.abs(w.z + 5.0) < 1e-6 && Math.abs(w.w - 1.0) < 1e-6 && w.h < H) {
-      return box(1.0, H - SILL_TOP, T_EXT, -2.67, SILL_TOP + (H - SILL_TOP) / 2, -5.0);
+      return box(1.0, 1.6, T_EXT, -2.67, 2.7, -5.0);
     }
     return w;
   });
@@ -518,6 +531,31 @@ export function getBalcony2D(
   return { x: 0, z: D / 2 + b.width / 2 - frontDepth / 2, w, d: b.width + frontDepth };
 }
 
+/** 按楼层返回 2D 院子轮廓（多边形顶点，后院梯形斜边 + 院门），无院子返回 null */
+export function getYard2D(
+  floor: FloorConfig,
+): { pts: { x: number; z: number }[]; gateW: number; gateZ: number } | null {
+  const y = floor.yard;
+  if (!y) return null;
+  const xEast = W / 2 + y.extend;
+  const xWest = -(W / 2 + (y.extendWest ?? y.extend));
+  const ydZ = D / 2 + y.extend;
+  const rearEastZ = -(D / 2 + (y.rearEastDepth ?? y.extend));
+  const rearStraight = y.rearStraight ?? 0;
+  return {
+    // 西南 → 东南 → 东北（斜边东端） → 西北直角段东端 → 西北，闭合
+    pts: [
+      { x: xWest, z: ydZ },
+      { x: xEast, z: ydZ },
+      { x: xEast, z: rearEastZ },
+      { x: xWest + rearStraight, z: -ydZ },
+      { x: xWest, z: -ydZ },
+    ],
+    gateW: y.gateW,
+    gateZ: y.gateZ ?? 0,
+  };
+}
+
 /** 按楼层返回 2D 墙体：与 getInteriorWalls/getExteriorWalls 同步 */
 export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
   if (floor.index === 0) return WALLS_2D;
@@ -539,11 +577,13 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
       { w: T_EXT, d: 5.5, x: 4.5, z: -2.37 }, // 东外墙
       { w: 8.76, d: T_EXT, x: 0, z: -5.0 }, // 北墙
       { w: 0.97, d: T_EXT, x: -4.135, z: 0.5 }, // 正面墙西北角
-      { w: 1.8, d: T_EXT, x: -2.75, z: 0.5, color: '#88ccff' }, // 西窗
-      { w: 1.4, d: T_EXT, x: -1.15, z: 0.5 },
+      { w: 0.3, d: T_EXT, x: -3.5, z: 0.5 }, // 角—西窗 填充
+      { w: 1.2, d: T_EXT, x: -2.75, z: 0.5, color: '#88ccff' }, // 西窗 1.2m
+      { w: 1.7, d: T_EXT, x: -1.3, z: 0.5 }, // 西窗—门 填充
       { w: 0.9, d: T_EXT, x: 0, z: 0.5, color: '#555' }, // 门洞
-      { w: 1.4, d: T_EXT, x: 1.15, z: 0.5 },
-      { w: 1.8, d: T_EXT, x: 2.75, z: 0.5, color: '#88ccff' }, // 东窗
+      { w: 1.7, d: T_EXT, x: 1.3, z: 0.5 }, // 门—东窗 填充
+      { w: 1.2, d: T_EXT, x: 2.75, z: 0.5, color: '#88ccff' }, // 东窗 1.2m
+      { w: 0.3, d: T_EXT, x: 3.5, z: 0.5 }, // 东窗—角 填充
       { w: 0.97, d: T_EXT, x: 4.135, z: 0.5 }, // 正面墙东北角
       { w: T_INT, d: 3.60, x: -2.00, z: -3.08 }, // 墙1（楼梯边，北墙→梯口）
       { w: T_INT, d: 4.46, x: 1.20, z: -2.65 }, // 墙2北段
@@ -581,9 +621,10 @@ export function getDoorArc2D(floor: FloorConfig): typeof DOOR_ARC_2D | null {
 }
 
 // ==========================================================
-// 初始尺寸标注
+// 初始尺寸标注（按楼层拆分，每层只显示该层的房间/洞口尺寸）
 // ==========================================================
-export const INITIAL_DIMENSIONS: Dimension[] = [
+/** 1F / 2F 主层：房间、洞口与楼梯尺寸（两层层高户型一致，共用一套） */
+const DIMS_MAIN: Dimension[] = [
   { id: 1, x1: -4.62, z1: -5.12, x2: 4.62, z2: -5.12, offset: -1.2, text: '9.24m' },
   { id: 2, x1: -4.62, z1: -5.12, x2: -4.62, z2: 5.12, offset: 1.2, text: '10.24m' },
   { id: 3, x1: -4.38, z1: -4.88, x2: -2.12, z2: -4.88, offset: -0.6, text: '2.26m' },
@@ -608,3 +649,26 @@ export const INITIAL_DIMENSIONS: Dimension[] = [
   { id: 22, x1: -2.12, z1: PLATFORM_FRONT_Z, x2: -2.12, z2: PLATFORM_FRONT_Z + 2.4, offset: 0.8, text: '2.4m' },
   { id: 23, x1: -2.12, z1: BACK_WALL_INNER, x2: -2.12, z2: PLATFORM_FRONT_Z, offset: 0.8, text: '1.2m 平台' },
 ];
+
+/** 3F 半层：建筑外包 + 楼梯空隙 + 正面 1.2m 推拉窗 / 门 */
+const DIMS_3F: Dimension[] = [
+  { id: 101, x1: -4.62, z1: -5.12, x2: 4.62, z2: -5.12, offset: -1.2, text: '9.24m' },
+  { id: 102, x1: -4.62, z1: -5.12, x2: -4.62, z2: 0.62, offset: 1.2, text: '5.74m' },
+  { id: 103, x1: -4.40, z1: -4.90, x2: -2.12, z2: -4.90, offset: -0.6, text: '2.28m' },
+  { id: 104, x1: -3.35, z1: 0.5, x2: -2.15, z2: 0.5, offset: 0.7, text: '1.2m' },
+  { id: 105, x1: -0.45, z1: 0.5, x2: 0.45, z2: 0.5, offset: 0.7, text: '0.9m' },
+  { id: 106, x1: 2.15, z1: 0.5, x2: 3.35, z2: 0.5, offset: 0.7, text: '1.2m' },
+];
+
+/** 屋顶层：建筑外包尺寸 */
+const DIMS_ROOF: Dimension[] = [
+  { id: 201, x1: -4.62, z1: -5.12, x2: 4.62, z2: -5.12, offset: -1.2, text: '9.24m' },
+  { id: 202, x1: -4.62, z1: -5.12, x2: -4.62, z2: 5.12, offset: 1.2, text: '10.24m' },
+];
+
+/** 按楼层返回 2D 尺寸标注（每层只显示该层对应的房间/洞口尺寸） */
+export function getDimensions2D(floor: FloorConfig): Dimension[] {
+  if (floor.index === 2) return DIMS_3F;
+  if (floor.index === 3) return DIMS_ROOF;
+  return DIMS_MAIN; // 1F / 2F 主层共用同一户型尺寸
+}

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { BoxSpec, FloorConfig, InteractiveObject, MaterialMap } from '../types';
 import {
   COLUMNS,
+  FLOOR_T,
+  FLOOR_Y,
   getExteriorWalls,
   getFloorSlabs,
   getInteriorDoors,
@@ -10,6 +12,7 @@ import {
   H,
   MAIN_DOOR,
   SLIDING_DOOR,
+  STAIR,
   TILE_SIZE,
 } from '../config/houseConfig';
 import {
@@ -18,10 +21,12 @@ import {
   createInteractiveMainDoor,
   createInteractiveWindow,
   createSlidingGlassDoor,
+  createSlidingWindow,
 } from './builders';
 import { createStairs } from './stairs';
 import { createBalcony } from './balcony';
 import { createRoof } from './roof';
+import { createYard } from './yard';
 
 export interface HouseResult {
   /** 整屋根节点，加入场景即可 */
@@ -75,9 +80,10 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
     root.add(mesh);
   }
 
-  // 可交互窗（按层抬升 + 竖向缩放）
+  // 可交互窗（按层抬升 + 竖向缩放；推拉窗走滑动逻辑）
   for (const spec of getWindows(floor)) {
-    const { container, parts } = createInteractiveWindow(spec, materials, floor);
+    const builder = spec.style === 'sliding' ? createSlidingWindow : createInteractiveWindow;
+    const { container, parts } = builder(spec, materials, floor);
     root.add(container);
     interactables.push(...parts);
   }
@@ -114,5 +120,50 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
     root.add(createRoof(floor.roof, materials, floor));
   }
 
+  // 院子（如 1F 环绕铺装与围墙）
+  if (floor.yard) {
+    root.add(createYard(floor.yard, materials));
+  }
+
+  // 3F 楼梯空隙南侧开口护栏（简洁式：顶扶手 + 密排细栏条）
+  if (floor.index === 2) {
+    addVoidGuard(materials, floor, root);
+  }
+
   return { root, interactables };
+}
+
+/**
+ * 3F 楼梯空隙（洞口）南侧开口的护栏：仅西侧一半（x∈[-4.40,-3.26]）、z=-1.28，
+ * 其余三边已由外墙/内墙围住。风格与楼梯扶手一致——加粗立柱 + 顶部细方杆扶手，
+ * 材质/高度/截面沿用 STAIR 配置（railHeight 0.9m）。
+ */
+function addVoidGuard(materials: MaterialMap, floor: FloorConfig, root: THREE.Group): void {
+  const floorTopY =
+    floor.baseY + (FLOOR_Y / H) * floor.wallH + (FLOOR_T * (floor.wallH / H)) / 2;
+  const z = -1.28;
+  const xA = -4.4;
+  const xB = -3.26; // 仅西侧一半（开口 x∈[-4.40,-2.12] 的西半）
+  const len = xB - xA;
+  const cx = (xA + xB) / 2;
+  const railH = STAIR.railHeight; // 与楼梯扶手一致 0.9m
+  const railT = STAIR.railThickness; // 0.06
+  const postT = STAIR.postThickness; // 0.04
+
+  // 顶部扶手（细方杆，与楼梯扶手同款）
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(len, railT, railT), materials.railing);
+  rail.position.set(cx, floorTopY + railH, z);
+  rail.castShadow = true;
+  root.add(rail);
+
+  // 加粗立柱（与楼梯扶手立柱同款），沿段均布
+  const postSpacing = 0.45;
+  const n = Math.max(1, Math.round(len / postSpacing));
+  for (let i = 0; i <= n; i++) {
+    const px = xA + len * (i / n);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(postT, railH, postT), materials.railing);
+    post.position.set(px, floorTopY + railH / 2, z);
+    post.castShadow = true;
+    root.add(post);
+  }
 }

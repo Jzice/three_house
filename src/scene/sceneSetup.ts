@@ -48,12 +48,12 @@ export function setupLights(scene: THREE.Scene): void {
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.width = 4096;
   dirLight.shadow.mapSize.height = 4096;
-  // 收紧正交视锥贴合房屋(~9.24×10.24)，far 由默认 500 收到 60，
-  // 使 bias 的实际尺度从 ~0.25m 降到 ~1mm，消除墙顶凸边漏光白线
-  dirLight.shadow.camera.left = -7.5;
-  dirLight.shadow.camera.right = 7.5;
-  dirLight.shadow.camera.top = 7.5;
-  dirLight.shadow.camera.bottom = -7.5;
+  // 正交视锥覆盖房屋+1F 院子(~15.2×16.2m)，far 由默认 500 收到 60，
+  // 使 bias 的实际尺度保持毫米级，消除墙顶凸边漏光白线
+  dirLight.shadow.camera.left = -9;
+  dirLight.shadow.camera.right = 9;
+  dirLight.shadow.camera.top = 9;
+  dirLight.shadow.camera.bottom = -9;
   dirLight.shadow.camera.near = 1;
   dirLight.shadow.camera.far = 60;
   dirLight.shadow.camera.updateProjectionMatrix();
