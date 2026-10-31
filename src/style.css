@@ -1,31 +1,93 @@
 body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-serif; }
 
+/* ---- 顶部工具栏：图标按钮，可换行适配窄屏 ---- */
 #ui-container {
-    position: absolute; top: 15px; left: 15px; z-index: 100; display: flex; gap: 10px;
+    position: absolute; top: 15px; left: 15px; z-index: 100;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    max-width: calc(100vw - 30px);
 }
 .btn {
-    background: rgba(255, 255, 255, 0.9); color: #333; border: none; padding: 10px 20px;
-    border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-    transition: all 0.2s; font-size: 14px;
+    width: 42px; height: 42px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.92); color: #333;
+    border: none; border-radius: 8px; cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
 }
+.btn svg { width: 22px; height: 22px; display: block; pointer-events: none; }
 .btn:hover { background: #fff; transform: translateY(-2px); }
+.btn:active { transform: translateY(0); }
 .btn.active { background: #2980b9; color: white; }
 .btn-measure { background: #ea4335; color: white; }
 .btn-measure:hover { background: #d33b2c; color: white; }
+.btn-measure.active { background: #b3271c; color: white; }
 
+/* 楼层组与模式组之间的分隔线 */
+.btn-divider {
+    width: 1px; height: 26px; margin: 0 2px;
+    background: rgba(255, 255, 255, 0.5);
+}
+
+/* ---- 底部操作提示 ---- */
 #info {
     position: absolute; bottom: 15px; width: 100%; text-align: center;
     color: #fff; pointer-events: none; font-size: 15px; font-weight: bold;
     text-shadow: 1px 1px 3px #000; letter-spacing: 1px;
+    padding: 0 10px; box-sizing: border-box;
 }
 
+/* ---- 2D 平面图（全屏） ---- */
 #floorplan-canvas {
     position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
     background-color: #f4f6f8; display: none; z-index: 50;
     cursor: default;
 }
 
+/* 第一人称模式：2D 图纸以小地图形式常驻右下角，随楼层自动切换 */
+#floorplan-canvas.minimap {
+    width: 320px; height: 280px;
+    top: auto; left: auto; right: 15px; bottom: 50px;
+    border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    pointer-events: none; /* 不遮挡第一人称的门窗点击 */
+    z-index: 60;
+}
+
 #measure-tip {
-    position: absolute; top: 60px; left: 15px; color: #ea4335; font-weight: bold;
+    position: absolute; top: 70px; left: 15px; color: #ea4335; font-weight: bold;
     display: none; z-index: 100; text-shadow: 1px 1px 0 #fff;
+    max-width: calc(100vw - 30px);
+}
+
+/* ---- 响应式：手机 ---- */
+@media (max-width: 640px) {
+    #ui-container { top: 10px; left: 10px; gap: 6px; max-width: calc(100vw - 20px); }
+    .btn { width: 36px; height: 36px; border-radius: 7px; }
+    .btn svg { width: 18px; height: 18px; }
+    .btn-divider { height: 22px; }
+    #info { font-size: 11px; bottom: 8px; letter-spacing: 0; }
+    #measure-tip { top: 56px; left: 10px; font-size: 13px; }
+    #floorplan-canvas.minimap {
+        width: 240px; height: 210px;
+        right: 10px; bottom: 40px;
+    }
+}
+
+/* ---- 响应式：手机横屏（高度受限） ---- */
+@media (max-height: 480px) {
+    #ui-container { top: 8px; left: 8px; gap: 5px; }
+    .btn { width: 32px; height: 32px; }
+    .btn svg { width: 16px; height: 16px; }
+    #info { display: none; }
+    #floorplan-canvas.minimap {
+        width: 200px; height: 175px;
+        right: 8px; bottom: 12px;
+    }
+}
+
+/* ---- 响应式：平板 / 触屏（粗化点击热区） ---- */
+@media (pointer: coarse) and (min-width: 641px) {
+    .btn { width: 48px; height: 48px; }
+    .btn svg { width: 24px; height: 24px; }
 }

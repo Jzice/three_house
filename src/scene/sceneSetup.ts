@@ -46,14 +46,19 @@ export function setupLights(scene: THREE.Scene): void {
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
   dirLight.position.set(10, 20, 15);
   dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 2048;
-  dirLight.shadow.mapSize.height = 2048;
-  dirLight.shadow.camera.left = -15;
-  dirLight.shadow.camera.right = 15;
-  dirLight.shadow.camera.top = 15;
-  dirLight.shadow.camera.bottom = -15;
-  dirLight.shadow.bias = -0.0005;
-  dirLight.shadow.normalBias = 0.02;
+  dirLight.shadow.mapSize.width = 4096;
+  dirLight.shadow.mapSize.height = 4096;
+  // 收紧正交视锥贴合房屋(~9.24×10.24)，far 由默认 500 收到 60，
+  // 使 bias 的实际尺度从 ~0.25m 降到 ~1mm，消除墙顶凸边漏光白线
+  dirLight.shadow.camera.left = -7.5;
+  dirLight.shadow.camera.right = 7.5;
+  dirLight.shadow.camera.top = 7.5;
+  dirLight.shadow.camera.bottom = -7.5;
+  dirLight.shadow.camera.near = 1;
+  dirLight.shadow.camera.far = 60;
+  dirLight.shadow.camera.updateProjectionMatrix();
+  dirLight.shadow.bias = -0.00002;
+  dirLight.shadow.normalBias = 0.008;
   scene.add(dirLight);
 }
 

@@ -1,17 +1,19 @@
-import type { Dimension, ViewMode } from '../types';
+import type { Dimension, FloorConfig, ViewMode } from '../types';
 import {
-  DOOR_ARC_2D,
+  getBalcony2D,
+  getDoorArc2D,
+  getRooms2D,
+  getStairs2D,
+  getWalls2D,
   INITIAL_DIMENSIONS,
   PLATFORM_FRONT_Z,
-  ROOMS_2D,
-  RUN1_START_Z,
-  STAIRS_2D,
-  WALLS_2D,
 } from '../config/houseConfig';
 
 export interface FloorplanCallbacks {
   /** 由外部告知当前视角模式，非 2D 时忽略画布事件 */
   getMode: () => ViewMode;
+  /** 由外部告知当前楼层，以绘制对应的户型与楼梯 */
+  getFloor: () => FloorConfig;
   /** 测量状态变化时通知 UI 更新按钮与提示 */
   onMeasuringChange?: (active: boolean) => void;
 }
@@ -91,16 +93,28 @@ export function createFloorplan2D(
     ctx.setLineDash([]);
   }
 
+  /** 第一人称小地图的画布尺寸（像素） */
+  const MINIMAP_W = 320;
+  const MINIMAP_H = 280;
+
   function draw(): void {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    scale = Math.min(window.innerWidth / 15, window.innerHeight / 13);
-    offsetX = canvas.width / 2;
-    offsetY = canvas.height / 2;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // 第一人称模式下按小地图尺寸绘制（右下角常驻、随楼层切换）
+    const minimap = callbacks.getMode() === 'fps';
+    const w = minimap ? MINIMAP_W : window.innerWidth;
+    const h = minimap ? MINIMAP_H : window.innerHeight;
+    canvas.width = w;
+    canvas.height = h;
+    scale = Math.min(w / 15, h / 13);
+    offsetX = w / 2;
+    offsetY = h / 2;
+    ctx.clearRect(0, 0, w, h);
+
+    const floor = callbacks.getFloor();
+    const rooms = getRooms2D(floor);
+    const walls = getWalls2D(floor);
 
     // ---- 房间色块 ----
-    for (const room of ROOMS_2D) {
+    for (const room of rooms) {
       ctx.fillStyle = room.color;
       ctx.fillRect(
         getX(room.x - room.w / 2),
@@ -110,8 +124,21 @@ export function createFloorplan2D(
       );
     }
 
+    // ---- 阳台（挑台） ----
+    const balcony = getBalcony2D(floor);
+    if (balcony) {
+      const bx = getX(balcony.x - balcony.w / 2);
+      const bz = getY(balcony.z - balcony.d / 2);
+      ctx.fillStyle = '#f1f3f4';
+      ctx.fillRect(bx, bz, balcony.w * scale, balcony.d * scale);
+      ctx.strokeStyle = '#666';
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(bx, bz, balcony.w * scale, balcony.d * scale);
+      ctx.setLineDash([]);
+    }
+
     // ---- 墙体 ----
-    for (const wall of WALLS_2D) {
+    for (const wall of walls) {
       ctx.fillStyle = wall.color ?? '#333';
       ctx.fillRect(
         getX(wall.x - wall.w / 2),
@@ -121,44 +148,50 @@ export function createFloorplan2D(
       );
     }
 
-    // ---- 入户门开启弧线 ----
-    ctx.strokeStyle = DOOR_ARC_2D.color;
-    ctx.beginPath();
-    ctx.arc(
-      getX(DOOR_ARC_2D.x - DOOR_ARC_2D.radius),
-      getY(DOOR_ARC_2D.z),
-      DOOR_ARC_2D.radius * scale,
-      0,
-      Math.PI / 2,
-    );
-    ctx.stroke();
-
-    // ---- 楼梯投影 ----
-    ctx.fillStyle = STAIRS_2D.color;
-    const { run1, platform, run2 } = STAIRS_2D;
-    for (let i = 1; i <= run1.steps; i++) {
-      const zCenter = RUN1_START_Z - (i - 0.5) * run1.depth;
-      ctx.fillRect(
-        getX(run1.x - run1.width / 2),
-        getY(zCenter - run1.depth / 2),
-        run1.width * scale,
-        run1.depth * scale,
+    // ---- 入户门开启弧线（推拉门无弧线） ----
+    const arc = getDoorArc2D(floor);
+    if (arc) {
+      ctx.strokeStyle = arc.color;
+      ctx.beginPath();
+      ctx.arc(
+        getX(arc.x - arc.radius),
+        getY(arc.z),
+        arc.radius * scale,
+        0,
+        Math.PI / 2,
       );
+      ctx.stroke();
     }
-    ctx.fillRect(
-      getX(platform.x - platform.width / 2),
-      getY(platform.z - platform.depth / 2),
-      platform.width * scale,
-      platform.depth * scale,
-    );
-    for (let i = 1; i <= run2.steps; i++) {
-      const zCenter = PLATFORM_FRONT_Z + (i - 0.5) * run2.depth;
+
+    // ---- 楼梯投影（无楼梯的楼层跳过） ----
+    const stairs = getStairs2D(floor);
+    if (stairs) {
+      ctx.fillStyle = stairs.color;
+      const { run1, platform, run2 } = stairs;
+      for (let i = 1; i <= run1.steps; i++) {
+        const zCenter = run1.startZ - (i - 0.5) * run1.depth;
+        ctx.fillRect(
+          getX(run1.x - run1.width / 2),
+          getY(zCenter - run1.depth / 2),
+          run1.width * scale,
+          run1.depth * scale,
+        );
+      }
       ctx.fillRect(
-        getX(run2.x - run2.width / 2),
-        getY(zCenter - run2.depth / 2),
-        run2.width * scale,
-        run2.depth * scale,
+        getX(platform.x - platform.width / 2),
+        getY(platform.z - platform.depth / 2),
+        platform.width * scale,
+        platform.depth * scale,
       );
+      for (let i = 1; i <= run2.steps; i++) {
+        const zCenter = PLATFORM_FRONT_Z + (i - 0.5) * run2.depth;
+        ctx.fillRect(
+          getX(run2.x - run2.width / 2),
+          getY(zCenter - run2.depth / 2),
+          run2.width * scale,
+          run2.depth * scale,
+        );
+      }
     }
 
     // ---- 房间名 ----
@@ -166,7 +199,7 @@ export function createFloorplan2D(
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const room of ROOMS_2D) {
+    for (const room of rooms) {
       if (!room.label) continue;
       ctx.fillText(
         room.label,
@@ -175,8 +208,8 @@ export function createFloorplan2D(
       );
     }
 
-    // ---- 尺寸标注 ----
-    for (const dim of dimensions) {
+    // ---- 尺寸标注（小地图下省略，保持简洁） ----
+    if (!minimap) for (const dim of dimensions) {
       const dx = dim.x2 - dim.x1;
       const dz = dim.z2 - dim.z1;
       const len = Math.sqrt(dx * dx + dz * dz);
@@ -238,6 +271,15 @@ export function createFloorplan2D(
       ctx.fillStyle = '#ea4335';
       ctx.fillText(dim.text, getX(midX), getY(midZ));
     }
+
+    // ---- 当前楼层标识 ----
+    ctx.fillStyle = '#1a73e8';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(floor.name, 16, 16);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
     if (isMeasuring) drawMeasuringPreview();
   }

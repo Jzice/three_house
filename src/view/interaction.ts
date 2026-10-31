@@ -13,10 +13,10 @@ export function createKeyState(): KeyState {
   return { w: false, a: false, s: false, d: false, up: false, down: false, left: false, right: false };
 }
 
-/** 键盘监听：仅在第一人称模式下生效 */
-export function attachKeyboard(keys: KeyState, state: ViewState): void {
+/** 键盘监听：仅在第一人称模式下生效（状态通过 getter 取当前活动层） */
+export function attachKeyboard(keys: KeyState, getState: () => ViewState): void {
   window.addEventListener('keydown', (e) => {
-    if (state.mode !== 'fps') return;
+    if (getState().mode !== 'fps') return;
     const key = e.key.toLowerCase();
     if (key === 'w') keys.w = true;
     else if (key === 's') keys.s = true;
@@ -44,12 +44,12 @@ export function attachKeyboard(keys: KeyState, state: ViewState): void {
 /**
  * 3D 画布上的指针交互：
  * - FPS 模式下拖拽转动视角
- * - 位移小于阈值时视为点击，射线拾取门窗并切换开合
+ * - 位移小于阈值时视为点击，射线拾取"当前活动层"的门窗并切换开合
  */
 export function attachPointerInteraction(
   ctx: SceneContext,
-  state: ViewState,
-  interactables: InteractiveObject[],
+  getState: () => ViewState,
+  getInteractables: () => InteractiveObject[],
 ): void {
   const { camera, renderer } = ctx;
   const raycaster = new THREE.Raycaster();
@@ -62,7 +62,7 @@ export function attachPointerInteraction(
   let movedDist = 0;
 
   renderer.domElement.addEventListener('pointerdown', (e) => {
-    if (state.mode === '2d') return;
+    if (getState().mode === '2d') return;
     isDragging = true;
     prevX = e.clientX;
     prevY = e.clientY;
@@ -70,13 +70,14 @@ export function attachPointerInteraction(
   });
 
   renderer.domElement.addEventListener('pointermove', (e) => {
-    if (state.mode === '2d' || !isDragging) return;
+    if (getState().mode === '2d' || !isDragging) return;
 
     const deltaX = e.clientX - prevX;
     const deltaY = e.clientY - prevY;
     movedDist += Math.abs(deltaX) + Math.abs(deltaY);
 
-    if (state.mode === 'fps') {
+    if (getState().mode === 'fps') {
+      const state = getState();
       state.fpsYaw -= deltaX * LOOK_SPEED;
       state.fpsPitch -= deltaY * LOOK_SPEED;
       state.fpsPitch = THREE.MathUtils.clamp(state.fpsPitch, -PITCH_LIMIT, PITCH_LIMIT);
@@ -89,7 +90,7 @@ export function attachPointerInteraction(
   });
 
   renderer.domElement.addEventListener('pointerup', (e) => {
-    if (state.mode === '2d') return;
+    if (getState().mode === '2d') return;
     isDragging = false;
 
     if (movedDist >= CLICK_THRESHOLD) return;
@@ -98,7 +99,8 @@ export function attachPointerInteraction(
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
 
-    const intersects = raycaster.intersectObjects(interactables, true);
+    // 只命中当前活动层的门窗，避免穿透到隐藏楼层
+    const intersects = raycaster.intersectObjects(getInteractables(), true);
     if (intersects.length === 0) return;
 
     let obj: THREE.Object3D | null = intersects[0].object;

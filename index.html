@@ -7,10 +7,59 @@
 </head>
 <body>
     <div id="ui-container">
-        <button id="btn-tps" class="btn">上帝视角</button>
-        <button id="btn-fps" class="btn">第一人称漫游</button>
-        <button id="btn-2d" class="btn">2D 平面尺寸图</button>
-        <button id="btn-add-dim" class="btn btn-measure" style="display:none;">+ 添加标注</button>
+        <!-- 楼层：叠层图标，实心块数量表示楼层 -->
+        <button id="btn-floor-1" class="btn" title="1F" aria-label="1F">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                <rect x="4" y="14" width="16" height="6" rx="1" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>
+        <button id="btn-floor-2" class="btn" title="2F" aria-label="2F">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                <rect x="4" y="14" width="16" height="6" rx="1" fill="currentColor" stroke="none"/>
+                <rect x="4" y="4" width="16" height="6" rx="1"/>
+            </svg>
+        </button>
+        <button id="btn-floor-3" class="btn" title="3F" aria-label="3F">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+                <rect x="4" y="16" width="16" height="5" rx="1" fill="currentColor" stroke="none"/>
+                <rect x="4" y="9.5" width="16" height="5" rx="1"/>
+                <rect x="4" y="3" width="16" height="5" rx="1"/>
+            </svg>
+        </button>
+        <button id="btn-floor-4" class="btn" title="屋顶" aria-label="屋顶">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
+                <path d="M3 15 L12 5 L21 15"/>
+                <path d="M6 15 h12"/>
+            </svg>
+        </button>
+
+        <span class="btn-divider" aria-hidden="true"></span>
+
+        <!-- 视角模式 -->
+        <button id="btn-tps" class="btn" title="上帝视角" aria-label="上帝视角">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12 C5 6.5 19 6.5 22 12 C19 17.5 5 17.5 2 12 Z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+        </button>
+        <button id="btn-fps" class="btn" title="第一人称漫游" aria-label="第一人称漫游">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="5" r="2.5"/>
+                <path d="M12 8 v6 M12 10.5 l-4.5 2.5 M12 10.5 l4.5 2.5 M12 14 l-3 7 M12 14 l3 7"/>
+            </svg>
+        </button>
+        <button id="btn-2d" class="btn" title="2D 平面尺寸图" aria-label="2D 平面尺寸图">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="1"/>
+                <path d="M4 12 h16 M12 4 v16"/>
+            </svg>
+        </button>
+        <button id="btn-add-dim" class="btn btn-measure" title="+ 添加标注" aria-label="添加标注" style="display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 8 v8 M8 12 h8"/>
+            </svg>
+        </button>
     </div>
     <div id="measure-tip">请在画布上点击两个点进行测量...</div>
     <div id="info">WASD移动 | 拖拽鼠标看四周 | 点击门窗开关 | 滚轮缩放(上帝视角)</div>

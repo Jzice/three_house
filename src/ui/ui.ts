@@ -3,12 +3,15 @@ import type { ViewMode } from '../types';
 export interface UI {
   /** 切换模式后同步按钮高亮与测量按钮可见性 */
   setActiveMode(mode: ViewMode): void;
+  /** 同步楼层按钮高亮 */
+  setActiveFloor(floor: number): void;
   /** 同步测量按钮与提示文案 */
   setMeasuring(active: boolean): void;
 }
 
 export interface UIHandlers {
   onSwitchMode: (mode: ViewMode) => void;
+  onSwitchFloor: (floor: number) => void;
   onToggleMeasure: () => void;
 }
 
@@ -18,17 +21,25 @@ function el<T extends HTMLElement>(id: string): T {
   return node as T;
 }
 
-/** 绑定顶部按钮与模式切换、测量开关 */
+/** 绑定顶部按钮与模式切换、楼层切换、测量开关 */
 export function createUI(handlers: UIHandlers): UI {
   const btnTPS = el<HTMLButtonElement>('btn-tps');
   const btnFPS = el<HTMLButtonElement>('btn-fps');
   const btn2D = el<HTMLButtonElement>('btn-2d');
+  const btnFloor1 = el<HTMLButtonElement>('btn-floor-1');
+  const btnFloor2 = el<HTMLButtonElement>('btn-floor-2');
+  const btnFloor3 = el<HTMLButtonElement>('btn-floor-3');
+  const btnFloor4 = el<HTMLButtonElement>('btn-floor-4');
   const btnAddDim = el<HTMLButtonElement>('btn-add-dim');
   const measureTip = el<HTMLElement>('measure-tip');
 
   btnTPS.addEventListener('click', () => handlers.onSwitchMode('tps'));
   btnFPS.addEventListener('click', () => handlers.onSwitchMode('fps'));
   btn2D.addEventListener('click', () => handlers.onSwitchMode('2d'));
+  btnFloor1.addEventListener('click', () => handlers.onSwitchFloor(0));
+  btnFloor2.addEventListener('click', () => handlers.onSwitchFloor(1));
+  btnFloor3.addEventListener('click', () => handlers.onSwitchFloor(2));
+  btnFloor4.addEventListener('click', () => handlers.onSwitchFloor(3));
   btnAddDim.addEventListener('click', () => handlers.onToggleMeasure());
 
   return {
@@ -45,6 +56,16 @@ export function createUI(handlers: UIHandlers): UI {
         btn2D.classList.add('active');
         btnAddDim.style.display = 'block';
       }
+    },
+    setActiveFloor(floor) {
+      btnFloor1.classList.remove('active');
+      btnFloor2.classList.remove('active');
+      btnFloor3.classList.remove('active');
+      btnFloor4.classList.remove('active');
+      if (floor === 0) btnFloor1.classList.add('active');
+      else if (floor === 1) btnFloor2.classList.add('active');
+      else if (floor === 2) btnFloor3.classList.add('active');
+      else if (floor === 3) btnFloor4.classList.add('active');
     },
     setMeasuring(active) {
       btnAddDim.classList.toggle('active', active);

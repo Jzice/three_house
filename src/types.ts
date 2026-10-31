@@ -9,9 +9,12 @@ export type MaterialKey =
   | 'floor'
   | 'stair'
   | 'railing'
+  | 'railingGray'
   | 'column'
   | 'copper'
-  | 'glass';
+  | 'glass'
+  | 'wood'
+  | 'frostedGlass';
 
 export type MaterialMap = Record<MaterialKey, THREE.MeshStandardMaterial>;
 
@@ -37,6 +40,8 @@ export interface InteractiveUserData {
   closedAngle: number;
   /** 打开状态的角度 */
   openAngle: number;
+  /** 推拉门：沿本地 X 轴滑动的开/关位置；设置后动画走位移而非旋转 */
+  slideX?: { closed: number; open: number };
 }
 
 /** 带交互数据的 Object3D */
@@ -47,6 +52,89 @@ export interface DoorSpec {
   x: number;
   y: number;
   z: number;
+}
+
+/** 两折玻璃推拉门：洞口宽 w，两扇各占一半，活动扇开启时滑至固定扇后方 */
+export interface SlidingDoorSpec {
+  /** 洞口总宽（米） */
+  w: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** 内门放置：含宽度、朝向与材质（木门 / 磨砂玻璃门） */
+export interface InteriorDoorSpec {
+  /** 门洞宽度（米） */
+  w: number;
+  x: number;
+  y: number;
+  z: number;
+  /** 容器绕 Y 轴旋转：墙沿 z 延展用 π/2，墙沿 x 延展用 0 */
+  rotY: number;
+  materialKey: 'wood' | 'frostedGlass';
+  /** 门扇高度，默认 2.1m（门头下方） */
+  h?: number;
+  /** 开启角度（弧度），默认 0.85 × 90°；90° 可让门扇完全贴靠相邻墙面 */
+  openAngle?: number;
+}
+
+/** 阳台配置：挂在南墙外侧的挑台 */
+export interface BalconyConfig {
+  /** 出挑宽度（自外墙外表面向外，单位米） */
+  width: number;
+  /** 两端超出南墙的外延（单位米） */
+  sideExtend: number;
+  /** 阳台板自南墙外表面向内延伸的深度（默认 0；3F 大阳台延伸到正面墙） */
+  frontDepth?: number;
+  /** 挑台板厚（米） */
+  slabT: number;
+  /** 栏杆高度（米） */
+  railH: number;
+  /** 栏杆立柱间距（米） */
+  postGap: number;
+  /** 立柱截面（米） */
+  postT: number;
+  /** 横向栏杆截面（米） */
+  railT: number;
+}
+
+/** 平屋顶配置：屋面板 + 四周女儿墙（如 3F 半层顶） */
+export interface RoofConfig {
+  /** 屋面板厚（米） */
+  slabT: number;
+  /** 女儿墙高（米） */
+  parapetH: number;
+  /** 女儿墙厚（米） */
+  parapetT: number;
+  /** 屋面板四至（含四周挑空），绝对坐标（米） */
+  bounds: { x0: number; x1: number; z0: number; z1: number };
+}
+
+/** 楼层配置：基础标高、层高与楼梯参数（楼梯按层独立配置） */
+export interface FloorConfig {
+  /** 楼层序号，0 = 1F，1 = 2F，2 = 3F */
+  index: number;
+  /** 显示名（1F / 2F / 3F） */
+  name: string;
+  /** 本层楼板底面标高（米） */
+  baseY: number;
+  /** 本层墙高（米） */
+  wallH: number;
+  /** 本层楼梯参数（两段式；无楼梯的楼层可省略，如 3F） */
+  stair?: {
+    steps1: number;
+    steps2: number;
+    platformH: number;
+    /** 第一段（下段）水平投影长度 */
+    run1Length: number;
+    /** 第二段（上段）水平投影长度 */
+    run2Length: number;
+  };
+  /** 本层阳台（可选，如 2F 南墙阳台、3F 南侧大阳台） */
+  balcony?: BalconyConfig;
+  /** 本层平屋顶（可选，如 3F 半层顶） */
+  roof?: RoofConfig;
 }
 
 /** 窗的放置位置与朝向 */

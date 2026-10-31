@@ -1,6 +1,15 @@
 import * as THREE from 'three';
-import type { BoxSpec, DoorSpec, InteractiveObject, MaterialMap, WindowSpec } from '../types';
-import { DOOR_H } from '../config/houseConfig';
+import type {
+  BoxSpec,
+  DoorSpec,
+  FloorConfig,
+  InteriorDoorSpec,
+  InteractiveObject,
+  MaterialMap,
+  SlidingDoorSpec,
+  WindowSpec,
+} from '../types';
+import { DOOR_H, H } from '../config/houseConfig';
 
 /** 由 BoxSpec 生成一个长方体网格 */
 export function createBox(spec: BoxSpec, materials: MaterialMap): THREE.Mesh {
@@ -41,6 +50,7 @@ export interface InteractiveBuildResult {
 export function createInteractiveMainDoor(
   spec: DoorSpec,
   materials: MaterialMap,
+  floor?: FloorConfig,
 ): InteractiveBuildResult {
   const doorW = 2.4;
   const halfW = doorW / 2;
@@ -73,17 +83,79 @@ export function createInteractiveMainDoor(
   const container = new THREE.Group();
   container.add(leftDoorGrp, rightDoorGrp);
   container.position.set(spec.x, spec.y, spec.z);
+  if (floor) {
+    container.position.y = floor.baseY + (spec.y / H) * floor.wallH;
+    container.scale.y = floor.wallH / H;
+  }
 
   return { container, parts };
+}
+
+/** 两折玻璃推拉门：两扇玻璃各占一半洞口，点击后活动扇沿轨道滑至固定扇后方 */
+export function createSlidingGlassDoor(
+  spec: SlidingDoorSpec,
+  materials: MaterialMap,
+  floor?: FloorConfig,
+): InteractiveBuildResult {
+  const { w, x, y, z } = spec;
+  const h = DOOR_H;
+  const halfW = w / 2;
+  const frameT = 0.07;
+  // 内外两轨的 z 向间距，保证两扇可重叠滑动
+  const trackGap = 0.06;
+
+  const buildLeaf = (): THREE.Group => {
+    const leaf = new THREE.Group();
+    const bars: Array<[number, number, number, number]> = [
+      [halfW, frameT, 0, h / 2 - frameT / 2],
+      [halfW, frameT, 0, -h / 2 + frameT / 2],
+      [frameT, h, -halfW / 2 + frameT / 2, 0],
+      [frameT, h, halfW / 2 - frameT / 2, 0],
+    ];
+    for (const [bw, bh, bx, by] of bars) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.08), materials.copper);
+      bar.position.set(bx, by, 0);
+      leaf.add(bar);
+    }
+    const glass = new THREE.Mesh(
+      new THREE.BoxGeometry(halfW - frameT * 2, h - frameT * 2, 0.03),
+      materials.glass,
+    );
+    leaf.add(glass);
+    return leaf;
+  };
+
+  const container = new THREE.Group();
+
+  // 固定扇（外轨，右半）
+  const fixed = buildLeaf();
+  fixed.position.set(halfW / 2, h / 2, trackGap / 2);
+  container.add(fixed);
+
+  // 活动扇（内轨，左半；开启时滑到固定扇正后方，让出左半洞口）
+  const sliding = buildLeaf();
+  sliding.position.set(-halfW / 2, h / 2, -trackGap / 2);
+  const slidingPart = markInteractive(sliding, 'door', 0);
+  slidingPart.userData.slideX = { closed: -halfW / 2, open: halfW / 2 };
+  container.add(sliding);
+
+  container.position.set(x, y, z);
+  if (floor) {
+    container.position.y = floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = floor.wallH / H;
+  }
+
+  return { container, parts: [slidingPart] };
 }
 
 /** 可开启的窗：固定外框 + 一扇绕左侧立边旋转的窗扇 */
 export function createInteractiveWindow(
   spec: WindowSpec,
   materials: MaterialMap,
+  floor?: FloorConfig,
 ): InteractiveBuildResult {
   const { w, h, x, y, z, rotY } = spec;
-  const frameT = 0.15;
+  const frameT = 0.06;
 
   const container = new THREE.Group();
 
@@ -106,10 +178,11 @@ export function createInteractiveWindow(
 
   const innerW = w - frameT * 2;
   const innerH = h - frameT * 2;
-  const vT = 0.08;
-  const hT = 0.1;
-  const sideW = 0.4;
+  // 细边框：中梃 0.05、横梃 0.06，中间玻璃宽 0.54，两侧扇等分剩余宽度
+  const vT = 0.05;
+  const hT = 0.06;
   const centerW = 0.54;
+  const sideW = (innerW - 2 * vT - centerW) / 2;
 
   // 两道竖向分隔
   const vOffsets = [sideW + vT / 2, sideW + vT + centerW + vT / 2];
@@ -138,6 +211,50 @@ export function createInteractiveWindow(
   container.add(windowSash);
   container.position.set(x, y, z);
   container.rotation.y = rotY;
+  if (floor) {
+    container.position.y = floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = floor.wallH / H;
+  }
+
+  return { container, parts };
+}
+
+/** 单扇内门：绕一侧立边旋转开合，材质由 spec.materialKey 指定（wood / frostedGlass） */
+export function createInteriorDoor(
+  spec: InteriorDoorSpec,
+  materials: MaterialMap,
+  floor?: FloorConfig,
+): InteractiveBuildResult {
+  const w = spec.w;
+  const h = spec.h ?? 2.1;
+  const t = 0.06;
+
+  // 铰链放在门洞一侧立边，门扇向房间内开启
+  const hinge = new THREE.Group();
+  hinge.position.set(-w / 2, 0, 0);
+  const leaf = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, t),
+    materials[spec.materialKey],
+  );
+  leaf.position.set(w / 2, h / 2, 0);
+  leaf.castShadow = true;
+  leaf.receiveShadow = true;
+  hinge.add(leaf);
+
+  const defaultOpen = spec.openAngle ?? (Math.PI / 2) * 0.85;
+  const parts: InteractiveObject[] = [markInteractive(hinge, 'door', defaultOpen)];
+  // 房门默认打开：初始即处于开启角度，点击可关上
+  parts[0].userData.isOpen = true;
+  hinge.rotation.y = defaultOpen;
+
+  const container = new THREE.Group();
+  container.add(hinge);
+  container.position.set(spec.x, spec.y, spec.z);
+  container.rotation.y = spec.rotY;
+  if (floor) {
+    container.position.y = floor.baseY + (spec.y / H) * floor.wallH;
+    container.scale.y = floor.wallH / H;
+  }
 
   return { container, parts };
 }
