@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 房屋 - 卫生间北移门版</title>
+</head>
+<body>
+    <div id="ui-container">
+        <button id="btn-tps" class="btn">上帝视角</button>
+        <button id="btn-fps" class="btn">第一人称漫游</button>
+        <button id="btn-2d" class="btn">2D 平面尺寸图</button>
+        <button id="btn-add-dim" class="btn btn-measure" style="display:none;">+ 添加标注</button>
+    </div>
+    <div id="measure-tip">请在画布上点击两个点进行测量...</div>
+    <div id="info">WASD移动 | 拖拽鼠标看四周 | 点击门窗开关 | 滚轮缩放(上帝视角)</div>
+
+    <canvas id="floorplan-canvas"></canvas>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

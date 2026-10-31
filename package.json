@@ -1,0 +1,24 @@
+{
+  "name": "house-3d",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "3D 房屋可视化：TypeScript + Vite 结构化工程，支持编译为单一 HTML 发布",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && node scripts/build-all.mjs offline",
+    "build:cdn": "tsc --noEmit && node scripts/build-all.mjs cdn",
+    "build:all": "tsc --noEmit && node scripts/build-all.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.160.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11",
+    "vite-plugin-singlefile": "^2.0.2"
+  }
+}

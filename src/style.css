@@ -1,0 +1,31 @@
+body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-serif; }
+
+#ui-container {
+    position: absolute; top: 15px; left: 15px; z-index: 100; display: flex; gap: 10px;
+}
+.btn {
+    background: rgba(255, 255, 255, 0.9); color: #333; border: none; padding: 10px 20px;
+    border-radius: 6px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    transition: all 0.2s; font-size: 14px;
+}
+.btn:hover { background: #fff; transform: translateY(-2px); }
+.btn.active { background: #2980b9; color: white; }
+.btn-measure { background: #ea4335; color: white; }
+.btn-measure:hover { background: #d33b2c; color: white; }
+
+#info {
+    position: absolute; bottom: 15px; width: 100%; text-align: center;
+    color: #fff; pointer-events: none; font-size: 15px; font-weight: bold;
+    text-shadow: 1px 1px 3px #000; letter-spacing: 1px;
+}
+
+#floorplan-canvas {
+    position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+    background-color: #f4f6f8; display: none; z-index: 50;
+    cursor: default;
+}
+
+#measure-tip {
+    position: absolute; top: 60px; left: 15px; color: #ea4335; font-weight: bold;
+    display: none; z-index: 100; text-shadow: 1px 1px 0 #fff;
+}
