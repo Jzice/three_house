@@ -10,9 +10,12 @@ const LOOK_SPEED = 0.003;
 const CLICK_THRESHOLD = 5;
 /** 触摸：手指比鼠标粗，放宽阈值以区分"轻点门窗"与"轻微滑动" */
 const TOUCH_CLICK_THRESHOLD = 12;
-/** 触摸板双指捏合缩放视野（FOV）的上下限 */
-const FOV_MIN = 30;
-const FOV_MAX = 90;
+/** 鼠标滚轮 -> 前进后退 系数（约 0.3m/格）；向上滚 deltaY<0 = 前进 */
+const WHEEL_TO_MOVE = 0.004;
+/** 触摸板双指捏合（ctrl+wheel，deltaY 较小）-> 前进后退 系数 */
+const PINCH_TO_MOVE = 0.03;
+/** 触摸真双指间距变化（像素）-> 前进后退 系数；手指分开 = 前进 */
+const PINCH_TOUCH_TO_MOVE = 0.008;
 
 /** 窄屏/移动形态：触屏设备或窄视口（手机、平板、笔记本小屏），用于启用触屏单指转头与触摸板捏合缩放 */
 function isCompact(): boolean {
@@ -79,8 +82,9 @@ export function attachPointerInteraction(
   // 触摸单指：用于"轻点门窗"判定
   let touchStart = { x: 0, y: 0 };
   let touchMoved = 0;
-  // 触摸双指：两指中心，用于转头
+  // 触摸双指：两指中心，用于转头；两指间距，用于捏合前进后退
   let twoFingerCenter = { x: 0, y: 0 };
+  let twoFingerDist = 0;
 
   /** 应用视角偏移（鼠标拖拽或双指拖动都会调用） */
   function applyLook(dx: number, dy: number): void {
@@ -109,7 +113,13 @@ export function attachPointerInteraction(
     }
     if (obj) {
       const target = obj as InteractiveObject;
-      target.userData.isOpen = !target.userData.isOpen;
+      const ud = target.userData;
+      // 多级开合窗扇（窗户小方格）：点击在角度档位间循环（闭合 → 45° → 60° → 90° → 闭合）
+      if (ud.openAngles && ud.openAngles.length > 0) {
+        ud.openStep = ((ud.openStep ?? 0) + 1) % ud.openAngles.length;
+      } else {
+        ud.isOpen = !ud.isOpen;
+      }
     }
   }
 
@@ -122,6 +132,13 @@ export function attachPointerInteraction(
     }
     const n = pointers.size || 1;
     return { x: sx / n, y: sy / n };
+  }
+
+  /** 当前两指间距（像素）；不足两指返回 0 */
+  function distOf(): number {
+    const pts = [...pointers.values()];
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
   }
 
   /** 双指抬起后若仍剩一指，把它重置为"单指起点"，避免误判点击或跳变 */
@@ -151,6 +168,7 @@ export function attachPointerInteraction(
         touchMoved = 0;
       } else if (pointers.size === 2) {
         twoFingerCenter = centerOf();
+        twoFingerDist = distOf();
       }
     }
   });
@@ -170,7 +188,12 @@ export function attachPointerInteraction(
       mousePrevY = e.clientY;
     } else {
       if (pointers.size >= 2) {
-        // 双指（或更多）：以全部手指的中心位移转头
+        // 双指间距变化 -> 前进/后退（等效 W/S）；手指分开=前进
+        const d = distOf();
+        const dDelta = d - twoFingerDist;
+        twoFingerDist = d;
+        if (dDelta !== 0) getState().addFpsForward(dDelta * PINCH_TOUCH_TO_MOVE);
+        // 双指中心位移 -> 转视角
         const c = centerOf();
         applyLook(c.x - twoFingerCenter.x, c.y - twoFingerCenter.y);
         twoFingerCenter = c;
@@ -212,11 +235,13 @@ export function attachPointerInteraction(
     resetSingleFromRemainder();
   });
 
-  // 触摸板双指捏合（表现为带 ctrlKey 的 wheel）缩放视野 FOV；仅第一人称 + 窄屏/移动形态启用
+  // 第一人称：鼠标滚轮 / 触摸板双指捏合（ctrl+wheel）等效 W/S 前进后退
+  // 向上滚 / 捏合放大（deltaY<0）→ 前进；向下滚 / 缩小 → 后退
   canvas.addEventListener('wheel', (e) => {
-    if (getState().mode !== 'fps' || !isCompact() || !e.ctrlKey) return;
+    const state = getState();
+    if (state.mode !== 'fps') return;
     e.preventDefault();
-    camera.fov = THREE.MathUtils.clamp(camera.fov + e.deltaY * 0.05, FOV_MIN, FOV_MAX);
-    camera.updateProjectionMatrix();
+    const k = e.ctrlKey ? PINCH_TO_MOVE : WHEEL_TO_MOVE;
+    state.addFpsForward(-e.deltaY * k);
   }, { passive: false });
 }

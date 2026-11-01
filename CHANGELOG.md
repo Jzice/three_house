@@ -2,6 +2,22 @@
 
 本项目所有值得记录的变更都会写在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.5] - 2026-11-02
+
+### 新增
+
+- **楼梯扶手改造为酒红连续管 + 黑漆扁柱**：新增共享构件库 `src/scene/handrail.ts`（`createHandrailRun` / `createContinuousHandrailTube`），楼梯三段扶手（run1 斜段 / 平台转角 / run2 斜段）与 3F 楼梯洞口护栏统一为「一根贯通 1F→3F 的酒红连续圆管」，转角处平滑弯过、无球头与分段接缝；立柱为 45×22mm 黑色烤漆扁柱，按 7/4/4/4/2 分布（各层首根上移至第 1 级踏步），横杆 4 根不锈钢 + 柱身圆钮保留。立柱底部精确落在踏面顶面（不再插入上一级踏步）。造型参数收口到 `houseConfig.ts` 的 `STAIR`，`buildHouse` 移除冗余的 `addVoidGuard`，整楼扶手挂在 1F root 仅构建一次。`types.ts` / `materials.ts` 同步新增 `stainless` 不锈钢材质。
+
+- **窗户小方格独立开合（45°/60°/90°）**：网格窗（`openSashes:'lower-sides'`）由「主控组统开两扇下格」改为**每个玻璃格独立可点**——左列上/下、中列整块、右列上/下共 5 格各自带枢轴与玻璃+细铜边，点击在 `0°→45°→60°→90°→0°` 间循环开合。`InteractiveUserData` 新增 `openAngles / openStep / hingeSign` 多级开合字段，`viewState.updateInteractables` 与 `interaction` 的拾取逻辑相应支持。
+
+- **环境面板：实时光照（动态阴影）开关**：环境层 `Environment` 新增 `setShadowEnabled`，面板「日照」区新增「实时光照」胶囊开关（默认关闭、离线友好）；开启后由太阳高度自动决定是否投射阴影。
+
+### 优化
+
+- **上帝视角跨楼层门窗交互**：`main.ts` 的 `getInteractables` 由「仅活动层」改为返回**所有当前可见楼层**的门窗，预览 2F 时 1F、预览 3F 时 1F/2F 的门窗均可点击开合；渲染循环对所有可见楼层的开合动画统一推进；隐藏楼层仍被排除，不会穿透点到看不见的楼层。
+
+- **环境默认光照基准固定为正午**：光照默认不跟随实时，`clock` 初始为当天本地正午 12:00（`localNoonUtcMs`），面板「跟随实时」默认关闭、时间框默认 12:00，保证每次打开光照一致、便于对照。
+
 ## [0.3.4] - 2026-11-01
 
 ### 优化

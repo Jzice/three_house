@@ -4,6 +4,7 @@ import type {
   DoorSpec,
   FloorConfig,
   FpsWalkArea,
+  RailSeg,
   HoledWallSpec,
   InteriorDoorSpec,
   MaterialKey,
@@ -123,8 +124,30 @@ export const STAIR = {
   /** 第二段（上段）水平投影长度 */
   run2Length: 2.4,
   railHeight: 0.9,
-  railThickness: 0.06,
-  postThickness: 0.04,
+  /** 立柱截面（扁长方形，米）：垂直栏杆可见宽 45mm、沿栏杆走向厚 22mm（黑漆立柱，见 handrail.ts） */
+  postW: 0.045,
+  /** 立柱沿栏杆走向的厚度（米）：薄边沿栏杆方向 */
+  postD: 0.022,
+  /** 立柱沿扶手的均布间距（米） */
+  postGap: 0.9,
+  /** 立柱底部金属底座边长（米） */
+  baseW: 0.1,
+  /** 立柱底部金属底座厚度（米） */
+  baseH: 0.012,
+  /** 顶扶手圆管直径（米） */
+  handrailD: 0.06,
+  /** 横杆根数（不锈钢圆管，沿扶手高度等距） */
+  barCount: 4,
+  /** 横杆直径（米） */
+  barD: 0.009,
+  /** 横杆两端缩进量（米，缩至首末立柱内侧，避免穿出） */
+  barInset: 0.06,
+  /** 柱身装饰圆钮直径（米，不锈钢，包裹横杆穿柱点） */
+  knobD: 0.026,
+  /** 装饰圆钮球心距柱面的凸出量（米） */
+  knobOut: 0.002,
+  /** 平台转角圆弧弯头半径（米） */
+  elbowR: 0.1,
   stepThickness: 0.15,
   stepWidth: 1.1,
   /** 踏步面层厚度（白色切割瓷砖 + 粘结层）：梯段实体的阶梯顶线比踏面低此值 */
@@ -135,12 +158,12 @@ export const STAIR = {
   tileSize: 0.3,
   /** 第一段踏步中心 X */
   run1X: -3.83,
-  /** 第一段扶手中心 X */
-  run1RailX: -3.28,
+  /** 第一段扶手中心 X（内移到踏步内，避免立柱骑踏步边缘悬空） */
+  run1RailX: -3.33,
   /** 第二段踏步中心 X */
   run2X: -2.67,
-  /** 第二段扶手中心 X */
-  run2RailX: -3.22,
+  /** 第二段扶手中心 X（内移到踏步内，避免立柱骑踏步边缘悬空） */
+  run2RailX: -3.17,
   /** 休息平台 */
   platformX: -3.25,
   platformZ: -4.28,
@@ -153,6 +176,10 @@ export const BACK_WALL_INNER = -D / 2 + T_EXT;
 export const PLATFORM_FRONT_Z = BACK_WALL_INNER + STAIR.platformDepth;
 /** 第一段楼梯起步 Z */
 export const RUN1_START_Z = PLATFORM_FRONT_Z + STAIR.run1Length;
+
+/** 3F 楼梯洞口护栏（水平段）位置：z 为护栏所在 z，x0/x1 为覆盖的洞口西侧半段。
+ *  由 stairs.buildStairHandrail（连续扶手末端）与 getFpsWalkArea（栏杆碰撞）共用，避免两处漂移。 */
+export const VOID_GUARD = { z: -1.33, x0: -4.4, x1: -3.26 };
 
 // ==========================================================
 // 构件声明工具
@@ -448,10 +475,37 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
     });
   }
 
+  // ---- 栏杆障碍线段（楼梯扶手 / 阳台栏杆 / 3F 洞口护栏）：缓冲带内不可行走 ----
+  const RAIL_HALF = 0.2; // 栏杆半宽 + 人体半径，点到线段距离 < 此值即被挡
+  const rails: RailSeg[] = [];
+  if (floor.stair) {
+    const { run1Length, run2Length } = floor.stair;
+    const zP = PLATFORM_FRONT_Z;
+    // run1 扶手（沿 z 走向）、run2 扶手、平台前沿连接扶手（沿 x 走向）
+    rails.push({ x0: STAIR.run1RailX, z0: zP, x1: STAIR.run1RailX, z1: zP + run1Length, half: RAIL_HALF });
+    rails.push({ x0: STAIR.run2RailX, z0: zP, x1: STAIR.run2RailX, z1: zP + run2Length, half: RAIL_HALF });
+    rails.push({ x0: STAIR.run1RailX, z0: zP, x1: STAIR.run2RailX, z1: zP, half: RAIL_HALF });
+  }
+  if (floor.balcony) {
+    const spec = floor.balcony;
+    const wallHalfX = W / 2 - T_EXT;
+    const wallOuterZ = D / 2;
+    const slabX0 = -wallHalfX - spec.sideExtend;
+    const slabX1 = wallHalfX + spec.sideExtend;
+    const zOuter = wallOuterZ + spec.width;
+    const zInner = wallOuterZ - (spec.frontDepth ?? 0);
+    rails.push({ x0: slabX0, z0: zOuter, x1: slabX1, z1: zOuter, half: RAIL_HALF }); // 外沿
+    rails.push({ x0: slabX0, z0: zOuter, x1: slabX0, z1: zInner, half: RAIL_HALF }); // 西端
+    rails.push({ x0: slabX1, z0: zOuter, x1: slabX1, z1: zInner, half: RAIL_HALF }); // 东端
+  }
+  if (floor.index === 2) {
+    rails.push({ x0: VOID_GUARD.x0, z0: VOID_GUARD.z, x1: VOID_GUARD.x1, z1: VOID_GUARD.z, half: RAIL_HALF });
+  }
+
   const y = floor.yard;
-  // 2F/3F 第一人称完全放开：跳过所有行走边界判定（含穿墙/悬空），可在楼层内自由穿行到任意位置
-  const freeRoam = floor.index === 1 || floor.index === 2;
-  if (!y) return { inside, doors, yard: [], yardTopY: floor.baseY, freeRoam };
+  // 所有楼层均启用正常碰撞（墙/栏杆阻挡）；原 2F/3F 的"完全放开"已取消
+  const freeRoam = false;
+  if (!y) return { inside, doors, yard: [], rails, yardTopY: floor.baseY, freeRoam };
 
   // 院子边界（与 yard.ts 的铺装/围墙一致）
   const xEast = W / 2 + y.extendEast;
@@ -475,7 +529,7 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   // 东北斜围墙：西北角直角段东端 → 东北端，院内在其西南侧
   const slope = { ax: xWest + rearStraight, az: zNorth, bx: xEast, bz: rearEastZ };
 
-  return { inside, doors, yard, slope, yardTopY: y.paveH };
+  return { inside, doors, yard, slope, rails, yardTopY: y.paveH };
 }
 
 /** 按楼层返回窗：2F 北墙原后门区一扇；3F 仅正面墙两扇 */

@@ -12,7 +12,7 @@ import { attachKeyboard, attachPointerInteraction, createKeyState } from './view
 import { createViewManager, updateInteractables } from './view/viewState';
 import { createTouchControls } from './view/touchControls';
 import { createEnvPanel } from './ui/envPanel';
-import type { EnvironmentSnapshot } from './types';
+import type { EnvironmentSnapshot, InteractiveObject } from './types';
 
 function bootstrap(): void {
   const canvas2D = document.getElementById('floorplan-canvas') as HTMLCanvasElement | null;
@@ -104,7 +104,12 @@ function bootstrap(): void {
   // ---- 输入 ----
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
-  attachPointerInteraction(ctx, () => view.getState(), () => floors[view.activeFloor].interactables);
+  attachPointerInteraction(ctx, () => view.getState(), () => {
+    // 所有"当前可见楼层"的门窗均可点击：上帝视角预览某层时，其下方楼层仍可见、应可交互
+    const list: InteractiveObject[] = [];
+    for (const f of floors) if (f.root.visible) list.push(...f.interactables);
+    return list;
+  });
 
   // 触屏虚拟摇杆（仅触屏设备启用；桌面端返回 isTouch=false，getMove 恒为 {0,0}）
   const touch = createTouchControls();
@@ -164,7 +169,7 @@ function bootstrap(): void {
     env.update(mode !== '2d');
 
     if (mode !== '2d') {
-      updateInteractables(floors[view.activeFloor].interactables);
+      for (const f of floors) if (f.root.visible) updateInteractables(f.interactables);
       ctx.renderer.render(ctx.scene, ctx.camera);
     }
   }

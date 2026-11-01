@@ -10,6 +10,8 @@ export type MaterialKey =
   | 'stair'
   | 'railing'
   | 'railingGray'
+  /** 不锈钢（银色高金属）：扶手横杆 / 装饰圆钮 / 端头球头 */
+  | 'stainless'
   | 'pvc'
   /** 白色乳胶漆：各层内墙、天花板、承重柱统一使用 */
   | 'paint'
@@ -25,7 +27,8 @@ export type MaterialKey =
   /** 深灰仿铜门体/门框：一层入户门基底与套线 */
   | 'doorDark'
   /** 金铜色描线/角饰/拉手/锁面板/格棂：一层入户门装饰与五金 */
-  | 'bronze';
+  | 'bronze'
+  | 'blackPost';
 
 export type MaterialMap = Record<MaterialKey, THREE.MeshStandardMaterial>;
 
@@ -82,6 +85,12 @@ export interface InteractiveUserData {
   slideX?: { closed: number; open: number };
   /** 成组开启：主控对象开合时带动这些子窗扇按各自 openAngle 转动（如大窗的左右下格小窗） */
   sashes?: Array<{ object: THREE.Object3D; openAngle: number }>;
+  /** 多级开合：点击在角度数组间循环（索引 0 为闭合 0°）。用于窗户小方格独立开合 */
+  openAngles?: number[];
+  /** 当前开合档位索引（0 = 闭合） */
+  openStep?: number;
+  /** 该窗扇绕铰链转动方向符号（+1 / -1，配合 openAngles 决定开/关朝向） */
+  hingeSign?: number;
 }
 
 /** 单跑梯段的行走面（第一人称贴地 / 自动切层用） */
@@ -136,7 +145,21 @@ export interface WalkRect {
   z1: number;
 }
 
-/** 第一人称可行走范围（房屋内部 + 门洞通道 + 院子） */
+/** 栏杆碰撞线段（俯视 2D）：一条不可穿越的栏杆，缓冲半宽内一律不可行走 */
+export interface RailSeg {
+  /** 起点 x */
+  x0: number;
+  /** 起点 z */
+  z0: number;
+  /** 终点 x */
+  x1: number;
+  /** 终点 z */
+  z1: number;
+  /** 缓冲半宽（米）：含栏杆宽度 + 人体半径，点到线段距离 < half 即视为被挡 */
+  half: number;
+}
+
+/** 第一人称可行走范围（房屋内部 + 门洞通道 + 院子 + 栏杆障碍） */
 export interface FpsWalkArea {
   /** 房屋内部（外墙内皮再内缩 0.08m，避免贴墙穿模） */
   inside: WalkRect;
@@ -144,6 +167,8 @@ export interface FpsWalkArea {
   doors: (WalkRect & { id?: string })[];
   /** 院子可行走矩形带（房屋四周环绕，不含房屋占位） */
   yard: WalkRect[];
+  /** 栏杆障碍线段（楼梯扶手 / 阳台栏杆 / 楼梯洞口护栏）：缓冲带内不可行走 */
+  rails: RailSeg[];
   /** 院子东北斜围墙内侧半平面：直线 A→B，院内在其西南侧（叉积 > 0） */
   slope?: { ax: number; az: number; bx: number; bz: number };
   /** 院子铺装顶面标高（出屋后的眼高基准） */

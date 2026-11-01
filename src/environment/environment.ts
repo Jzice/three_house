@@ -28,6 +28,12 @@ import { createGround, applyFog } from './ground';
 import { computeLighting, applyLighting } from './lighting';
 
 const DEG = Math.PI / 180;
+/** 本地当天 12:00（正午）对应的 UTC 毫秒：默认固定日照基准 */
+function localNoonUtcMs(loc: SiteLocation): number {
+  const d = new Date();
+  const base = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  return base + 720 * 60000 - loc.tz * 3600000;
+}
 /** 天空重建阈值：太阳方位/高度变化超过此值，或强制/天气变化时重建 */
 const REBUILD_AZ_DEG = 0.5;
 const REBUILD_EL_DEG = 0.5;
@@ -59,6 +65,8 @@ export interface Environment {
   refreshWeather(): void;
   /** 一键开启/关闭实时天气（关闭即停止联网并切晴天） */
   setWeatherEnabled(enabled: boolean): void;
+  /** 开启/关闭实时光照（动态阴影）；默认关闭，开启后由太阳高度自动决定是否投射阴影 */
+  setShadowEnabled(enabled: boolean): void;
   getSnapshot(): EnvironmentSnapshot;
   /**
    * 每帧推进。render3D=false（2D 模式）时只推进状态、不重建天空（回到 3D 时强制重建）；
@@ -74,7 +82,10 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   const cb = opts.callbacks ?? {};
 
   let location: SiteLocation = opts.initialLocation ?? DEFAULT_LOCATION;
-  let clock = { live: true, manualMs: Date.now() };
+  // 默认不跟随实时，固定为当天本地正午 12:00（手动光照基准）
+  let clock = { live: false, manualMs: localNoonUtcMs(location) };
+  // 实时光照（动态阴影）默认关闭，由用户主动开启
+  let shadowEnabled = false;
   // 初始天气：晴天（stale=false）。默认关闭实时联网，由用户主动开启；
   // 关闭期间 weather 始终保持此晴天值，光照仅由太阳/时间决定。
   let weather: WeatherSnapshot = { ...FALLBACK_WEATHER };
@@ -183,6 +194,7 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     const utc = currentUtcMs();
     const solar = solarPosition(utc, location.lat, location.lon);
     const lighting = computeLighting(solar, weather);
+    lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
     const sunDir = toSceneDirection(solar);
     const moonDir = toSceneDirection({
       azimuth: solar.azimuth + Math.PI,
@@ -260,11 +272,18 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       }
       // 开启：weatherService 会重新 load，onWeather 恢复真实天气（失败则降级 stale）
     },
+    setShadowEnabled(enabled) {
+      shadowEnabled = enabled;
+      forceDirty = true;
+      recompute();
+      emitSnapshot(true);
+    },
     getSnapshot,
     update(render3D) {
       const utc = currentUtcMs();
       const solar = solarPosition(utc, location.lat, location.lon);
       const lighting = computeLighting(solar, weather);
+      lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
       const sunDir = toSceneDirection(solar);
       const moonDir = toSceneDirection({
         azimuth: solar.azimuth + Math.PI,

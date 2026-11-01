@@ -113,7 +113,11 @@ export function createEnvPanel(env: Environment): EnvPanel {
       </div>
       <div class="env-row env-row-live">
         <span class="env-live-label">跟随实时</span>
-        <button id="env-live" class="env-switch on" role="switch" aria-checked="true"><span class="env-knob"></span></button>
+        <button id="env-live" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
+      </div>
+      <div class="env-row env-row-live">
+        <span class="env-live-label">实时光照</span>
+        <button id="env-light" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
       </div>
       <div class="env-row env-row-compass">
         <div class="env-compass">
@@ -158,6 +162,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
   const timeInput = el<HTMLInputElement>(panel, 'env-time');
   const timeLabel = el<HTMLSpanElement>(panel, 'env-time-label');
   const liveBtn = el<HTMLButtonElement>(panel, 'env-live');
+  const lightBtn = el<HTMLButtonElement>(panel, 'env-light');
   const needle = el<HTMLDivElement>(panel, 'env-needle');
   const elevEl = el<HTMLDivElement>(panel, 'env-elev');
   const suntimesEl = el<HTMLDivElement>(panel, 'env-suntimes');
@@ -175,7 +180,10 @@ export function createEnvPanel(env: Environment): EnvPanel {
   citySel.value = DEFAULT_LOCATION.id;
   dateInput.value = todayISO();
   let currentDate = dateInput.value;
-  let live = true;
+  let live = false; // 默认不跟随实时，固定正午 12:00
+  timeInput.value = '720'; // 12:00
+  timeLabel.textContent = formatMin(720);
+  let lightingOn = false; // 默认关闭实时光照（动态阴影）
   let weatherOn = false; // 默认关闭实时天气（离线友好）
   let lastFetched = -1;
   let lastStale = false;
@@ -255,6 +263,13 @@ export function createEnvPanel(env: Environment): EnvPanel {
     liveBtn.setAttribute('aria-checked', String(live));
     timeInput.disabled = live;
     env.setLive(live);
+  });
+
+  lightBtn.addEventListener('click', () => {
+    lightingOn = !lightingOn;
+    lightBtn.classList.toggle('on', lightingOn);
+    lightBtn.setAttribute('aria-checked', String(lightingOn));
+    env.setShadowEnabled(lightingOn);
   });
 
   refreshBtn.addEventListener('click', () => {

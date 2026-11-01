@@ -1,12 +1,19 @@
 import * as THREE from 'three';
-import type { BoxSpec, MaterialMap, FloorConfig } from '../types';
+import type { MaterialMap, FloorConfig } from '../types';
 import {
   BACK_WALL_INNER,
+  FLOORS,
   PLATFORM_FRONT_Z,
   RUN1_START_Z,
   STAIR,
+  VOID_GUARD,
 } from '../config/houseConfig';
-import { createBox } from './builders';
+import {
+  createHandrailRun,
+  createContinuousHandrailTube,
+  type HandrailParams,
+  type HandrailPost,
+} from './handrail';
 
 /**
  * 两段式楼梯（含休息平台与扶手），按楼层配置构建。
@@ -49,8 +56,8 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
   const baseY = floor.baseY;
   const {
     platformH, platformDepth, run1Length, run2Length, steps1, steps2,
-    railHeight, railThickness, postThickness, stepThickness, stepWidth,
-    run1X, run1RailX, run2X, run2RailX, platformX, platformZ, platformWidth,
+    stepThickness, stepWidth,
+    run1X, run2X, platformX, platformZ, platformWidth,
     cladT, soffitDrop, tileSize,
   } = {
     ...STAIR,
@@ -65,10 +72,6 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
   // 第一段起步 Z：平台前沿 + 第一段水平长度，保证与平台衔接且随层变化
   const run1StartZ = PLATFORM_FRONT_Z + run1Length;
   const platformY = baseY + platformH;
-
-  const add = (spec: BoxSpec): void => {
-    group.add(createBox(spec, materials));
-  };
 
   /** 六个面中仅指定面用瓷砖（其余为白色乳胶漆） */
   const tileMats = (tileFace: number): THREE.Material[] => {
@@ -166,33 +169,6 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
     width: stepWidth,
   });
 
-  // 第一段扶手立柱
-  for (let i = 1; i <= steps1; i++) {
-    const zCenter = run1StartZ - (i - 0.5) * stepD1;
-    if (i % 2 !== 1) continue;
-    add({
-      w: postThickness,
-      h: railHeight,
-      d: postThickness,
-      x: run1RailX,
-      y: baseY + stepH1 * i + railHeight / 2,
-      z: zCenter,
-      material: 'railing',
-    });
-  }
-
-  // 第一段斜扶手
-  const run1RailLength = Math.sqrt(run1Length * run1Length + platformH * platformH);
-  const run1Angle = Math.atan2(platformH, run1Length);
-  const rail1 = new THREE.Mesh(
-    new THREE.BoxGeometry(railThickness, railThickness, run1RailLength),
-    materials.railing,
-  );
-  rail1.position.set(run1RailX, baseY + platformH / 2 + railHeight, (run1StartZ + PLATFORM_FRONT_Z) / 2);
-  rail1.rotation.x = run1Angle;
-  rail1.castShadow = false;
-  group.add(rail1);
-
   // ---- 休息平台：顶面贴白瓷砖，底面 / 侧面为白色乳胶漆 ----
   const platGeo = new THREE.BoxGeometry(platformWidth, stepThickness, platformDepth);
   faceUv(platGeo, 2, platformWidth / tileSize, platformDepth / tileSize);
@@ -201,26 +177,6 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
   platform.castShadow = false;
   platform.receiveShadow = false;
   group.add(platform);
-
-  // 平台转角立柱
-  add({
-    w: postThickness,
-    h: railHeight,
-    d: postThickness,
-    x: run1RailX,
-    y: platformY + railHeight / 2,
-    z: PLATFORM_FRONT_Z,
-    material: 'railing',
-  });
-  add({
-    w: postThickness,
-    h: railHeight,
-    d: postThickness,
-    x: run2RailX,
-    y: platformY + railHeight / 2,
-    z: PLATFORM_FRONT_Z,
-    material: 'railing',
-  });
 
   // ---- 第二段：休息平台 -> 本层顶（向南 / +z 上行） ----
   buildFlight({
@@ -236,39 +192,6 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
     width: stepWidth,
   });
 
-  // 第二段扶手立柱
-  for (let i = 1; i <= steps2; i++) {
-    const zCenter = PLATFORM_FRONT_Z + (i - 0.5) * stepD2;
-    if (i % 2 !== 1 && i !== steps2) continue;
-    add({
-      w: postThickness,
-      h: railHeight,
-      d: postThickness,
-      x: run2RailX,
-      y: platformY + stepH2 * i + railHeight / 2,
-      z: zCenter,
-      material: 'railing',
-    });
-  }
-
-  // 第二段斜扶手
-  const run2RailLength = Math.sqrt(
-    run2Length * run2Length + (wallH - platformH) * (wallH - platformH),
-  );
-  const run2Angle = Math.atan2(wallH - platformH, run2Length);
-  const rail2 = new THREE.Mesh(
-    new THREE.BoxGeometry(railThickness, railThickness, run2RailLength),
-    materials.railing,
-  );
-  rail2.position.set(
-    run2RailX,
-    platformY + (wallH - platformH) / 2 + railHeight,
-    PLATFORM_FRONT_Z + run2Length / 2,
-  );
-  rail2.rotation.x = -run2Angle;
-  rail2.castShadow = false;
-  group.add(rail2);
-
   return group;
 }
 
@@ -278,3 +201,101 @@ export const STAIR_MARKERS = {
   platformFrontZ: PLATFORM_FRONT_Z,
   run1StartZ: RUN1_START_Z,
 };
+
+/**
+ * 整楼楼梯扶手：1F→3F 一根连续酒红 PVC 圆管（centripetal 平滑贯通，转角平滑弯过、无球头/分段），
+ * 立柱为黑色烤漆扁柱（45×22mm），各段按确认数量布置
+ * （1F-run1=7 / 1F-run2=4 / 2F-run1=4 / 2F-run2=4 / 3F 洞口护栏=2），
+ * 各层首根立柱上移到第 1 级台阶；横杆 4 根、柱身圆钮保留。
+ */
+export function buildStairHandrail(materials: MaterialMap): THREE.Group {
+  const group = new THREE.Group();
+  const rh = STAIR.railHeight;
+  const pfz = PLATFORM_FRONT_Z;
+  const params: HandrailParams = {
+    postW: STAIR.postW,
+    postD: STAIR.postD,
+    baseW: STAIR.baseW,
+    baseH: STAIR.baseH,
+    handrailD: STAIR.handrailD,
+    barCount: STAIR.barCount,
+    barD: STAIR.barD,
+    barInset: STAIR.barInset,
+    knobD: STAIR.knobD,
+    knobOut: STAIR.knobOut,
+    elbowR: STAIR.elbowR,
+  };
+
+  // 一段直跑立柱：落在各踏面中部（平整踏面），首根上移到第 1 级（k 从 1 起），末根落在顶步；
+  // 底部标高 = 该级踏面顶面（+微小抬升避免共面闪烁），柱顶由 createHandrailRun 按水平位置顶到顶管
+  const flightPosts = (
+    x: number, z0: number, dir: 1 | -1, stepD: number, y0: number, stepH: number,
+    n: number, steps: number,
+  ): HandrailPost[] => {
+    const out: HandrailPost[] = [];
+    const EPS = 0.003;
+    for (let i = 0; i < n; i++) {
+      const frac = n === 1 ? 1 : i / (n - 1);
+      const k = Math.min(steps, Math.max(1, Math.round(1 + (steps - 1) * frac)));
+      out.push({
+        x,
+        z: z0 + dir * (k - 0.5) * stepD, // 踏面中部，立柱立于平整踏面上
+        baseY: y0 + stepH * k + EPS,     // 该级踏面顶面标高
+      });
+    }
+    return out;
+  };
+
+  const runSegment = (start: THREE.Vector3, end: THREE.Vector3, posts: HandrailPost[]) =>
+    createHandrailRun({
+      start, end, posts, railHeight: rh,
+      startBall: false, endBall: false, topTube: false,
+      materials, params,
+    });
+
+  const waypoints: THREE.Vector3[] = [];
+  const stairFloors = FLOORS.filter((f) => f.stair);
+
+  for (const floor of stairFloors) {
+    const fs = floor.stair!;
+    const baseY = floor.baseY;
+    const wallH = floor.wallH;
+    const platformY = baseY + fs.platformH;
+    const run1Len = fs.run1Length;
+    const run2Len = fs.run2Length;
+    const steps1 = fs.steps1;
+    const steps2 = fs.steps2;
+    const run1StartZ = pfz + run1Len;
+    const run2EndZ = pfz + run2Len;
+    const stepH1 = fs.platformH / steps1;
+    const stepD1 = run1Len / steps1;
+    const stepH2 = (wallH - fs.platformH) / steps2;
+    const stepD2 = run2Len / steps2;
+
+    const a0 = new THREE.Vector3(STAIR.run1RailX, baseY + rh, run1StartZ);
+    const a1 = new THREE.Vector3(STAIR.run1RailX, platformY + rh, pfz);
+    const b0 = new THREE.Vector3(STAIR.run2RailX, platformY + rh, pfz);
+    const b1 = new THREE.Vector3(STAIR.run2RailX, baseY + wallH + rh, run2EndZ);
+    waypoints.push(a0, a1, b0, b1);
+
+    const n1 = floor.index === 0 ? 7 : 4; // 1F run1=7，其余直跑=4
+    group.add(runSegment(a0, a1, flightPosts(STAIR.run1RailX, run1StartZ, -1, stepD1, baseY, stepH1, n1, steps1)));
+    group.add(runSegment(b0, b1, flightPosts(STAIR.run2RailX, pfz, 1, stepD2, platformY, stepH2, 4, steps2)));
+  }
+
+  // 3F 楼梯洞口护栏：水平段，2 根立柱（与碰撞线 VOID_GUARD 一致）；并入连续管末端
+  const vg = VOID_GUARD;
+  const vgBaseY = FLOORS[2].baseY;
+  const vgY = vgBaseY + rh;
+  const vgA = new THREE.Vector3(vg.x0, vgY, vg.z); // 西端
+  const vgB = new THREE.Vector3(vg.x1, vgY, vg.z); // 东端（接 2F run2 顶端）
+  waypoints.push(vgB, vgA);
+  group.add(runSegment(vgA, vgB, [
+    { x: vg.x0, z: vg.z, baseY: vgBaseY },
+    { x: vg.x1, z: vg.z, baseY: vgBaseY },
+  ]));
+
+  // 整楼一根连续圆管（平滑连续弯）
+  group.add(createContinuousHandrailTube(waypoints, STAIR.handrailD / 2, materials.railing));
+  return group;
+}

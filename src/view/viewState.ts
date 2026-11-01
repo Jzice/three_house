@@ -3,6 +3,7 @@ import type {
   FpsWalkArea,
   InteractiveObject,
   KeyState,
+  RailSeg,
   StairHeight,
   StairSurface,
   TouchMove,
@@ -20,6 +21,8 @@ export interface ViewState {
   fpsPos: THREE.Vector3;
   fpsYaw: number;
   fpsPitch: number;
+  /** 累加沿视线方向的前进脉冲（米，正=前进）；由滚轮/双指捏合事件驱动，每帧被 updateFpsMovement 消费 */
+  addFpsForward(amount: number): void;
 }
 
 export interface ViewManager {
@@ -45,6 +48,8 @@ export interface ViewManager {
 
 const FPS_SPEED = 0.08;
 const FPS_EYE_Y = 1.6;
+/** 前进脉冲累加器（米，正=前进）：滚轮 / 双指捏合等离散事件写入，每帧由 updateFpsMovement 消费 */
+let fpsMoveImpulse = 0;
 /** 俯仰角限位，避免翻转 */
 const PITCH_LIMIT = Math.PI / 2 - 0.1;
 /** 门窗开合插值系数 */
@@ -65,6 +70,19 @@ const stairLandingY = FLOORS.map((f) => (f.stair ? f.baseY + f.stair.platformH :
 /** 点是否落在矩形区域内 */
 function inRect(r: WalkRect, x: number, z: number): boolean {
   return x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+}
+
+/** 俯视 2D 中，点 (px,pz) 到线段 (r.x0,r.z0)-(r.x1,r.z1) 的最短距离 */
+function pointSegDist2D(px: number, pz: number, r: RailSeg): number {
+  const dx = r.x1 - r.x0;
+  const dz = r.z1 - r.z0;
+  const l2 = dx * dx + dz * dz;
+  if (l2 < 1e-9) return Math.hypot(px - r.x0, pz - r.z0);
+  let t = ((px - r.x0) * dx + (pz - r.z0) * dz) / l2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = r.x0 + t * dx;
+  const cz = r.z0 + t * dz;
+  return Math.hypot(px - cx, pz - cz);
 }
 
 /**
@@ -135,6 +153,10 @@ function createFloorState(index: number): ViewState {
     fpsPos: new THREE.Vector3(VIEW.fpsPos[0], f.baseY + FPS_EYE_Y, VIEW.fpsPos[2]),
     fpsYaw: 0,
     fpsPitch: 0,
+    addFpsForward: (amount: number) => {
+      // 仅第一人称下累加；本方法挂在由 getState() 返回的活动层 state 上，mode 即当前模式
+      if (floorStates[index] && floorStates[index].mode === 'fps') fpsMoveImpulse += amount;
+    },
   };
 }
 
@@ -293,6 +315,10 @@ export function createViewManager(
    */
   function isWalkable(area: FpsWalkArea, x: number, z: number, fromInside: boolean): boolean {
     if (area.freeRoam) return true; // 上层完全放开：穿墙/悬空均可
+    // 栏杆障碍：在任一栏杆线段的缓冲带内一律不可行走（无论是否落在屋内矩形）
+    for (const r of area.rails) {
+      if (pointSegDist2D(x, z, r) < r.half) return false;
+    }
     if (inRect(area.inside, x, z)) return true;
     for (const d of area.doors) {
       if (!inRect(d, x, z)) continue;
@@ -424,6 +450,15 @@ export function createViewManager(
       if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
     }
 
+    // 滚轮 / 双指捏合写入的前进脉冲：沿视线方向一次性位移（正=前进），复用可行走判定
+    if (fpsMoveImpulse !== 0) {
+      const nx = camera.position.x + tmpForward.x * fpsMoveImpulse;
+      if (isWalkable(area, nx, camera.position.z, fromInside)) camera.position.x = nx;
+      const nz = camera.position.z + tmpForward.z * fpsMoveImpulse;
+      if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
+      fpsMoveImpulse = 0;
+    }
+
     // 眼高：跟随脚下标高（平层为完成面、楼梯为踏步面），按时间常数做插值过渡
     const now = performance.now();
     const dt = Math.min((now - lastMoveTime) / 1000, 0.1);
@@ -476,6 +511,15 @@ export function createViewManager(
 /** 门窗开合动画：旋转门向目标角度插值；推拉门（slideX）向目标位移插值；成组窗扇按各自角度插值 */
 export function updateInteractables(interactables: InteractiveObject[]): void {
   for (const obj of interactables) {
+    // 多级开合窗扇（窗户小方格独立开合）：按 openStep 取角度，方向由 hingeSign 决定
+    const angles = obj.userData.openAngles;
+    if (angles && angles.length > 0) {
+      const step = obj.userData.openStep ?? 0;
+      const sign = obj.userData.hingeSign ?? 1;
+      const targetAngle = angles[step] * sign;
+      obj.rotation.y = THREE.MathUtils.lerp(obj.rotation.y, targetAngle, OPEN_LERP);
+      continue;
+    }
     // 成组开启的窗（左右下格小窗格）：主控开合带动子扇绕各自枢轴转动
     const sashes = obj.userData.sashes;
     if (sashes) {

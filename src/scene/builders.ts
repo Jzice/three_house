@@ -424,12 +424,7 @@ export function createLowerSashWindow(
   const centerW = 0.54; // 中列宽
   const sashT = 0.025; // 小窗扇自身细铜边宽
   const sashD = 0.12; // 小窗扇自身细铜边厚（居墙厚中部，开合时仍嵌在洞口内）
-  const OPEN_ANGLE = Math.PI / 4; // 小窗扇外开 45°
-
-  const container = new THREE.Group();
-  // 主控组：只承载开合状态（自身 rotation 恒为 0），使点击窗上任意构件都能命中
-  const toggle = new THREE.Group();
-  container.add(toggle);
+  const deg = (d: number): number => THREE.MathUtils.degToRad(d);
 
   const innerW = w - frameT * 2;
   const innerH = h - frameT * 2;
@@ -441,12 +436,11 @@ export function createLowerSashWindow(
   const barY = 0.3; // 横梃中心（沿用原实现）
   const barTop = barY + hT / 2;
   const barBot = barY - hT / 2;
-  const upMidY = (barTop + yT) / 2; // 上格中心
-  const upH = yT - barTop; // 上格高
-  const lowMidY = (yB + barBot) / 2; // 下格（小窗格）中心
-  const lowH = barBot - yB; // 下格高
 
-  // ---- 固定件 ----
+  const container = new THREE.Group();
+  const frame = new THREE.Group(); // 固定框（不参与开合，点击不响应）
+  container.add(frame);
+
   // 外框四边：向外扩 OV 压住墙口，盖住墙/框接缝（内口尺寸不变，玻璃与竖梃不受影响）
   const OV = 0.015;
   const frameBars: Array<[number, number, number, number]> = [
@@ -458,63 +452,62 @@ export function createLowerSashWindow(
   for (const [bw, bh, bx, by] of frameBars) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, FRAME_D), materials.copper);
     bar.position.set(bx, by, 0);
-    toggle.add(bar);
+    frame.add(bar);
   }
-  // ---- 固定件：两根通高竖梃（开窗后仍在原位，网格不断） ----
+  // 两根通高竖梃（左右侧列与中列的分隔；开窗后仍在原位，网格不断）
   for (const mx of [xL + sideW + vT / 2, xR - sideW - vT / 2]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(vT, innerH, FRAME_D), materials.copper);
     m.position.set(mx, 0, 0);
-    toggle.add(m);
+    frame.add(m);
   }
-  // ---- 固定件：左右侧列各一道横梃（开窗后仍在原位） ----
+  // 左右侧列各一道横梃（将侧列分为上下两格；中列为整块，不分隔）
   for (const hx of [xL + sideW / 2, xR - sideW / 2]) {
     const r = new THREE.Mesh(new THREE.BoxGeometry(sideW, hT, FRAME_D), materials.copper);
     r.position.set(hx, barY, 0);
-    toggle.add(r);
+    frame.add(r);
   }
-  // 固定玻璃：上部两侧 + 中列整块
-  const addGlass = (gw: number, gh: number, gx: number, gy: number): void => {
-    const g = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, 0.02), materials.glass);
-    g.position.set(gx, gy, 0);
-    toggle.add(g);
-  };
-  addGlass(sideW, upH, xL + sideW / 2, upMidY);
-  addGlass(sideW, upH, xR - sideW / 2, upMidY);
-  addGlass(centerW, innerH, 0, 0);
 
-  // ---- 可开启件：左右下格小平开窗扇（玻璃 + 自身细铜边；dir=1 左格 / -1 右格） ----
-  const buildSash = (pivotX: number, dir: 1 | -1): THREE.Group => {
+  // 每个小方格独立开合：枢轴在格外侧竖边，点击在 0°/45°/60°/90° 间循环（hingeSign 决定朝向）
+  const buildPane = (
+    cellLeft: number, cellRight: number, cellTop: number, cellBot: number, hingeSign: 1 | -1,
+  ): InteractiveObject => {
+    const pw = cellRight - cellLeft;
+    const ph = cellTop - cellBot;
+    const pivotX = hingeSign < 0 ? cellLeft : cellRight; // 左铰链在左缘，右铰链在右缘
     const sash = new THREE.Group();
-    sash.position.set(pivotX, 0, 0);
+    sash.position.set(pivotX, (cellTop + cellBot) / 2, 0);
     const edge = (ew: number, eh: number, ex: number, ey: number): void => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.copper);
       b.position.set(ex, ey, 0);
       sash.add(b);
     };
-    // 自身细铜边：铰接侧 / 自由侧 / 上沿 / 下沿
-    edge(sashT, lowH, (dir * sashT) / 2, lowMidY);
-    edge(sashT, lowH, dir * (sideW - sashT / 2), lowMidY);
-    edge(sideW - sashT * 2, sashT, (dir * sideW) / 2, barBot - sashT / 2);
-    edge(sideW - sashT * 2, sashT, (dir * sideW) / 2, yB + sashT / 2);
-    // 玻璃：只带自己的玻璃，不牵动窗框的框梁
+    edge(sashT, ph, (hingeSign * sashT) / 2, 0); // 铰接侧边
+    edge(sashT, ph, hingeSign * (pw - sashT / 2), 0); // 自由侧边
+    edge(pw - sashT * 2, sashT, (hingeSign * pw) / 2, ph / 2 - sashT / 2); // 上沿
+    edge(pw - sashT * 2, sashT, (hingeSign * pw) / 2, -ph / 2 + sashT / 2); // 下沿
     const glass = new THREE.Mesh(
-      new THREE.BoxGeometry(sideW - sashT * 2, lowH - sashT * 2, 0.02),
+      new THREE.BoxGeometry(pw - sashT * 2, ph - sashT * 2, 0.02),
       materials.glass,
     );
-    glass.position.set((dir * sideW) / 2, lowMidY, 0);
+    glass.position.set((hingeSign * pw) / 2, 0, 0);
     sash.add(glass);
-    return sash;
+    const part = markInteractive(sash, 'window', 0);
+    part.userData.openAngles = [0, deg(45), deg(60), deg(90)];
+    part.userData.openStep = 0;
+    part.userData.hingeSign = hingeSign;
+    container.add(sash);
+    return part;
   };
-  const leftSash = buildSash(xL, 1);
-  const rightSash = buildSash(xR, -1);
-  toggle.add(leftSash, rightSash);
 
-  // 主控：两扇随开合状态一起转（绕各自外侧竖边，向室外张开）
-  const togglePart = markInteractive(toggle, 'window', 0);
-  togglePart.userData.sashes = [
-    { object: leftSash, openAngle: -OPEN_ANGLE },
-    { object: rightSash, openAngle: OPEN_ANGLE },
-  ];
+  const parts: InteractiveObject[] = [];
+  // 左列：上格 / 下格（铰链在左缘）
+  parts.push(buildPane(xL, xL + sideW, yT, barTop, -1));
+  parts.push(buildPane(xL, xL + sideW, barBot, yB, -1));
+  // 中列：整块（铰链在左缘）
+  parts.push(buildPane(xL + sideW + vT, xR - sideW - vT, yT, yB, -1));
+  // 右列：上格 / 下格（铰链在右缘）
+  parts.push(buildPane(xR - sideW, xR, yT, barTop, 1));
+  parts.push(buildPane(xR - sideW, xR, barBot, yB, 1));
 
   container.position.set(x, y, z);
   container.rotation.y = rotY;
@@ -523,7 +516,7 @@ export function createLowerSashWindow(
     container.scale.y = floor.wallH / H;
   }
 
-  return { container, parts: [togglePart] };
+  return { container, parts };
 }
 
 /** 左右推拉窗：白色塑钢外框 + 中竖梃 + 两扇可推拉玻璃扇（左扇左滑、右扇右滑）。
