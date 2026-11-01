@@ -70,7 +70,7 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
   );
   rail1.position.set(run1RailX, baseY + platformH / 2 + railHeight, (run1StartZ + PLATFORM_FRONT_Z) / 2);
   rail1.rotation.x = run1Angle;
-  rail1.castShadow = true;
+  rail1.castShadow = false;
   group.add(rail1);
 
   // 平台转角立柱 + 平台板
@@ -143,7 +143,7 @@ export function createStairs(materials: MaterialMap, floor: FloorConfig): THREE.
     PLATFORM_FRONT_Z + run2Length / 2,
   );
   rail2.rotation.x = -run2Angle;
-  rail2.castShadow = true;
+  rail2.castShadow = false;
   group.add(rail2);
 
   return group;

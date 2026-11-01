@@ -18,8 +18,10 @@ export function createBox(spec: BoxSpec, materials: MaterialMap): THREE.Mesh {
     materials[spec.material],
   );
   mesh.position.set(spec.x, spec.y, spec.z);
-  mesh.castShadow = spec.cast ?? true;
-  mesh.receiveShadow = spec.receive ?? true;
+  // 室内构件默认不投/不接收阴影（见需求“去掉室内影子”），
+  // 仍可在 BoxSpec 显式 cast/receive:true 覆盖（如需要室外投影的构件）。
+  mesh.castShadow = spec.cast ?? false;
+  mesh.receiveShadow = spec.receive ?? false;
   return mesh;
 }
 
@@ -317,8 +319,8 @@ export function createInteriorDoor(
     materials[spec.materialKey],
   );
   leaf.position.set(w / 2, h / 2, 0);
-  leaf.castShadow = true;
-  leaf.receiveShadow = true;
+  leaf.castShadow = false;
+  leaf.receiveShadow = false;
   hinge.add(leaf);
 
   const defaultOpen = spec.openAngle ?? (Math.PI / 2) * 0.85;

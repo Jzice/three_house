@@ -75,8 +75,8 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
     mat.map = tex;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), mat);
     mesh.position.set(spec.x, spec.y, spec.z);
-    mesh.castShadow = spec.cast ?? true;
-    mesh.receiveShadow = spec.receive ?? true;
+    mesh.castShadow = spec.cast ?? false;
+    mesh.receiveShadow = spec.receive ?? false;
     root.add(mesh);
   }
 
@@ -153,7 +153,7 @@ function addVoidGuard(materials: MaterialMap, floor: FloorConfig, root: THREE.Gr
   // 顶部扶手（细方杆，与楼梯扶手同款）
   const rail = new THREE.Mesh(new THREE.BoxGeometry(len, railT, railT), materials.railing);
   rail.position.set(cx, floorTopY + railH, z);
-  rail.castShadow = true;
+  rail.castShadow = false;
   root.add(rail);
 
   // 加粗立柱（与楼梯扶手立柱同款），沿段均布
@@ -163,7 +163,7 @@ function addVoidGuard(materials: MaterialMap, floor: FloorConfig, root: THREE.Gr
     const px = xA + len * (i / n);
     const post = new THREE.Mesh(new THREE.BoxGeometry(postT, railH, postT), materials.railing);
     post.position.set(px, floorTopY + railH / 2, z);
-    post.castShadow = true;
+    post.castShadow = false;
     root.add(post);
   }
 }
