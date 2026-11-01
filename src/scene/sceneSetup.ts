@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { VIEW } from '../config/houseConfig';
-import { createEnvEquirect } from './materials';
+import type { LightHandles } from '../types';
 
 export interface SceneContext {
   scene: THREE.Scene;
@@ -13,7 +13,8 @@ export interface SceneContext {
 /** 创建场景、相机、渲染器与轨道控制器 */
 export function createSceneContext(): SceneContext {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x444444);
+  // 背景由环境层（天空贴图）按太阳/天气实时设置；此处不预设兜底色。
+  // 2D 模式跳过 WebGL 渲染，不受影响。
 
   const camera = new THREE.PerspectiveCamera(
     VIEW.fov,
@@ -35,48 +36,53 @@ export function createSceneContext(): SceneContext {
   return { scene, camera, renderer, controls };
 }
 
-/** 布置环境光、半球光与带阴影的平行光 */
-export function setupLights(scene: THREE.Scene): void {
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+/**
+ * 创建并布置灯光，返回句柄供环境层按太阳/天气实时驱动。
+ * 初始值仅为占位，createLights 之后应立即由 environment.applyLighting 覆盖。
+ */
+export function createLights(scene: THREE.Scene): LightHandles {
+  // 基准环境光：保证三种视角与背光房间始终可读（具体强度由环境层覆盖）
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
   scene.add(ambientLight);
 
-  // 半球光：地面色取纯白，模拟室内地面/楼板的反弹光。
-  // 否则朝下的面（各层天花板、挑台底面）只吃环境光 + 深色地面光，会明显发灰、与白墙不像同一种材质。
-  // 上方天空色保持白色、强度 0.6 不变 → 地砖与外墙的亮度基本不受影响。
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.6);
+  // 半球光：天空色（晴昼蓝）/ 地面色（草地绿）厚度 0.6 基准；由环境层覆盖
+  const hemiLight = new THREE.HemisphereLight(0xbcd8ff, 0x6b7a55, 0.6);
   hemiLight.position.set(0, 20, 0);
   scene.add(hemiLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  // 太阳主光：初始占位，位置/强度/色温由环境层 applyLighting 实时设置
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
   dirLight.position.set(10, 20, 15);
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.width = 4096;
   dirLight.shadow.mapSize.height = 4096;
-  // 正交视锥覆盖房屋+1F 院子(~15.2×16.2m)，far 由默认 500 收到 60，
-  // 使 bias 的实际尺度保持毫米级，消除墙顶凸边漏光白线
-  dirLight.shadow.camera.left = -9;
-  dirLight.shadow.camera.right = 9;
-  dirLight.shadow.camera.top = 9;
-  dirLight.shadow.camera.bottom = -9;
+  // 正交视锥覆盖房屋 + 院子（~15×16m），并容忍低角度长阴影；far 收到 80 使 bias 保持毫米级
+  dirLight.shadow.camera.left = -14;
+  dirLight.shadow.camera.right = 14;
+  dirLight.shadow.camera.top = 14;
+  dirLight.shadow.camera.bottom = -14;
   dirLight.shadow.camera.near = 1;
-  dirLight.shadow.camera.far = 60;
+  dirLight.shadow.camera.far = 80;
   dirLight.shadow.camera.updateProjectionMatrix();
   dirLight.shadow.bias = -0.00002;
-  dirLight.shadow.normalBias = 0.008;
+  dirLight.shadow.normalBias = 0.01;
   scene.add(dirLight);
-}
+  scene.add(dirLight.target);
 
-/**
- * 生成 PMREM 环境贴图：给抛光大理石地面提供真实反射。
- * 只挂到地面材质上（不设 scene.environment），因此墙体、家具等材质外观不受影响。
- */
-export function createEnvMap(renderer: THREE.WebGLRenderer): THREE.Texture {
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const equirect = createEnvEquirect();
-  const target = pmrem.fromEquirectangular(equirect);
-  equirect.dispose();
-  pmrem.dispose();
-  return target.texture;
+  // 月光：冷色补光，夜间启用，不投影（避免双阴影与开销）
+  const moonLight = new THREE.DirectionalLight(0x8fa6c8, 0);
+  moonLight.position.set(-10, 20, -15);
+  scene.add(moonLight);
+  scene.add(moonLight.target);
+
+  return {
+    sun: dirLight,
+    moon: moonLight,
+    hemi: hemiLight,
+    ambient: ambientLight,
+    sunTarget: dirLight.target,
+    moonTarget: moonLight.target,
+  };
 }
 
 /** 窗口尺寸变化时的统一处理 */

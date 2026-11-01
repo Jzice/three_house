@@ -139,3 +139,111 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     #joystick-base { width: 96px; height: 96px; }
     #joystick-knob { width: 42px; height: 42px; margin-left: -21px; margin-top: -21px; }
 }
+
+/* ---- 环境面板（地点 / 日照 / 天气） ---- */
+#env-toggle {
+    position: absolute; top: 15px; right: 15px; z-index: 120;
+    width: 42px; height: 42px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.92); color: #2C3238;
+    border: none; border-radius: 50%; cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+}
+#env-toggle svg { width: 24px; height: 24px; display: block; pointer-events: none; }
+#env-toggle:hover { transform: translateY(-2px); background: #fff; }
+#env-toggle.active { background: #2980B9; color: #fff; }
+
+#env-panel {
+    position: absolute; right: 15px; top: 68px; width: 300px; z-index: 120;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(14px) saturate(1.15); -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    padding: 14px; color: #2C3238; font-family: 'PingFang-SC', sans-serif;
+    opacity: 0; transform: translateY(-8px);
+    transition: opacity 0.16s cubic-bezier(.2,.8,.2,1), transform 0.16s cubic-bezier(.2,.8,.2,1);
+}
+#env-panel.open { opacity: 1; transform: translateY(0); }
+#env-panel::before {
+    content: ''; position: absolute; left: 0; top: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+    border-radius: 14px 14px 0 0;
+}
+
+.env-section { padding: 10px 0; }
+.env-section + .env-section { border-top: 1px solid rgba(255, 255, 255, 0.45); }
+.env-sec-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: #8A9099;
+    padding-left: 8px; border-left: 2px solid var(--bar, #2980B9); margin-bottom: 8px;
+}
+.env-select {
+    width: 100%; padding: 7px 8px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px;
+    background: rgba(255, 255, 255, 0.85); font-size: 13px; color: #2C3238;
+}
+.env-custom { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.env-geo { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6B737C; }
+.env-geo input { width: 90px; padding: 5px 6px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 6px; font-size: 12px; }
+.env-geo input.env-invalid { border-color: #C33B32; }
+.env-err { color: #C33B32; font-size: 11px; }
+
+.env-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.env-date { flex: 1; padding: 6px 8px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px; background: rgba(255, 255, 255, 0.85); font-size: 12px; }
+.env-time { flex: 1; }
+.env-time-label { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+.env-row-live { justify-content: space-between; }
+.env-live-label { font-size: 12px; color: #6B737C; }
+.env-switch { width: 40px; height: 22px; border-radius: 11px; border: none; background: #D5D9DE; position: relative; cursor: pointer; transition: background 0.2s; }
+.env-switch.on { background: #2980B9; }
+.env-knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: left 0.2s; }
+.env-switch.on .env-knob { left: 20px; }
+
+.env-row-compass { align-items: flex-start; gap: 12px; }
+.env-compass {
+    position: relative; width: 60px; height: 60px; border-radius: 50%; flex: 0 0 auto;
+    background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.6), rgba(180, 190, 205, 0.4));
+    border: 1px solid rgba(0, 0, 0, 0.18);
+}
+.env-compass span { position: absolute; font-size: 9px; color: #6B737C; }
+.env-compass .c-n { top: 2px; left: 50%; transform: translateX(-50%); }
+.env-compass .c-s { bottom: 2px; left: 50%; transform: translateX(-50%); }
+.env-compass .c-e { right: 3px; top: 50%; transform: translateY(-50%); }
+.env-compass .c-w { left: 3px; top: 50%; transform: translateY(-50%); }
+.env-needle {
+    position: absolute; left: 50%; top: 50%; width: 2px; height: 26px; background: #E8823C; border-radius: 1px;
+    transform-origin: 50% 100%; transform: translate(-50%, -100%) rotate(0deg);
+}
+.env-needle.night { background: #8FA6C8; }
+.env-compass-center { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; border-radius: 50%; background: #2C3238; transform: translate(-50%, -50%); }
+.env-sun-info { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.env-elev { font-size: 13px; font-weight: 600; }
+.env-suntimes { font-size: 11px; color: #6B737C; }
+
+.env-row-weather { align-items: center; gap: 10px; }
+.env-wx-icon { width: 28px; height: 28px; color: #4A90C2; flex: 0 0 auto; }
+.env-wx-icon svg { width: 28px; height: 28px; }
+.env-wx-main { flex: 1; }
+.env-wx-main.dim { opacity: 0.5; }
+.env-temp { font-size: 20px; font-weight: 600; line-height: 1; }
+.env-wx-text { font-size: 12px; color: #6B737C; margin-top: 2px; }
+.env-refresh { width: 24px; height: 24px; padding: 0; border: none; background: transparent; color: #6B737C; cursor: pointer; flex: 0 0 auto; }
+.env-refresh svg { width: 24px; height: 24px; }
+.env-refresh.loading svg { animation: env-spin 1s linear infinite; }
+.env-refresh:disabled { opacity: 0.35; cursor: default; }
+@keyframes env-spin { to { transform: rotate(360deg); } }
+.env-chips { gap: 6px; flex-wrap: wrap; }
+.env-chip { font-size: 11px; background: rgba(255, 255, 255, 0.6); border-radius: 10px; padding: 3px 8px; color: #6B737C; }
+.env-chip b { color: #2C3238; }
+.env-wx-err { color: #C33B32; font-size: 11px; margin-top: 6px; }
+
+@media (max-width: 1023px) { #env-panel { width: 280px; } }
+@media (max-width: 640px) {
+    #env-toggle { top: 10px; right: 10px; width: 36px; height: 36px; }
+    #env-toggle svg { width: 20px; height: 20px; }
+    #env-panel { left: 10px; right: 10px; top: 56px; width: auto; padding: 12px; }
+    .env-row-compass { flex-direction: column; align-items: center; }
+}
+@media (max-height: 480px) {
+    #env-panel { max-height: 42vh; overflow-y: auto; }
+    .env-row-compass { display: none; }
+}

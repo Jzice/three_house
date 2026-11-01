@@ -209,51 +209,15 @@ function createStepTileTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** 程序化生成环境贴图（等距柱状）：天顶—地平—地面渐变 + 太阳高光，供抛光地面反射 */
-export function createEnvEquirect(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('无法创建 2D 上下文，环境贴图生成失败');
-
-  const g = ctx.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0.0, '#9fb2c4'); // 天顶
-  g.addColorStop(0.38, '#d3dade');
-  g.addColorStop(0.49, '#e6ebee'); // 地平（略压暗，避免反射把地面冲白）
-  g.addColorStop(0.53, '#a8a8a4');
-  g.addColorStop(1.0, '#7b7b77'); // 地面
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 512, 256);
-
-  // 太阳位置与平行光一致（方向 10,20,15），地面反射中形成同向高光
-  const dir = new THREE.Vector3(10, 20, 15).normalize();
-  const u = Math.atan2(dir.z, dir.x) / (Math.PI * 2) + 0.5;
-  const v = Math.asin(dir.y) / Math.PI + 0.5;
-  const sx = u * 512;
-  const sy = (1 - v) * 256;
-  const rg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 54);
-  rg.addColorStop(0, 'rgba(255,253,242,0.85)');
-  rg.addColorStop(0.4, 'rgba(255,252,238,0.35)');
-  rg.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = rg;
-  ctx.fillRect(0, 0, 512, 256);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.mapping = THREE.EquirectangularReflectionMapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 /** 创建整屋共用的材质字典 */
 export function createMaterials(): MaterialMap {
   const tileTex = createTileTexture();
   const floorTile = new THREE.MeshStandardMaterial({
     map: tileTex,
-    // 抛光大理石瓷砖：低粗糙度产生明显高光与环境反射（envMap 由 main 注入）
+    // 抛光大理石瓷砖：低粗糙度产生明显高光与环境反射（envMap 由环境层注入）
     roughness: 0.16,
     metalness: 0.06,
-    envMapIntensity: 1.0,
+    envMapIntensity: 1.1,
   });
   // 楼梯等共用此基础材质，保留默认平铺密度；楼板会在 buildHouse 中按尺寸重设
   tileTex.repeat.set(3, 3);

@@ -235,3 +235,74 @@ root.add(furnitureRoot);
 - **改层高 `H` 不必改门头**：`header()` 与 `H - baseH` 会自动推导。
 - **`WALLS_2D` 与 3D 墙体是两套独立数据**：改 3D 墙后需同步 2D，否则两视图不一致（后续可考虑由 3D 数据自动投影生成 2D）。
 - **材质键必须存在于 `MaterialMap`**：新增 `MaterialKey` 时需同时在 `materials.ts` 的 `createMaterials()` 中给出实现。
+
+## 8. 环境与天气配置
+
+地理日照与天气相关的数据集中在 `src/config/siteConfig.ts` 与 `src/types.ts` 的若干共享类型（运行链路见 [architecture §7](architecture.md#7-环境层地理日照--天气)）。
+
+### 8.1 `siteConfig.ts`
+
+| 导出 | 类型 | 含义 |
+| --- | --- | --- |
+| `DEFAULT_LOCATION` | `SiteLocation` | 默认地点：湖北武穴（29.844°N, 115.561°E, UTC+8） |
+| `BUILTIN_LOCATIONS` | `SiteLocation[]` | 内置城市表（约 30 个，含经纬度与 `tz`） |
+| `FRONT_AZIMUTH_DEG` | `number` | 房屋正面（+z）所朝真实方位角 = 270（西） |
+| `WEATHER_REFRESH_MS` | `number` | 天气轮询间隔（10 分钟） |
+| `WEATHER_TIMEOUT_MS` | `number` | 单次天气请求超时（5 秒） |
+| `FALLBACK_WEATHER` | `WeatherSnapshot` | 断网/失败时的降级值（晴，`stale=true`） |
+| `makeCustomLocation()` | 函数 | 由经纬度 + `tz` 生成"自定义地点"对象 |
+
+`SiteLocation` 由 `id` / `name` / `lat` / `lon` / `tz` 组成；`tz` 用于把 UTC 时刻换算成本地 HH:MM（日出日落、时间滑杆）。
+
+### 8.2 天气实况 `WeatherSnapshot`
+
+```ts
+type WeatherKind = 'clear' | 'partly' | 'overcast' | 'fog'
+  | 'drizzle' | 'rain' | 'snow' | 'thunder';
+
+interface WeatherSnapshot {
+  kind: WeatherKind;     // WMO 代码映射而来
+  code: number;          // 原始 WMO 代码
+  cloudCover: number;    // 云量 %（0~100）
+  precipitation: number; // 降水量 mm
+  visibility: number;    // 能见度 km
+  temperature: number;   // 气温 ℃
+  isDay: boolean;
+  fetchedAt: number;     // 抓取时刻 epoch ms；从未成功为 0
+  stale: boolean;        // 失败沿用旧值/降级值时 true
+}
+```
+
+`weather.ts` 把 Open-Meteo 的 `current` 字段映射成上面结构；`WEATHER_TEXT` 提供中文文案，面板内按 `kind` 选 SVG 图标。
+
+### 8.3 光照参数 `LightingParams`
+
+由 `lighting.ts` 的 `computeLighting(solar, weather)` 推导，再经 `applyLighting(handles, params, sunDir, moonDir)` 应用到灯光句柄：
+
+```ts
+interface LightingParams {
+  sunIntensity: number;  sunColor: number;
+  hemiSky: number;      hemiGround: number;  hemiIntensity: number;
+  ambientIntensity: number;  moonIntensity: number;
+  fogColor: number;     fogNear: number;     fogFar: number;
+  shadowEnabled: boolean;
+}
+```
+
+调参锚点（详见 `lighting.ts` 源码）：晴天正午总照度 ≈ 太阳 1.1 + 半球 0.55 + 环境 0.45 ≈ 2.1，接近重构前固定灯光观感；阴/雨/雾按云量与能见度连续衰减太阳强度、抬高雾浓度。
+
+### 8.4 天空参数 `SkyParams`
+
+```ts
+interface SkyParams {
+  kind: WeatherKind;   // 天色调色板与云/雾基调
+  elevation: number;   // 太阳高度角（弧度）
+  azimuth: number;     // 太阳方位角（弧度，自北顺时针）
+  cloudCover: number;  // 0~1
+  precip: number;      // mm
+  visibility: number;  // km
+  isDay: boolean;
+}
+```
+
+`solar.ts` 的 `toSceneDirection()` 把 `(azimuth, elevation)` 换算成场景方向（即 7.2 的 `dir` 公式），`sky.ts` 据其定位太阳/月亮光晕。

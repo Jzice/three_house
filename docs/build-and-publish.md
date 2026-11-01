@@ -6,8 +6,8 @@
 
 | 命令 | mode | three 的处理 | 输出文件 | 产物体积 | 离线可用 |
 | --- | --- | --- | --- | --- | --- |
-| `npm run build` | `production`（默认） | 打包并内联进 HTML | `dist/index.html` | ~489 KB（gzip ~127 KB） | ✅ |
-| `npm run build:cdn` | `cdn` | 保持裸导入，交给 importmap 从 unpkg 拉取 | `dist/index.cdn.html` | ~21 KB（gzip ~8 KB） | ❌ |
+| `npm run build` | `production`（默认） | 打包并内联进 HTML | `dist/index.html` | ~574 KB（gzip ~159 KB） | ✅ |
+| `npm run build:cdn` | `cdn` | 保持裸导入，交给 importmap 从 unpkg 拉取 | `dist/index.cdn.html` | ~89 KB（gzip ~31 KB） | ❌ |
 | `npm run build:all` | 以上两者 | — | **同时产出上面两个文件** | — | — |
 
 三个命令都会先执行 `tsc --noEmit`，类型错误会直接中断构建。
@@ -99,8 +99,8 @@ Select-String -Path dist/index.cdn.html -Pattern 'from"three'
 
 | 模式 | 产物 | 大小 | 外部引用 |
 | --- | --- | --- | --- |
-| 默认 | `dist/index.html` | 489,557 B | 无 |
-| cdn | `dist/index.cdn.html` | 21,513 B | importmap → unpkg |
+| 默认 | `dist/index.html` | 约 574 KB | 无 |
+| cdn | `dist/index.cdn.html` | 约 89 KB | importmap → unpkg |
 
 ## 4. 发布方式
 
@@ -125,3 +125,13 @@ Select-String -Path dist/index.cdn.html -Pattern 'from"three'
 - 单文件产物的 JS 未压缩混淆到极限（保留可读性），若追求更小体积可在 `vite.config.ts` 中调整 `build.minify` 与 `terserOptions`。
 - 自包含模式把整个 `three` 内联，文件较大但换来完全离线；这是"单文件"与"体积"之间的取舍。
 - 若升级 `three` 版本，需同步更新 `package.json` 中的 `three` 与 `vite.config.ts` 中的 `THREE_VERSION`，否则 CDN 模式会出现版本不一致。
+
+## 7. 联网天气与离线降级
+
+环境层（`src/environment/weather.ts`）会向 Open-Meteo 发起实况请求，这是单文件"禁止远程数据"约束的**刻意例外**：
+
+- 天气是**可选增强**且**默认关闭**：产物离线打开时不发任何请求、按晴天渲染（面板显示"晴 · 实时天气已关"）；用户在面板开启后才会联网拉取，离线/超时/失败时按晴天降级并提示"天气获取失败 · 按晴天渲染"，**不影响任何功能**。
+- 降级是静默的：不抛未捕获异常、不阻塞首屏；只有首次失败会 `console.warn` 一次。
+- 因此两种产物仍然"单文件 + 离线可用"——只是离线时天气维度等于晴天。
+
+若日后想在完全离线环境下也提供天气，应改为把天气数据**打包进产物**（如随 HTML 内联一份近期典型天气表），而不是引入运行时远程请求。

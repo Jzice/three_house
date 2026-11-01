@@ -340,3 +340,123 @@ export interface KeyState {
   left: boolean;
   right: boolean;
 }
+
+/** 天气分类（由 WMO 天气代码映射而来，用于光照氛围与图标） */
+export type WeatherKind =
+  | 'clear'
+  | 'partly'
+  | 'overcast'
+  | 'fog'
+  | 'drizzle'
+  | 'rain'
+  | 'snow'
+  | 'thunder';
+
+/** 一次天气实况快照（Open-Meteo current 字段，或断网降级值） */
+export interface WeatherSnapshot {
+  kind: WeatherKind;
+  /** 原始 WMO 天气代码 */
+  code: number;
+  /** 云量（%，0~100） */
+  cloudCover: number;
+  /** 当前降水量（mm） */
+  precipitation: number;
+  /** 能见度（km） */
+  visibility: number;
+  /** 气温（℃） */
+  temperature: number;
+  /** 是否白昼（Open-Meteo 给出） */
+  isDay: boolean;
+  /** 抓取时刻 epoch ms；从未成功时为 0 */
+  fetchedAt: number;
+  /** 请求失败、沿用旧值或降级值时置 true */
+  stale: boolean;
+}
+
+/** 站点地点：内置城市或用户自定义经纬度 */
+export interface SiteLocation {
+  id: string;
+  name: string;
+  /** 纬度（°N，负为南） */
+  lat: number;
+  /** 经度（°E，负为西） */
+  lon: number;
+  /** 相对 UTC 的时区偏移（小时，如 +8） */
+  tz: number;
+}
+
+/** 时钟状态：实时跟随系统时间，或手动设定时刻 */
+export interface ClockState {
+  /** true=跟随系统时间逐帧推进；false=使用 manualMs */
+  live: boolean;
+  /** 手动设定时刻（epoch ms，UTC）。live 为 true 时忽略 */
+  manualMs: number;
+}
+
+/** 天空贴图所需绘制参数（由太阳位置 + 天气推导） */
+export interface SkyParams {
+  /** 天气分类（决定天色调色板与云/雾基调） */
+  kind: WeatherKind;
+  /** 太阳高度角（弧度） */
+  elevation: number;
+  /** 太阳方位角（弧度，自正北顺时针） */
+  azimuth: number;
+  /** 云量（0~1） */
+  cloudCover: number;
+  /** 降水量（mm） */
+  precip: number;
+  /** 能见度（km） */
+  visibility: number;
+  /** 是否白昼 */
+  isDay: boolean;
+}
+
+/** 由太阳位置与天气推导出的光照参数（集中调参，applyLighting 仅改属性） */
+export interface LightingParams {
+  sunIntensity: number;
+  sunColor: number;
+  hemiSky: number;
+  hemiGround: number;
+  hemiIntensity: number;
+  ambientIntensity: number;
+  moonIntensity: number;
+  fogColor: number;
+  fogNear: number;
+  fogFar: number;
+  shadowEnabled: boolean;
+}
+
+/** 环境层对外快照（供 UI 面板展示与读数） */
+export interface EnvironmentSnapshot {
+  location: SiteLocation;
+  clock: ClockState;
+  weather: WeatherSnapshot;
+  /** 当前太阳位置（真实经纬度，自北顺时针；未做"正面朝西"换算） */
+  solar: { azimuth: number; elevation: number };
+  /** 本地日出（当日，分钟，0~1440） */
+  sunriseMin: number;
+  /** 本地日落（当日，分钟，0~1440） */
+  sunsetMin: number;
+}
+
+/** 环境层对外回调接口（由 main.ts 注入渲染动作） */
+export interface EnvironmentCallbacks {
+  /** 天空/环境贴图重建后回调（传入新贴图用于 background 与 PMREM envMap） */
+  onSkyUpdated: (texture: THREE.Texture) => void;
+  /** 光照参数更新回调 */
+  onLightingUpdated: (params: LightingParams) => void;
+  /** 环境快照变化（时间/地点/天气），供 UI 刷新读数 */
+  onSnapshot: (snapshot: EnvironmentSnapshot) => void;
+}
+
+/** 灯光句柄（由 sceneSetup 创建，lighting.applyLighting 仅改其属性） */
+export interface LightHandles {
+  sun: THREE.DirectionalLight;
+  moon: THREE.DirectionalLight;
+  hemi: THREE.HemisphereLight;
+  ambient: THREE.AmbientLight;
+  /** 太阳方向目标点（已 add 到场景） */
+  sunTarget: THREE.Object3D;
+  /** 月亮方向目标点（已 add 到场景） */
+  moonTarget: THREE.Object3D;
+}

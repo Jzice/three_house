@@ -31,11 +31,16 @@ npm run build:all    # 一次同时产出以上两种（发布用这个）
 src/
 ├── main.ts                  # 装配 + 渲染循环（唯一的编排处）
 ├── types.ts                 # 共享类型，无运行时依赖
-├── config/houseConfig.ts    # 户型全部尺寸与构件数据（纯数据 + 少量推导）
+├── config/
+│   ├── houseConfig.ts       # 户型全部尺寸与构件数据（纯数据 + 少量推导）
+│   └── siteConfig.ts        # 站点/环境默认：默认地点武穴、内置城市表、正面朝西换算角、天气刷新
 ├── scene/                   # sceneSetup · materials · builders · stairs · buildHouse
 ├── view/                    # viewState（三模式状态机）· interaction（键鼠）
 ├── floorplan/floorplan2d.ts # 2D 平面图绘制、标注拖拽、测量
-└── ui/ui.ts                 # 按钮绑定与状态同步
+├── environment/             # 环境层：solar(太阳) · weather(Open-Meteo) · sky(天空贴图) · ground(大地/雾) · lighting(光照映射) · environment(编排)
+└── ui/
+    ├── ui.ts                # 既有按钮绑定与状态同步
+    └── envPanel.ts          # 环境面板（地点 / 日照 / 天气，仅 DOM + 回调）
 ```
 
 **依赖必须保持单向，不要引入循环**：
@@ -45,6 +50,7 @@ src/
 - `floorplan` **不得** import `view`：它通过 `getMode()` 回调获知当前模式，重绘动作由 `main.ts` 注入。
 - `ui` **不得** import 任何渲染模块：只做 DOM 与回调，模式切换的具体动作由 `main.ts` 编排。
 - 跨模块的"副作用"（如进入 2D 要重绘）一律通过构造函数回调注入，不要直接 import。
+- **环境层 `src/environment/`**：只依赖 `three` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
 
 ## 4. 核心约定
 
@@ -62,6 +68,7 @@ src/
 产物要能离线独立打开，因此：
 
 - **不要引入外部资源**（图片、字体、JSON、`fetch` 远程数据）。需要贴图请像 `createTileTexture()` 那样用 Canvas 程序化生成，或内联为 data URL。
+- **天气联网是单文件离线约束的刻意例外**：环境层（`src/environment/weather.ts`）会向 Open-Meteo 发起 `fetch` 拉取经纬度实况，属于"可选增强"。默认**关闭**实时天气（不产生任何网络请求），由用户在面板内主动开启；开启后离线 / 超时 / 解析失败一律**静默降级为晴天**（见 `src/environment/environment.ts`），绝不抛未捕获异常、不阻塞首屏或交互；离线打开的单文件仍完全可用，只是天气按晴天渲染。新增任何远程请求前请先确认这一约束。
 - 升级 `three` 时，必须同步更新 `package.json` 的 `three` 与 `vite.config.ts` 的 `THREE_VERSION`，否则 CDN 模式版本不一致。
 
 ### 代码风格
@@ -94,6 +101,13 @@ src/
 | 改键鼠交互 | `src/view/interaction.ts` |
 | 改 2D 平面图 | `src/floorplan/floorplan2d.ts` |
 | 加按钮、改 UI 状态 | `index.html`（DOM）+ `src/ui/ui.ts`（逻辑）+ `src/style.css` |
+| 改默认地点 / 城市列表 / 朝向换算 | `src/config/siteConfig.ts` |
+| 改太阳位置算法 / 日出日落 | `src/environment/solar.ts` |
+| 改天气来源 / WMO 映射 / 降级 | `src/environment/weather.ts` |
+| 改天空外观（昼夜 / 云 / 星空）或地面 / 雾 | `src/environment/sky.ts` / `src/environment/ground.ts` |
+| 改光照强度 / 色温 / 雾浓度映射 | `src/environment/lighting.ts` |
+| 改环境编排（时间 / 地点 / 天气节流、PMREM） | `src/environment/environment.ts` |
+| 改环境面板 UI（地点 / 日照 / 天气交互） | `src/ui/envPanel.ts` + `src/style.css`（`.env-*`） |
 | 改构建 / 发布方式 | `vite.config.ts` + `scripts/build-all.mjs` |
 
 ## 6. 已知陷阱

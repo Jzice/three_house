@@ -1,14 +1,18 @@
 import './style.css';
 
 import { FLOORS } from './config/houseConfig';
+import { WEATHER_ENABLED_DEFAULT } from './config/siteConfig';
 import { buildHouse } from './scene/buildHouse';
 import { createMaterials } from './scene/materials';
-import { createSceneContext, createEnvMap, handleResize, setupLights } from './scene/sceneSetup';
+import { createSceneContext, createLights, handleResize } from './scene/sceneSetup';
+import { createEnvironment } from './environment/environment';
 import { createFloorplan2D } from './floorplan/floorplan2d';
 import { createUI } from './ui/ui';
 import { attachKeyboard, attachPointerInteraction, createKeyState } from './view/interaction';
 import { createViewManager, updateInteractables } from './view/viewState';
 import { createTouchControls } from './view/touchControls';
+import { createEnvPanel } from './ui/envPanel';
+import type { EnvironmentSnapshot } from './types';
 
 function bootstrap(): void {
   const canvas2D = document.getElementById('floorplan-canvas') as HTMLCanvasElement | null;
@@ -16,20 +20,24 @@ function bootstrap(): void {
 
   // ---- 场景 ----
   const ctx = createSceneContext();
-  setupLights(ctx.scene);
+  const lights = createLights(ctx.scene);
   // 3D 画布禁用浏览器默认触摸手势（滚动/双指缩放），否则会抢占第一人称双指转头与上帝视角拖拽
   ctx.renderer.domElement.style.touchAction = 'none';
 
   const materials = createMaterials();
 
-  // 抛光大理石地面 + 楼梯白色切割瓷砖：注入环境贴图产生反射（仅此两种材质，其他不受影响）
-  const envMap = createEnvMap(ctx.renderer);
-  materials.floor.envMap = envMap;
-  materials.floor.envMapIntensity = 1.1;
-  materials.floor.needsUpdate = true;
-  materials.stair.envMap = envMap;
-  materials.stair.envMapIntensity = 0.75;
-  materials.stair.needsUpdate = true;
+  // 环境层：在 buildHouse 之前创建，把初始环境贴图注入 floor/stair；
+  // buildHouse 内部 clone 这两份材质时会带上 envMap 引用（参见 environment.ts）。
+  // onSnapshot 通过可变 sink 延迟绑定到环境面板（envPanel 创建后接管），此处先置空。
+  let envSnapshotSink: (s: EnvironmentSnapshot) => void = () => {};
+  const env = createEnvironment({
+    scene: ctx.scene,
+    renderer: ctx.renderer,
+    lights,
+    materials,
+    weatherEnabled: WEATHER_ENABLED_DEFAULT,
+    callbacks: { onSnapshot: (s) => envSnapshotSink(s) },
+  });
 
   // ---- 两层楼房：按 FLOORS 分别装配（每层独立根节点） ----
   const floors = FLOORS.map((f) => buildHouse(materials, f));
@@ -88,6 +96,10 @@ function bootstrap(): void {
     },
   });
 
+  // ---- 环境面板（地点 / 日照 / 天气） ----
+  const envPanel = createEnvPanel(env);
+  envSnapshotSink = (s) => envPanel.update(s);
+
   // ---- 输入 ----
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
@@ -137,15 +149,20 @@ function bootstrap(): void {
   function animate(): void {
     requestAnimationFrame(animate);
 
-    if (view.getMode() === 'tps') {
+    const mode = view.getMode();
+    if (mode === 'tps') {
       ctx.controls.update();
       // 持续记录当前层的上帝视角，切层后恢复该层上次视图（不重置到初始位置）
       view.saveTpsView();
-    } else if (view.getMode() === 'fps') {
+    } else if (mode === 'fps') {
       view.updateFpsMovement(keys, touch.isTouch ? touch.getMove() : null);
     }
 
-    if (view.getMode() !== '2d') {
+    // 环境层：实时推进时间与天气，按太阳/天气驱动光照。
+    // 2D 模式仅推进状态、不重建天空（回到 3D 立即重建），尊重既有"2D 跳过渲染"约束。
+    env.update(mode !== '2d');
+
+    if (mode !== '2d') {
       updateInteractables(floors[view.activeFloor].interactables);
       ctx.renderer.render(ctx.scene, ctx.camera);
     }
