@@ -191,3 +191,71 @@ export function createEnvMapFrom(renderer: THREE.WebGLRenderer, skyTex: THREE.Te
   pmrem.dispose();
   return target.texture;
 }
+
+/**
+ * 中性日光环境贴图（等距柱状 Canvas）：仅用于地面/楼梯的 envMap 反射，**不含蓝天**，
+ * 避免抛光大理石把蓝色天穹反射到地面而发蓝。渐变取暖白→浅灰→中性灰的日光中性色，
+ * 并按昼夜轻度调暗（夜不纯黑，保留微弱环境反射）；可选在与太阳同向处叠加柔和暖白高光，
+ * 使地面高光随太阳移动。蓝色天空背景（scene.background）与本贴图解耦、互不影响。
+ */
+export function createNeutralEnvTexture(params?: SkyParams): THREE.CanvasTexture {
+  const W = 1024;
+  const H = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，中性环境贴图生成失败');
+
+  const elevDeg = params ? (params.elevation * 180) / Math.PI : 60;
+  const dayFactor = smoothstep(-6, 6, elevDeg); // 0 夜 → 1 昼
+  const bright = 0.18 + 0.82 * dayFactor; // 昼夜亮度系数
+
+  const mix = (hex: number): RGB => {
+    const c = hexToRgb(hex);
+    return { r: c.r * bright, g: c.g * bright, b: c.b * bright };
+  };
+  const skyTop = mix(0xf2f1ec); // 天顶 暖白
+  const horizon = mix(0xcfcfca); // 地平 浅灰（中性略暖）
+  const ground = mix(0x9a9a96); // 地面 中性灰
+
+  const gTop = ctx.createLinearGradient(0, 0, 0, H / 2);
+  gTop.addColorStop(0, `rgb(${skyTop.r | 0},${skyTop.g | 0},${skyTop.b | 0})`);
+  gTop.addColorStop(1, `rgb(${horizon.r | 0},${horizon.g | 0},${horizon.b | 0})`);
+  ctx.fillStyle = gTop;
+  ctx.fillRect(0, 0, W, H / 2);
+
+  const gBot = ctx.createLinearGradient(0, H / 2, 0, H);
+  gBot.addColorStop(0, `rgb(${horizon.r | 0},${horizon.g | 0},${horizon.b | 0})`);
+  gBot.addColorStop(1, `rgb(${ground.r | 0},${ground.g | 0},${ground.b | 0})`);
+  ctx.fillStyle = gBot;
+  ctx.fillRect(0, H / 2, W, H / 2);
+
+  // 与太阳同向的柔和暖白高光（随太阳位置移动），强度随昼夜
+  if (params && dayFactor > 0.05) {
+    const sunDir = toSceneDirection({ azimuth: params.azimuth, elevation: params.elevation });
+    const sunPx = dirToCanvas(sunDir, W, H);
+    const radius = 120 + (1 - dayFactor) * 60;
+    const a = 0.5 * dayFactor;
+    const rg = ctx.createRadialGradient(sunPx.x, sunPx.y, 0, sunPx.x, sunPx.y, radius * 2.4);
+    rg.addColorStop(0, `rgba(255,250,238,${a})`);
+    rg.addColorStop(1, 'rgba(255,250,238,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.arc(sunPx.x, sunPx.y, radius * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** 用 PMREM 把中性日光贴图转成环境贴图（供地面/楼梯反射，不含蓝天） */
+export function createNeutralEnvMap(renderer: THREE.WebGLRenderer, params?: SkyParams): THREE.Texture {
+  const tex = createNeutralEnvTexture(params);
+  const env = createEnvMapFrom(renderer, tex);
+  tex.dispose();
+  return env;
+}

@@ -23,7 +23,6 @@ export const WEATHER_PALETTE: Record<WeatherKind, { sky: number; horizon: number
   thunder: { sky: 0x515a66, horizon: 0x808a96, ground: 0x444c3b },
 };
 
-const NIGHT_SKY = 0x1b2436;
 const NIGHT_GROUND = 0x12160f;
 const NIGHT_HORIZON = 0x222d44;
 
@@ -74,9 +73,15 @@ export function computeLighting(solar: SolarPosition, weather: WeatherSnapshot):
   const sunColor = sunColorByElevation(elevDeg, c);
 
   const pal = WEATHER_PALETTE[weather.kind];
-  const skyColor = new THREE.Color(pal.sky).lerp(new THREE.Color(NIGHT_SKY), 1 - dayFactor);
   const horizonColor = new THREE.Color(pal.horizon).lerp(new THREE.Color(NIGHT_HORIZON), 1 - dayFactor);
-  const groundColor = new THREE.Color(pal.ground).lerp(new THREE.Color(NIGHT_GROUND), 1 - dayFactor);
+  // 半球光地面色改为中性日光（暖灰）：不再用偏绿的 pal.ground，避免室内被草地绿染色；
+  // pal.ground 仍用于天空贴图下半球与户外观感，保持不变。
+  const groundColor = new THREE.Color(0xc4bfb4).lerp(new THREE.Color(NIGHT_GROUND), 1 - dayFactor);
+
+  // 天空环境光改为日光（暖白）：不再使用偏蓝的天色调色板，夜间向低饱和冷色过渡
+  const daySky = new THREE.Color(0xfff2e0);
+  const nightSky = new THREE.Color(0x2a3450);
+  const hemiSkyColor = daySky.clone().lerp(nightSky, 1 - dayFactor);
 
   const hemiIntensity = 0.25 + 0.3 * dayFactor;
   const ambientIntensity = 0.18 + 0.22 * dayFactor + 0.05 * c;
@@ -89,7 +94,7 @@ export function computeLighting(solar: SolarPosition, weather: WeatherSnapshot):
   return {
     sunIntensity,
     sunColor,
-    hemiSky: skyColor.getHex(),
+    hemiSky: hemiSkyColor.getHex(),
     hemiGround: groundColor.getHex(),
     hemiIntensity,
     ambientIntensity,

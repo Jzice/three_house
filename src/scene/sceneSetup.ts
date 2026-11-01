@@ -45,8 +45,8 @@ export function createLights(scene: THREE.Scene): LightHandles {
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
   scene.add(ambientLight);
 
-  // 半球光：天空色（晴昼蓝）/ 地面色（草地绿）厚度 0.6 基准；由环境层覆盖
-  const hemiLight = new THREE.HemisphereLight(0xbcd8ff, 0x6b7a55, 0.6);
+  // 半球光：天空色（晴昼蓝）/ 地面色（中性日光暖灰）厚度 0.6 基准；由环境层覆盖
+  const hemiLight = new THREE.HemisphereLight(0xbcd8ff, 0xc4bfb4, 0.6);
   hemiLight.position.set(0, 20, 0);
   scene.add(hemiLight);
 

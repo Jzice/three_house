@@ -214,10 +214,10 @@ export function createMaterials(): MaterialMap {
   const tileTex = createTileTexture();
   const floorTile = new THREE.MeshStandardMaterial({
     map: tileTex,
-    // 抛光大理石瓷砖：低粗糙度产生明显高光与环境反射（envMap 由环境层注入）
+    // 抛光大理石瓷砖：低粗糙度产生明显高光与环境反射（envMap 由环境层注入，已改为中性日光环境贴图避免发蓝）
     roughness: 0.16,
     metalness: 0.06,
-    envMapIntensity: 1.1,
+    envMapIntensity: 0.8,
   });
   // 楼梯等共用此基础材质，保留默认平铺密度；楼板会在 buildHouse 中按尺寸重设
   tileTex.repeat.set(3, 3);

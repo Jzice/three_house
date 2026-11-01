@@ -48,8 +48,9 @@ function bootstrap(): void {
     ctx,
     canvas2D,
     () => floorplan.draw(),
-    (floor, visible) => {
+    (floor, visible, ceilingVisible) => {
       floors[floor].root.visible = visible;
+      floors[floor].ceiling.visible = ceilingVisible;
     },
     // 第一人称通行判定：门关闭时该门洞不可穿出
     (floor, id) => floors[floor].interactables.some((o) => o.userData.id === id && o.userData.isOpen),

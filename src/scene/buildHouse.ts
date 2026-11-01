@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import type { BoxSpec, FloorConfig, InteractiveObject, MaterialMap } from '../types';
+import type { BoxSpec, FloorConfig, InteractiveObject, MaterialKey, MaterialMap } from '../types';
 import {
   COLUMNS,
+  FLOORS,
   getExteriorWalls,
   getFloorSlabs,
   getInteriorDoors,
@@ -36,6 +37,8 @@ export interface HouseResult {
   root: THREE.Group;
   /** 可点击开合的门窗部件 */
   interactables: InteractiveObject[];
+  /** 本层天花板组（= 上层楼板 / 屋顶板底面），仅第一人称处于该层时可见 */
+  ceiling: THREE.Group;
 }
 
 /**
@@ -49,6 +52,45 @@ function remapBox(spec: BoxSpec, floor: FloorConfig): BoxSpec {
     h: spec.h * k,
     y: floor.baseY + (spec.y / H) * floor.wallH,
   };
+}
+
+/**
+ * 楼板 / 天花板网格：顶面用 topMaterial（地砖或外墙色），底面与四周用白色乳胶漆 paint。
+ * 地砖贴图相位对齐全局砖缝网格（x≡-4.40、z≡-4.90），与 getFloorSlabs 的多块拆分拼缝一致。
+ * 楼板为**世界坐标**（厚度绝对、顶面 = 完成面），故不走 remapBox。
+ */
+function createSlabMesh(
+  spec: BoxSpec,
+  materials: MaterialMap,
+  topMaterial: MaterialKey = 'floor',
+): THREE.Mesh {
+  const topMat = materials[topMaterial];
+  const mat = topMat.clone();
+  // 仅当地砖/墙砖等带贴图材质才重设砖缝相位；纯色材质（如 wall）无 map，直接克隆即可
+  if (topMat.map) {
+    const tex = (topMat.map as THREE.Texture).clone();
+    tex.needsUpdate = true;
+    tex.repeat.set(spec.w / TILE_SIZE, spec.d / TILE_SIZE);
+    // BoxGeometry 顶面 UV：u 随 +x 增大、v 随 -z 增大（three buildPlane('x','z','y',…)），
+    // 故 z 向相位用南沿反推，保证避让梯井的多块楼板拼缝处砖缝对齐。
+    const x0 = spec.x - spec.w / 2;
+    const z1 = spec.z + spec.d / 2;
+    tex.offset.set((x0 + 4.4) / TILE_SIZE, (-4.9 - z1) / TILE_SIZE);
+    mat.map = tex;
+  }
+  // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]：顶面 topMaterial，其余（含底面）为白色乳胶漆
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), [
+    materials.paint,
+    materials.paint,
+    mat,
+    materials.paint,
+    materials.paint,
+    materials.paint,
+  ]);
+  mesh.position.set(spec.x, spec.y, spec.z);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
 }
 
 /** 依据 floor 的标高与层高装配该层整屋 */
@@ -72,34 +114,37 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
   if (floor.stair) addAll(COLUMNS);
 
   // 楼板：每块按自身尺寸设置 0.8m 瓷砖重复。
-  // 楼板为**世界坐标**（厚度 SLAB_T 绝对、不随层高缩放，顶面 = 本层完成面），故不走 remapBox。
   for (const spec of getFloorSlabs(floor)) {
-    const mat = materials.floor.clone();
-    const tex = (materials.floor.map as THREE.Texture).clone();
-    tex.needsUpdate = true;
-    tex.repeat.set(spec.w / TILE_SIZE, spec.d / TILE_SIZE);
-    // 贴图相位对齐**全局砖缝网格**（x≡-4.40、z≡-4.90）：
-    // 楼板为避让梯井拆成多块后，各块若从自身原点起铺，拼缝处砖缝会错位。
-    // BoxGeometry 顶面 UV：u 随 +x 增大、v 随 -z 增大
-    // （three 源码 buildPlane('x','z','y', 1, 1, …)），故 z 向相位用南沿反推。
-    const x0 = spec.x - spec.w / 2;
-    const z1 = spec.z + spec.d / 2;
-    tex.offset.set((x0 + 4.4) / TILE_SIZE, (-4.9 - z1) / TILE_SIZE);
-    mat.map = tex;
-    // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]：顶面为地砖，底面即下层天花板用白色乳胶漆
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), [
-      materials.paint,
-      materials.paint,
-      mat,
-      materials.paint,
-      materials.paint,
-      materials.paint,
-    ]);
-    mesh.position.set(spec.x, spec.y, spec.z);
-    mesh.castShadow = spec.cast ?? false;
-    mesh.receiveShadow = spec.receive ?? false;
-    root.add(mesh);
+    root.add(createSlabMesh(spec, materials));
   }
+
+  // 天花板：本层上方的楼板底面（= 上层楼板 / 屋顶板），仅第一人称处于该层时可见，
+  // 使抬头看到真实天花板而非天空。几何与上层楼板完全一致（含楼梯井洞口），单独成组便于独立显隐。
+  const ceiling = new THREE.Group();
+  ceiling.name = 'ceiling';
+  if (floor.index < FLOORS.length - 1) {
+    const above = FLOORS[floor.index + 1];
+    if (above.roof) {
+      // 3F 天花板 = 平屋顶板（底面白色乳胶漆、其余外墙色，与 roof.ts 一致）
+      const r = above.roof;
+      const { x0, x1, z0, z1 } = r.bounds;
+      const roofSlab: BoxSpec = {
+        w: x1 - x0,
+        h: r.slabT,
+        d: z1 - z0,
+        x: (x0 + x1) / 2,
+        y: above.baseY + r.slabT / 2,
+        z: (z0 + z1) / 2,
+        material: 'wall',
+      };
+      ceiling.add(createSlabMesh(roofSlab, materials, 'wall'));
+    } else {
+      for (const spec of getFloorSlabs(above)) {
+        ceiling.add(createSlabMesh(spec, materials));
+      }
+    }
+  }
+  root.add(ceiling);
 
   // 可交互窗（按层抬升 + 竖向缩放；推拉窗走滑动逻辑；大窗走下方小窗格对开）
   for (const spec of getWindows(floor)) {
@@ -171,7 +216,7 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
     addVoidGuard(materials, floor, root);
   }
 
-  return { root, interactables };
+  return { root, interactables, ceiling };
 }
 
 /**

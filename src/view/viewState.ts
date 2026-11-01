@@ -152,7 +152,7 @@ export function createViewManager(
   ctx: SceneContext,
   canvas2D: HTMLCanvasElement,
   onEnter2D: () => void,
-  setFloorVisible: (floor: number, visible: boolean) => void,
+  setFloorVisible: (floor: number, visible: boolean, ceilingVisible: boolean) => void,
   isDoorOpen?: (floor: number, id: string) => boolean,
   onAutoFloor?: (floor: number) => void,
 ): ViewManager {
@@ -170,16 +170,26 @@ export function createViewManager(
   let lastMoveTime = performance.now();
 
   /**
-   * 可见性：3D 模式（上帝视角 / 第一人称）统一显示**活动层及其以下各层**；2D 全隐藏。
-   * - 上帝视角：需要看到活动层以下的完整楼体（点 2F 见 1F+2F）。
-   * - 第一人称：楼梯井开口向下即是下层楼梯，若只显示活动层，井口会露出场景背景色（灰块），
-   *   故与上帝视角保持一致，下层楼体一并显示。
+   * 可见性：
+   * - 2D：全隐藏。
+   * - 上帝视角：仅显示活动层及其以下（外部俯瞰，隐藏上层避免遮挡）。
+   * - 第一人称：显示**完整楼栋**（含上方各层墙体、楼板与屋顶），使楼梯井四周可见 2F 实墙遮挡、
+   *   顶端由屋顶板封顶，不再透出天空；同时上层真实楼板即充当天花板。
+   * 天花板（= 上层楼板底面的替身）仅在该层「上方楼层被隐藏」时显示，避免与上层真实楼板重复渲染/闪烁。
    */
   function applyVisibility(): void {
     const mode = floorStates[activeFloor].mode;
+    const N = floorStates.length;
+    // 各层主组可见性
+    const mainVisible = floorStates.map((_, i) =>
+      mode === '2d' ? false : mode === 'fps' ? true : i <= activeFloor,
+    );
+    // 天花板替身：仅第一人称且“上层（i+1）不可见”时显示（上层可见时其楼板自身即天花板）
+    const ceilingVisible = floorStates.map(
+      (_, i) => mode === 'fps' && i < N - 1 && !mainVisible[i + 1],
+    );
     floorStates.forEach((_, i) => {
-      const visible = mode === '2d' ? false : i <= activeFloor;
-      setFloorVisible(i, visible);
+      setFloorVisible(i, mainVisible[i], ceilingVisible[i]);
     });
   }
 
@@ -282,6 +292,7 @@ export function createViewManager(
    * @param fromInside 本次移动前人是否位于屋内（屋内 → 门洞需开门；门洞/院内 → 门洞可通行）
    */
   function isWalkable(area: FpsWalkArea, x: number, z: number, fromInside: boolean): boolean {
+    if (area.freeRoam) return true; // 上层完全放开：穿墙/悬空均可
     if (inRect(area.inside, x, z)) return true;
     for (const d of area.doors) {
       if (!inRect(d, x, z)) continue;

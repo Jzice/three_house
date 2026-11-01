@@ -148,6 +148,8 @@ export interface FpsWalkArea {
   slope?: { ax: number; az: number; bx: number; bz: number };
   /** 院子铺装顶面标高（出屋后的眼高基准） */
   yardTopY: number;
+  /** 完全放开漫游：跳过所有行走边界判定（含穿墙/悬空），用于上层第一人称自由查看 */
+  freeRoam?: boolean;
 }
 
 /** 带交互数据的 Object3D */

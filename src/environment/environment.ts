@@ -23,7 +23,7 @@ import type {
 import { DEFAULT_LOCATION, FALLBACK_WEATHER } from '../config/siteConfig';
 import { solarPosition, toSceneDirection, sunTimes, utcToLocalMinutes } from './solar';
 import { createWeatherService, type WeatherService } from './weather';
-import { createSkyTexture, createEnvMapFrom } from './sky';
+import { createSkyTexture, createNeutralEnvMap } from './sky';
 import { createGround, applyFog } from './ground';
 import { computeLighting, applyLighting } from './lighting';
 
@@ -154,9 +154,11 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   /** 重建天空贴图与 PMREM 环境贴图 */
   function rebuildSky(): void {
     const solar = solarPosition(currentUtcMs(), location.lat, location.lon);
-    const skyTex = createSkyTexture(makeSkyParams(solar.elevation, solar.azimuth));
-    scene.background = skyTex;
-    const env = createEnvMapFrom(renderer, skyTex);
+    const skyParams = makeSkyParams(solar.elevation, solar.azimuth);
+    const skyTex = createSkyTexture(skyParams);
+    scene.background = skyTex; // 蓝色天空背景保持不变
+    // 反射用环境贴图改为中性日光（不含蓝天），避免地面/楼梯反射出发蓝
+    const env = createNeutralEnvMap(renderer, skyParams);
     applyEnvMapToScene(env, currentEnvMap === null);
 
     if (currentSkyTex && currentSkyTex !== skyTex) currentSkyTex.dispose();

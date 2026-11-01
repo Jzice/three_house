@@ -449,7 +449,9 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   }
 
   const y = floor.yard;
-  if (!y) return { inside, doors, yard: [], yardTopY: floor.baseY };
+  // 2F/3F 第一人称完全放开：跳过所有行走边界判定（含穿墙/悬空），可在楼层内自由穿行到任意位置
+  const freeRoam = floor.index === 1 || floor.index === 2;
+  if (!y) return { inside, doors, yard: [], yardTopY: floor.baseY, freeRoam };
 
   // 院子边界（与 yard.ts 的铺装/围墙一致）
   const xEast = W / 2 + y.extendEast;
