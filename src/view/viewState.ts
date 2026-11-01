@@ -39,6 +39,8 @@ export interface ViewManager {
   getMode(): ViewMode;
   /** 当前活动楼层的视角状态 */
   getState(): ViewState;
+  /** 当前 UI 指示楼层（按钮 / 小地图所用：按完成面判定"已到达楼层"，与可见层解耦） */
+  getUiFloor(): number;
 }
 
 const FPS_SPEED = 0.08;
@@ -56,6 +58,9 @@ const STAIR_MATCH_LIMIT = 1.0;
 const walkAreas: FpsWalkArea[] = FLOORS.map((f) => getFpsWalkArea(f));
 /** 各层的楼梯行走面（无楼梯为 null） */
 const stairSurfaces: (StairSurface | null)[] = FLOORS.map((f) => getStairSurface(f));
+/** 各楼梯段休息台顶面标高（脚高）：baseY + platformH；无楼梯的楼层段为 -Infinity */
+const stairLandingY = FLOORS.map((f) => (f.stair ? f.baseY + f.stair.platformH : -Infinity));
+
 
 /** 点是否落在矩形区域内 */
 function inRect(r: WalkRect, x: number, z: number): boolean {
@@ -159,6 +164,8 @@ export function createViewManager(
   let groundY = FLOORS[0].baseY;
   /** 第一人称所属楼层（人在哪一层：楼梯半层归属下层楼层；离开楼梯后保持） */
   let levelFloor = 0;
+  /** 第一人称 UI 指示楼层（按钮 / 小地图）：按完成面判定"已到达楼层"，与可见层（休息台即切上层）解耦 */
+  let uiFloor = 0;
   /** 上一帧移动更新的时刻（用于眼高插值的帧率无关平滑） */
   let lastMoveTime = performance.now();
 
@@ -200,6 +207,7 @@ export function createViewManager(
       camera.position.copy(st.fpsPos);
       // 脚下标高按当前位置重算（可能正站在楼梯上），眼高随之对齐，并重置平滑计时
       levelFloor = activeFloor;
+      uiFloor = activeFloor;
       groundY = resolveGround(
         walkAreas[activeFloor],
         camera.position.x,
@@ -227,6 +235,7 @@ export function createViewManager(
     if (floor === activeFloor) return;
     const mode = floorStates[activeFloor].mode;
     activeFloor = floor;
+    uiFloor = floor;
     const st = floorStates[activeFloor];
     st.mode = mode;
 
@@ -339,6 +348,23 @@ export function createViewManager(
     return f;
   }
 
+  /**
+   * 由脚下标高推出第一人称"应处于的活动层"——用于上下楼自动切层（可见层）。
+   * 落在第 g 段楼梯（FLOORS[g].baseY ≤ 脚高 < FLOORS[g+1].baseY）时，
+   * 脚高越过该段休息台即归上层（g+1），否则归下层（g）；休息台本身归上层。
+   * 平层 / 高于所有楼梯段时按完成面就近归入（floorForHeight）。
+   */
+  function activeFloorForFoot(foot: number): number {
+    for (let g = 0; g < FLOORS.length - 1; g++) {
+      const land = stairLandingY[g];
+      if (land <= -Infinity) continue; // 该段无楼梯（如 3F→屋顶），跳过
+      if (foot < FLOORS[g + 1].baseY) {
+        return foot >= land ? g + 1 : g;
+      }
+    }
+    return floorForHeight(foot);
+  }
+
   /** 自动切层（上下楼）：保持相机位置与朝向，仅切换活动层并通知外部同步 UI */
   function autoSwitchFloor(floor: number): void {
     if (floor === activeFloor) return;
@@ -350,7 +376,6 @@ export function createViewManager(
     // 新层的位置即当前位置；旧层位置保持"上次真正待在旧层时"的记录（此刻人已在楼梯/新层上）
     st.fpsPos.copy(camera.position);
     applyVisibility();
-    if (onAutoFloor) onAutoFloor(floor);
   }
 
   function updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void {
@@ -398,9 +423,16 @@ export function createViewManager(
     const alpha = 1 - Math.exp(-dt / EYE_SMOOTH_TAU);
     camera.position.y += (targetEye - camera.position.y) * alpha;
 
-    // 上下楼：按脚下标高自动切层（爬到梯顶进入上一层、走下梯底回到下一层）
-    const f = floorForHeight(ground.step);
-    if (f !== activeFloor) autoSwitchFloor(f);
+    // 上下楼：可见层按"越过中段休息台即进入上层"加载（1F→2F 脚高 2.5m、2F→3F 5.3m），
+    // 使上层图层在上梯口之前就加载，避免透过楼梯洞口看到空房间；下楼对称。
+    // UI 指示（按钮 / 小地图）则按"已到达楼层"（完成面）走，休息台上仍显示下层。
+    const layer = activeFloorForFoot(ground.step);
+    if (layer !== activeFloor) autoSwitchFloor(layer);
+    const ui = floorForHeight(ground.step);
+    if (ui !== uiFloor) {
+      uiFloor = ui;
+      if (onAutoFloor) onAutoFloor(ui);
+    }
 
     // 记录本层第一人称位置（切模式/切层后可恢复原处）
     floorStates[activeFloor].fpsPos.copy(camera.position);
@@ -426,6 +458,7 @@ export function createViewManager(
     saveTpsView,
     getMode: () => floorStates[activeFloor].mode,
     getState: () => floorStates[activeFloor],
+    getUiFloor: () => uiFloor,
   };
 }
 

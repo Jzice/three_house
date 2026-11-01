@@ -57,7 +57,7 @@ function bootstrap(): void {
   // ---- 2D 平面图（按当前活动层绘制对应户型） ----
   const floorplan = createFloorplan2D(canvas2D, {
     getMode: () => view.getMode(),
-    getFloor: () => FLOORS[view.activeFloor],
+    getFloor: () => FLOORS[view.getUiFloor()],
     onMeasuringChange: (active) => ui.setMeasuring(active),
   });
 
