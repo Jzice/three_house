@@ -129,11 +129,12 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   const segLen = gz - gateHalf - rearEastZ;
   addFence(t, segLen, xEast - t / 2, (gz - gateHalf + rearEastZ) / 2, hf);
 
-  // ---- 院门外踏步：街面（y=0）两级台阶升至铺装面（y=paveH），宽度=前院进深、居中于院门，逐层内收 ----
+  // ---- 院门外踏步：街面（y=0）两级台阶升至铺装面（y=paveH），宽度 1.8m、居中于院门，逐层内收 ----
+  const stepW = 1.8; // 院门台阶宽度（小于 2.4m 门洞，居中内收）
   const addStep = (xc: number, yBot: number, yTop: number): void => {
     const h = yTop - yBot;
     const s = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, h, spec.extendSouth),
+      new THREE.BoxGeometry(0.4, h, stepW),
       materials.wall,
     );
     s.position.set(xc, yBot + h / 2, gz);
