@@ -10,8 +10,10 @@ export type MaterialKey =
   | 'stair'
   | 'railing'
   | 'railingGray'
-  /** 不锈钢（银色高金属）：扶手横杆 / 装饰圆钮 / 端头球头 */
+  /** 不锈钢（银色高金属）：扶手装饰圆钮 / 底座 / 端头球头 */
   | 'stainless'
+  /** 拉丝不锈钢（缎面银灰，纯材质参数无贴图）：扶手下方 4 根平行横杆专用 */
+  | 'stainlessBrushed'
   | 'pvc'
   /** 白色乳胶漆：各层内墙、天花板、承重柱统一使用 */
   | 'paint'

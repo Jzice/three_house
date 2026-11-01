@@ -140,6 +140,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       materials.floor.needsUpdate = true;
       materials.stair.envMap = env;
       materials.stair.needsUpdate = true;
+      // 拉丝不锈钢横杆：高金属度若无环境贴图会发黑，必须同步注入
+      materials.stainlessBrushed.envMap = env;
+      materials.stainlessBrushed.needsUpdate = true;
     }
     const old = currentEnvMap;
     if (!isInitial && old) {

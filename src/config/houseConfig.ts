@@ -146,8 +146,11 @@ export const STAIR = {
   knobD: 0.026,
   /** 装饰圆钮球心距柱面的凸出量（米） */
   knobOut: 0.002,
-  /** 平台转角圆弧弯头半径（米） */
-  elbowR: 0.1,
+  /**
+   * 转角圆弧弯头半径上限（米）：实际半径按相邻直段长度夹取
+   * （休息平台 / 梯口横移只有 0.16m，会被夹到 0.08m）。
+   */
+  elbowR: 0.15,
   stepThickness: 0.15,
   stepWidth: 1.1,
   /** 踏步面层厚度（白色切割瓷砖 + 粘结层）：梯段实体的阶梯顶线比踏面低此值 */
@@ -177,9 +180,15 @@ export const PLATFORM_FRONT_Z = BACK_WALL_INNER + STAIR.platformDepth;
 /** 第一段楼梯起步 Z */
 export const RUN1_START_Z = PLATFORM_FRONT_Z + STAIR.run1Length;
 
-/** 3F 楼梯洞口护栏（水平段）位置：z 为护栏所在 z，x0/x1 为覆盖的洞口西侧半段。
- *  由 stairs.buildStairHandrail（连续扶手末端）与 getFpsWalkArea（栏杆碰撞）共用，避免两处漂移。 */
-export const VOID_GUARD = { z: -1.33, x0: -4.4, x1: -3.26 };
+/**
+ * 3F 楼梯洞口护栏（水平段）位置：z 为护栏所在 z，x0/x1 为覆盖的洞口西侧半段。
+ * 由 stairs.buildStairHandrail（整楼扶手末端折线）与 getFpsWalkArea（栏杆碰撞）共用，避免两处漂移。
+ * - z 由 -1.33 收到 -1.22：与 2F 第二跑顶端（z=-1.28）连成一条近直线，柱底 10cm 底座落在 3F 走道板上
+ *   （原 -1.33 落在梯井洞内、柱底悬空）；
+ * - x1 由 -3.26 外移到 -3.5：把梯口转角拉长到 0.33m，让 elbowR=0.1 的圆弧弯头有足够空间，
+ *   否则半径被夹到 4.5cm、转角发尖；护栏净长 0.9m，两根立柱间距合理。
+ */
+export const VOID_GUARD = { z: -1.22, x0: -4.4, x1: -3.5 };
 
 // ==========================================================
 // 构件声明工具

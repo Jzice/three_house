@@ -23,7 +23,7 @@ export interface HandrailParams {
   knobD: number;
   /** 装饰圆钮球心距柱面的凸出量（米） */
   knobOut: number;
-  /** 平台转角圆弧弯头半径（米） */
+  /** 转角圆弧半径上限（米），实际半径按相邻直段长度夹取 */
   elbowR: number;
 }
 
@@ -35,34 +35,51 @@ export interface HandrailPost {
   baseY: number;
 }
 
-/** 一段连续扶手的构造参数 */
+/** 一段直跑扶手的立柱与横杆构造参数（顶管由 createStraightRailTube 统一生成） */
 export interface HandrailRunOpts {
-  /** 顶扶手中心线起点（世界坐标，y 已含立柱落地 y + railHeight） */
+  /** 顶扶手中心线起点（世界坐标，y 为顶管中心标高） */
   start: THREE.Vector3;
   /** 顶扶手中心线终点 */
   end: THREE.Vector3;
-  /** 立柱（落地位置；立柱高度自动取到顶管中心线） */
+  /** 立柱（落地位置；柱顶高度按顶管实轴线反算） */
   posts: HandrailPost[];
   /** 立柱高度基准（= 顶管中心线到落地面的名义高度，用于横杆/圆钮等距） */
   railHeight: number;
-  /** 是否在起点/终点加金属球头（与转角弯头衔接的端头可关闭） */
-  startBall?: boolean;
-  endBall?: boolean;
-  /** 是否生成顶扶手圆管（连续贯通模式下由外部统一管替代，可关闭仅保留立柱/横杆/圆钮） */
-  topTube?: boolean;
   /** 共享材质字典 */
   materials: MaterialMap;
   /** 扶手造型参数 */
   params: HandrailParams;
 }
 
+/** 折线扶手管：每段严格笔直，内部顶点以圆弧转角衔接 */
+export interface StraightRailOpts {
+  /** 顶扶手中心线折线顶点（世界坐标，含 y） */
+  points: THREE.Vector3[];
+  /** 转角圆弧半径上限（米） */
+  elbowR: number;
+  /** 管半径（米） */
+  tubeR: number;
+  material: THREE.Material;
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
+/** 柱顶微插入量（米）：吃掉多边形管壁的弦高，保证顶死不露缝又不冒出扶手 */
+const MITER_EMBED = 0.0005;
+/** 转角夹角过小视为共线（直接斜接），过大（接近折返）几何退化则跳过 */
+const MIN_ELBOW_ANGLE = Math.PI / 180;
+const MAX_ELBOW_ANGLE = (Math.PI * 170) / 180;
+/** 圆管截面边数：圆柱与圆环共用，保证接缝不错位 */
+const TUBE_SEGMENTS = 16;
+
 // 模块级临时向量，避免每次摆放 new
 const _dir = new THREE.Vector3();
 const _dirH = new THREE.Vector3();
-const _mid = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _m = new THREE.Matrix4();
+const _e1 = new THREE.Vector3();
+const _e2 = new THREE.Vector3();
+const _e3 = new THREE.Vector3();
 
 function alignYToDir(target: THREE.Object3D, dir: THREE.Vector3): void {
   _dir.copy(dir).normalize();
@@ -71,15 +88,35 @@ function alignYToDir(target: THREE.Object3D, dir: THREE.Vector3): void {
 }
 
 /**
- * 生成一段连续扶手：顶圆管 + 两端金属球头 + 酒红方柱（柱身沿走向两侧不锈钢装饰圆钮，
- * 与横杆穿柱点一一对齐，柱底金属底座）+ 等距不锈钢横杆（水平段水平、斜段随坡度倾斜）。
+ * 立柱几何：方柱，柱顶按扶手坡度斜切。
+ * 斜切后顶面与顶管轴线平行、沿柱厚方向等坡升降，柱顶整条母线贴住圆管下缘，
+ * 既不留楔形空隙，也绝不会高出扶手表面。
+ * @param slopeTan 扶手轴线竖向坡度（上升/水平，局部 +z 为扶手走向）
+ */
+function createPostGeometry(w: number, h: number, d: number, slopeTan: number): THREE.BufferGeometry {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  if (Math.abs(slopeTan) > 1e-4) {
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    const top = h / 2;
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getY(i) > top - 1e-6) pos.setY(i, top + slopeTan * pos.getZ(i));
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+  }
+  return geo;
+}
+
+/**
+ * 生成一段直跑扶手的立柱与横杆（顶管由 createStraightRailTube 统一生成）：
+ * 柱底金属底座 + 黑漆斜切顶扁柱（柱身两侧不锈钢圆钮，与横杆穿柱点一一对齐）
+ * + 等距拉丝不锈钢横杆（严格平行扶手轴线）。
  *
- * 立柱由调用方逐根给定落地位置（可贴合楼梯踏步面），库内按落地标高反推其在段上的位置，
- * 使柱顶精确顶到顶管斜线；横杆沿段方向与顶管平行、竖直等距偏移。
- * 所有几何按段尺寸共享实例，仅摆放位置/朝向；一次性生成，渲染循环不 new。
+ * 柱顶高度按**顶管实轴线**反算（中心线 − 管半径/cosθ），而非弦线插值，
+ * 因此即使扶手斜段带坡度，柱顶也精确贴住圆管下缘。
  */
 export function createHandrailRun(o: HandrailRunOpts): THREE.Group {
-  const { start, end, posts, railHeight, startBall = true, endBall = true, topTube = true, materials, params } = o;
+  const { start, end, posts, railHeight, materials, params } = o;
   const { postW, postD, baseW, baseH, handrailD, barCount, barD, barInset, knobD, knobOut } = params;
   const group = new THREE.Group();
 
@@ -88,91 +125,68 @@ export function createHandrailRun(o: HandrailRunOpts): THREE.Group {
   _dir.normalize();
 
   // 水平走向：装饰圆钮/横杆穿柱的方向（斜段取水平投影）
+  // 注意 runLenH 必须是**水平投影长度**（米），不能用单位向量的水平分量
+  const runLenH = Math.hypot(end.x - start.x, end.z - start.z);
   _dirH.set(_dir.x, 0, _dir.z);
-  if (_dirH.lengthSq() < 1e-8) _dirH.set(1, 0, 0);
+  if (runLenH < 1e-8) _dirH.set(1, 0, 0);
   else _dirH.normalize();
 
-  // ---- 顶扶手圆管（沿 start→end；连续贯通模式下由外部统一管替代，此项可关闭） ----
-  if (topTube) {
-    const topGeo = new THREE.CylinderGeometry(handrailD / 2, handrailD / 2, len, 16);
-    const top = new THREE.Mesh(topGeo, materials.railing);
-    alignYToDir(top, _dir);
-    _mid.addVectors(start, end).multiplyScalar(0.5);
-    top.position.copy(_mid);
-    top.castShadow = false;
-    group.add(top);
+  const topDy = end.y - start.y;
+  // 斜段把"沿轴"的半径投影到竖向：柱顶需再上抬 r/cosθ 才贴到圆管下缘
+  const cosT = Math.max(0.2, runLenH / len);
+  // 局部 +z（扶手走向）上的竖向坡度，用于柱顶等坡斜切
+  const slopeTan = topDy / Math.max(1e-6, runLenH);
 
-    // ---- 端头金属球头 ----
-    const ballGeo = new THREE.SphereGeometry(handrailD / 2, 16, 12);
-    if (startBall) {
-      const ball = new THREE.Mesh(ballGeo, materials.stainless);
-      ball.position.copy(start);
-      ball.castShadow = false;
-      group.add(ball);
-    }
-    if (endBall) {
-      const ball = new THREE.Mesh(ballGeo, materials.stainless);
-      ball.position.copy(end);
-      ball.castShadow = false;
-      group.add(ball);
-    }
-  }
-
-  // ---- 立柱 + 底座 + 沿走向两侧装饰圆钮 ----
   const baseGeo = new THREE.BoxGeometry(baseW, baseH, baseW);
   const knobGeo = new THREE.SphereGeometry(knobD / 2, 14, 10);
   const knobOffset = postD / 2 + knobOut; // 圆钮沿栏杆走向凸出，半厚 = postD/2
   const stepOffset = railHeight / (barCount + 1); // 相邻横杆的竖直间距
-  const topDy = end.y - start.y;
-  const runLenH = Math.hypot(end.x - start.x, end.z - start.z); // 段水平投影长度
+  const yaw = Math.atan2(_dirH.x, _dirH.z);
 
   for (const post of posts) {
-    // 按立柱水平位置反推其在段上的占比，使柱顶精确顶到顶管底面（中心线 - 半径），
-    // 立柱底部（post.baseY）为其所在踏步 / 楼板顶面，既不插入踏步也不悬空
+    // 按立柱水平位置反推其在段上的占比，求顶管轴线在该柱位的标高
     let t = 0;
     if (runLenH > 1e-6) {
       const dx = post.x - start.x;
       const dz = post.z - start.z;
       t = THREE.MathUtils.clamp((dx * _dirH.x + dz * _dirH.z) / runLenH, 0, 1);
     }
-    const topY = start.y + topDy * t;
-    const h = Math.max(0.05, topY - handrailD / 2 - post.baseY);
+    const axisY = start.y + topDy * t;
+    // 柱顶标高 = 轴线 − 管半径/cosθ + 微插入：柱身始终在扶手下方
+    const topY = axisY - handrailD / 2 / cosT + MITER_EMBED;
+    const h = Math.max(0.05, topY - post.baseY);
 
-    const postMesh = new THREE.Mesh(new THREE.BoxGeometry(postW, h, postD), materials.blackPost);
+    const postMesh = new THREE.Mesh(createPostGeometry(postW, h, postD, slopeTan), materials.blackPost);
     postMesh.position.set(post.x, post.baseY + h / 2, post.z);
-    postMesh.rotation.y = Math.atan2(_dirH.x, _dirH.z); // 薄边沿栏杆走向
+    postMesh.rotation.y = yaw; // 薄边沿栏杆走向
     postMesh.castShadow = false;
     group.add(postMesh);
 
     const base = new THREE.Mesh(baseGeo, materials.stainless);
     base.position.set(post.x, post.baseY + baseH / 2, post.z);
-    base.rotation.y = Math.atan2(_dirH.x, _dirH.z);
+    base.rotation.y = yaw;
     base.castShadow = false;
     group.add(base);
 
     // 圆钮：沿走向前后两面各一列，高度与横杆穿柱点一一对齐
     for (let j = 1; j <= barCount; j++) {
-      const y = topY - stepOffset * j;
+      const y = axisY - stepOffset * j;
       for (const s of [1, -1]) {
         const knob = new THREE.Mesh(knobGeo, materials.stainless);
-        knob.position.set(
-          post.x + _dirH.x * knobOffset * s,
-          y,
-          post.z + _dirH.z * knobOffset * s,
-        );
+        knob.position.set(post.x + _dirH.x * knobOffset * s, y, post.z + _dirH.z * knobOffset * s);
         knob.castShadow = false;
         group.add(knob);
       }
     }
   }
 
-  // ---- 不锈钢横杆：沿段方向，与顶管平行、竖直等距，两端缩进 ----
+  // ---- 拉丝不锈钢横杆：沿段方向、与顶管严格平行，竖直等距，两端缩进 ----
   const barLen = Math.max(0.01, len - 2 * barInset);
   const barGeo = new THREE.CylinderGeometry(barD / 2, barD / 2, barLen, 12);
   for (let j = 1; j <= barCount; j++) {
     _pos.addVectors(start, end).multiplyScalar(0.5);
     _pos.y -= stepOffset * j;
-    const bar = new THREE.Mesh(barGeo, materials.stainless);
+    const bar = new THREE.Mesh(barGeo, materials.stainlessBrushed);
     alignYToDir(bar, _dir);
     bar.position.copy(_pos);
     bar.castShadow = false;
@@ -183,19 +197,80 @@ export function createHandrailRun(o: HandrailRunOpts): THREE.Group {
 }
 
 /**
- * 整楼连续扶手圆管：沿 waypoints（折线，含各转角）用 centripetal CatmullRom 平滑贯通，
- * 转角处自然平滑弯过（无球头、无分段），形成一根连续 PVC 管。
+ * 整楼扶手圆管：按折线逐段生成**直圆柱**（自带端盖），内部顶点处用**圆弧转角**衔接。
+ *
+ * - 直段轴心严格等于折线方向 → 斜段自然平行梯段坡度，不再被平滑算法带弯；
+ * - 转角半径按相邻两段长度夹取（本项目休息平台横移仅 0.16m，需收敛到 0.08）；
+ * - 圆柱端盖与圆环端截面同径同面，接缝无缝且无 z-fighting；
+ * - 各层扶手作为独立对象挂到对应楼层 root，末端圆柱自带端盖即天然在楼层交接处封口。
  */
-export function createContinuousHandrailTube(
-  waypoints: THREE.Vector3[],
-  tubeR: number,
-  material: THREE.Material,
-): THREE.Mesh {
-  const curve = new THREE.CatmullRomCurve3(waypoints, false, 'centripetal', 0.5);
-  const approxLen = curve.getLength();
-  const tubular = Math.max(16, Math.ceil(approxLen / 0.08));
-  const geo = new THREE.TubeGeometry(curve, tubular, tubeR, 16, false);
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.castShadow = false;
-  return mesh;
+export function createStraightRailTube(o: StraightRailOpts): THREE.Group {
+  const { points, elbowR, tubeR, material } = o;
+  const group = new THREE.Group();
+  const n = points.length;
+  if (n < 2) return group;
+
+  const dirs: THREE.Vector3[] = [];
+  const lens: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const v = new THREE.Vector3().subVectors(points[i + 1], points[i]);
+    lens.push(v.length());
+    dirs.push(v.clone().normalize());
+  }
+
+  // 每个内部顶点的圆弧半径与两侧切削量（端点无转角，切削量为 0）
+  const radii = new Array<number>(n).fill(0);
+  const thetas = new Array<number>(n).fill(0);
+  const trims = new Array<number>(n).fill(0);
+  for (let i = 1; i < n - 1; i++) {
+    const dIn = dirs[i - 1];
+    const dOut = dirs[i];
+    const theta = Math.acos(THREE.MathUtils.clamp(dIn.dot(dOut), -1, 1));
+    thetas[i] = theta;
+    if (theta < MIN_ELBOW_ANGLE || theta > MAX_ELBOW_ANGLE) continue;
+    const tanHalf = Math.tan(theta / 2);
+    // 半径受两侧直段长度约束：两侧切削量之和不超过该段长度（各占一半）
+    const r = Math.min(elbowR, lens[i - 1] / (2 * tanHalf), lens[i] / (2 * tanHalf));
+    if (r < tubeR * 1.2) continue; // 半径过小则退化为斜接，避免圆环自穿
+    radii[i] = r;
+    trims[i] = r * tanHalf;
+  }
+
+  // ---- 直段：圆柱（自带端盖），严格沿折线方向 ----
+  for (let i = 0; i < n - 1; i++) {
+    const S = points[i].clone().addScaledVector(dirs[i], trims[i]);
+    const E = points[i + 1].clone().addScaledVector(dirs[i], -trims[i + 1]);
+    const len = S.distanceTo(E);
+    if (len < 1e-4) continue; // 两侧圆弧相切，直段收敛为 0
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(tubeR, tubeR, len, TUBE_SEGMENTS, 1, false), material);
+    alignYToDir(mesh, dirs[i]);
+    mesh.position.addVectors(S, E).multiplyScalar(0.5);
+    mesh.castShadow = false;
+    group.add(mesh);
+  }
+
+  // ---- 转角：圆弧弯头（TorusGeometry 的局部 +Y 对应入向、切向连续） ----
+  for (let i = 1; i < n - 1; i++) {
+    const R = radii[i];
+    if (R <= 0) continue;
+    const theta = thetas[i];
+    const dIn = dirs[i - 1];
+    const dOut = dirs[i];
+    const sinT = Math.sin(theta);
+    const cosT = Math.cos(theta);
+    // e1 为局部 +X（弧起点方向），e2 = dIn 为局部 +Y，保证弧的起止切向与两侧直段一致
+    _e1.copy(dIn).multiplyScalar(cosT).sub(dOut).multiplyScalar(1 / sinT);
+    _e2.copy(dIn);
+    _e3.crossVectors(_e1, _e2);
+    const center = points[i].clone().addScaledVector(dIn, -trims[i]).addScaledVector(_e1, -R);
+    const tubular = Math.max(6, Math.ceil(theta / (Math.PI / 18)));
+    const mesh = new THREE.Mesh(new THREE.TorusGeometry(R, tubeR, TUBE_SEGMENTS, tubular, theta), material);
+    _m.makeBasis(_e1, _e2, _e3);
+    mesh.quaternion.setFromRotationMatrix(_m);
+    mesh.position.copy(center);
+    mesh.castShadow = false;
+    group.add(mesh);
+  }
+
+  return group;
 }

@@ -210,9 +210,10 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
     root.add(createYard(floor.yard, materials));
   }
 
-  // 整楼连续扶手：1F→3F 一根贯通 PVC 管（含 3F 楼梯洞口护栏），仅在首层构建一次
-  if (floor.index === 0) {
-    root.add(buildStairHandrail(materials));
+  // 楼梯扶手按楼层构建，作为该层 root 的子节点：
+  // 选中某层时整体显示、其余层隐藏（第三人称"各层整体显示"），扶手在楼层交接处随各自圆管端盖自然封口。
+  if (floor.stair || floor.index === 2) {
+    root.add(buildStairHandrail(materials, floor));
   }
 
   return { root, interactables, ceiling };

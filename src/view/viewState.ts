@@ -100,7 +100,10 @@ const tmpForward = new THREE.Vector3();
 const tmpRight = new THREE.Vector3();
 const tmpEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-/** 上帝视角：某层可见整体体量（活动层及其以下各层）的竖向顶标高（自地面 0 起算） */
+/**
+ * 上帝视角：当前活动层可见整体体量（活动层及其以下各层）的竖向顶标高（自地面 0 起算）。
+ * 第三人称显示整体楼栋，机位据此把整栋框入画面中部。
+ */
 function visibleMassTop(index: number): number {
   const f = FLOORS[index];
   if (f.wallH > 0) return f.baseY + f.wallH; // 楼层：至墙顶
@@ -110,8 +113,8 @@ function visibleMassTop(index: number): number {
 
 /**
  * 上帝视角机位（按可见整体体量自适应）：
- * - 目标点取体量竖向中心 → 建筑落在屏幕正中（原先锚在活动层楼面，越高层整栋越偏低）
- * - 机位沿固定水平方位 + 固定俯角，体量更高时自动后拉，保证整栋入画
+ * - 目标点取体量竖向中心 → 建筑落在屏幕正中；
+ * - 机位沿固定水平方位 + 固定俯角，体量更高时自动后拉，保证整栋入画。
  */
 function computeTpsFrame(index: number): { pos: THREE.Vector3; target: THREE.Vector3 } {
   const top = visibleMassTop(index);
@@ -194,7 +197,8 @@ export function createViewManager(
   /**
    * 可见性：
    * - 2D：全隐藏。
-   * - 上帝视角：仅显示活动层及其以下（外部俯瞰，隐藏上层避免遮挡）。
+   * - 上帝视角：**显示活动层及其以下各层**（整体楼栋预览，与改前一致）；
+   *   楼梯扶手按楼层各自成组，随楼层可见性整体显隐，在楼层交接处自然封口。
    * - 第一人称：显示**完整楼栋**（含上方各层墙体、楼板与屋顶），使楼梯井四周可见 2F 实墙遮挡、
    *   顶端由屋顶板封顶，不再透出天空；同时上层真实楼板即充当天花板。
    * 天花板（= 上层楼板底面的替身）仅在该层「上方楼层被隐藏」时显示，避免与上层真实楼板重复渲染/闪烁。
@@ -202,7 +206,7 @@ export function createViewManager(
   function applyVisibility(): void {
     const mode = floorStates[activeFloor].mode;
     const N = floorStates.length;
-    // 各层主组可见性
+    // 各层主组可见性：上帝视角显示活动层及其以下；第一人称全显示
     const mainVisible = floorStates.map((_, i) =>
       mode === '2d' ? false : mode === 'fps' ? true : i <= activeFloor,
     );

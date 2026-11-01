@@ -43,7 +43,7 @@ function bootstrap(): void {
   const floors = FLOORS.map((f) => buildHouse(materials, f));
   floors.forEach((fr) => ctx.scene.add(fr.root));
 
-  // ---- 视角（按层保存模式/相机；3D 仅显示活动层） ----
+  // ---- 视角（按层保存模式/相机；第三/第一人称由 viewState 控制可见性） ----
   const view = createViewManager(
     ctx,
     canvas2D,
@@ -105,7 +105,7 @@ function bootstrap(): void {
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
   attachPointerInteraction(ctx, () => view.getState(), () => {
-    // 所有"当前可见楼层"的门窗均可点击：上帝视角预览某层时，其下方楼层仍可见、应可交互
+    // 仅"当前可见楼层"的门窗可点击：上帝视角当前层及以下整体可见，仅这些楼层的门窗可交互
     const list: InteractiveObject[] = [];
     for (const f of floors) if (f.root.visible) list.push(...f.interactables);
     return list;

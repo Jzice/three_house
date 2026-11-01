@@ -10,7 +10,7 @@ import {
 } from '../config/houseConfig';
 import {
   createHandrailRun,
-  createContinuousHandrailTube,
+  createStraightRailTube,
   type HandrailParams,
   type HandrailPost,
 } from './handrail';
@@ -203,13 +203,17 @@ export const STAIR_MARKERS = {
 };
 
 /**
- * 整楼楼梯扶手：1F→3F 一根连续酒红 PVC 圆管（centripetal 平滑贯通，转角平滑弯过、无球头/分段），
- * 立柱为黑色烤漆扁柱（45×22mm），各段按确认数量布置
- * （1F-run1=7 / 1F-run2=4 / 2F-run1=4 / 2F-run2=4 / 3F 洞口护栏=2），
- * 各层首根立柱上移到第 1 级台阶；横杆 4 根、柱身圆钮保留。
+ * 单层楼梯扶手（按楼层构建，挂到该层 root）。
+ *
+ * - 顶管：本层两跑（含休息平台横移）一条折线，每段为**严格笔直的直管**，转角为圆弧弯头；
+ *   立柱截顶等坡斜切，从下方顶住扶手；横杆为 4 根等距**拉丝不锈钢**细管，严格平行扶手轴线。
+ * - 3F 额外含楼梯洞口护栏（水平段 + 与 2F 第二跑顶端 D1 衔接的弯头）。
+ * - 各层扶手是**独立对象**：末端圆柱自带端盖，天然在"扶手楼层交接处"封口（不裁切立柱），
+ *   由第三人称的楼层可见性整体隐藏/显示，不再穿层。
  */
-export function buildStairHandrail(materials: MaterialMap): THREE.Group {
+export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): THREE.Group {
   const group = new THREE.Group();
+  group.name = `handrail-${floor.index}`;
   const rh = STAIR.railHeight;
   const pfz = PLATFORM_FRONT_Z;
   const params: HandrailParams = {
@@ -227,7 +231,7 @@ export function buildStairHandrail(materials: MaterialMap): THREE.Group {
   };
 
   // 一段直跑立柱：落在各踏面中部（平整踏面），首根上移到第 1 级（k 从 1 起），末根落在顶步；
-  // 底部标高 = 该级踏面顶面（+微小抬升避免共面闪烁），柱顶由 createHandrailRun 按水平位置顶到顶管
+  // 底部标高 = 该级踏面顶面（+微小抬升避免共面闪烁），柱顶由 createHandrailRun 按轴线反算
   const flightPosts = (
     x: number, z0: number, dir: 1 | -1, stepD: number, y0: number, stepH: number,
     n: number, steps: number,
@@ -246,56 +250,89 @@ export function buildStairHandrail(materials: MaterialMap): THREE.Group {
     return out;
   };
 
-  const runSegment = (start: THREE.Vector3, end: THREE.Vector3, posts: HandrailPost[]) =>
-    createHandrailRun({
-      start, end, posts, railHeight: rh,
-      startBall: false, endBall: false, topTube: false,
-      materials, params,
-    });
-
-  const waypoints: THREE.Vector3[] = [];
-  const stairFloors = FLOORS.filter((f) => f.stair);
-
-  for (const floor of stairFloors) {
-    const fs = floor.stair!;
+  // ---- 有楼梯的楼层：两跑 + 休息平台 ----
+  if (floor.stair) {
+    const fs = floor.stair;
     const baseY = floor.baseY;
-    const wallH = floor.wallH;
     const platformY = baseY + fs.platformH;
-    const run1Len = fs.run1Length;
-    const run2Len = fs.run2Length;
-    const steps1 = fs.steps1;
-    const steps2 = fs.steps2;
-    const run1StartZ = pfz + run1Len;
-    const run2EndZ = pfz + run2Len;
-    const stepH1 = fs.platformH / steps1;
-    const stepD1 = run1Len / steps1;
-    const stepH2 = (wallH - fs.platformH) / steps2;
-    const stepD2 = run2Len / steps2;
+    const run1StartZ = pfz + fs.run1Length;
+    const stepH1 = fs.platformH / fs.steps1;
+    const stepD1 = fs.run1Length / fs.steps1;
+    const stepH2 = (floor.wallH - fs.platformH) / fs.steps2;
+    const stepD2 = fs.run2Length / fs.steps2;
 
-    const a0 = new THREE.Vector3(STAIR.run1RailX, baseY + rh, run1StartZ);
-    const a1 = new THREE.Vector3(STAIR.run1RailX, platformY + rh, pfz);
-    const b0 = new THREE.Vector3(STAIR.run2RailX, platformY + rh, pfz);
-    const b1 = new THREE.Vector3(STAIR.run2RailX, baseY + wallH + rh, run2EndZ);
-    waypoints.push(a0, a1, b0, b1);
+    const a = new THREE.Vector3(STAIR.run1RailX, baseY + rh, run1StartZ);
+    const b = new THREE.Vector3(STAIR.run1RailX, platformY + rh, pfz);
+    const c = new THREE.Vector3(STAIR.run2RailX, platformY + rh, pfz);
+    const d = new THREE.Vector3(STAIR.run2RailX, baseY + floor.wallH + rh, pfz + fs.run2Length);
+
+    group.add(
+      createStraightRailTube({
+        points: [a, b, c, d],
+        elbowR: STAIR.elbowR,
+        tubeR: STAIR.handrailD / 2,
+        material: materials.railing,
+      }),
+    );
 
     const n1 = floor.index === 0 ? 7 : 4; // 1F run1=7，其余直跑=4
-    group.add(runSegment(a0, a1, flightPosts(STAIR.run1RailX, run1StartZ, -1, stepD1, baseY, stepH1, n1, steps1)));
-    group.add(runSegment(b0, b1, flightPosts(STAIR.run2RailX, pfz, 1, stepD2, platformY, stepH2, 4, steps2)));
+    group.add(
+      createHandrailRun({
+        start: a,
+        end: b,
+        posts: flightPosts(STAIR.run1RailX, run1StartZ, -1, stepD1, baseY, stepH1, n1, fs.steps1),
+        railHeight: rh,
+        materials,
+        params,
+      }),
+    );
+    group.add(
+      createHandrailRun({
+        start: c,
+        end: d,
+        posts: flightPosts(STAIR.run2RailX, pfz, 1, stepD2, platformY, stepH2, 4, fs.steps2),
+        railHeight: rh,
+        materials,
+        params,
+      }),
+    );
   }
 
-  // 3F 楼梯洞口护栏：水平段，2 根立柱（与碰撞线 VOID_GUARD 一致）；并入连续管末端
-  const vg = VOID_GUARD;
-  const vgBaseY = FLOORS[2].baseY;
-  const vgY = vgBaseY + rh;
-  const vgA = new THREE.Vector3(vg.x0, vgY, vg.z); // 西端
-  const vgB = new THREE.Vector3(vg.x1, vgY, vg.z); // 东端（接 2F run2 顶端）
-  waypoints.push(vgB, vgA);
-  group.add(runSegment(vgA, vgB, [
-    { x: vg.x0, z: vg.z, baseY: vgBaseY },
-    { x: vg.x1, z: vg.z, baseY: vgBaseY },
-  ]));
+  // ---- 3F 楼梯洞口护栏：水平段向西，东端用圆弧弯头接到 2F 第二跑顶端 D1 ----
+  if (floor.index === 2) {
+    const vg = VOID_GUARD;
+    const vgY = floor.baseY + rh;
+    const d1 = new THREE.Vector3(
+      STAIR.run2RailX,
+      FLOORS[1].baseY + FLOORS[1].wallH + rh,
+      pfz + FLOORS[1].stair!.run2Length,
+    );
+    const gWest = new THREE.Vector3(vg.x0, vgY, vg.z);
+    const gEast = new THREE.Vector3(vg.x1, vgY, vg.z);
 
-  // 整楼一根连续圆管（平滑连续弯）
-  group.add(createContinuousHandrailTube(waypoints, STAIR.handrailD / 2, materials.railing));
+    group.add(
+      createStraightRailTube({
+        points: [gWest, gEast, d1],
+        elbowR: STAIR.elbowR,
+        tubeR: STAIR.handrailD / 2,
+        material: materials.railing,
+      }),
+    );
+
+    group.add(
+      createHandrailRun({
+        start: gWest,
+        end: gEast,
+        posts: [
+          { x: vg.x0, z: vg.z, baseY: floor.baseY },
+          { x: vg.x1, z: vg.z, baseY: floor.baseY },
+        ],
+        railHeight: rh,
+        materials,
+        params,
+      }),
+    );
+  }
+
   return group;
 }

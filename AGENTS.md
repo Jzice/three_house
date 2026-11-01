@@ -95,7 +95,7 @@ src/
 | 改户型尺寸、加墙、加门窗、改楼梯 | `src/config/houseConfig.ts`（3D 改完**记得同步** `WALLS_2D` / `ROOMS_2D`） |
 | 改材质或贴图 | `src/scene/materials.ts` |
 | 改门窗构造细节 | `src/scene/builders.ts` |
-| 改楼梯几何 | `src/scene/stairs.ts` |
+| 改楼梯几何 / 扶手造型（笔直直管 + 圆弧转角、立柱顶接斜切、拉丝横杆、按层拆分） | `src/scene/stairs.ts` + `src/scene/handrail.ts`（造型参数在 `src/config/houseConfig.ts` 的 `STAIR` / `VOID_GUARD`） |
 | 加一种构件类型（如家具） | `types.ts` → `houseConfig.ts` → `buildHouse.ts` 循环装配，参见 [docs/data-model.md](docs/data-model.md#6-扩展示例) |
 | 改视角切换 / FPS 移动手感 | `src/view/viewState.ts` |
 | 改键鼠交互 | `src/view/interaction.ts` |

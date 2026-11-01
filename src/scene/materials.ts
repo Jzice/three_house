@@ -236,8 +236,16 @@ export function createMaterials(): MaterialMap {
     railing: new THREE.MeshStandardMaterial({ color: 0x6b2d2d, roughness: 0.45, metalness: 0.45 }),
     // 楼梯栏杆立柱：黑色烤漆金属（哑光黑，区分于酒红扶手管）
     blackPost: new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.4, metalness: 0.25 }),
-    // 不锈钢（银色高金属）：扶手横杆 / 装饰圆钮 / 端头球头
+    // 不锈钢（银色高金属）：扶手装饰圆钮 / 底座 / 端头球头
     stainless: new THREE.MeshStandardMaterial({ color: 0xd8d8da, roughness: 0.25, metalness: 0.9 }),
+    // 拉丝不锈钢（扶手下方 4 根横杆）：比抛光不锈钢更暗、更粗的漫反射，
+    // 用偏高 roughness + 高 metalness 在不加贴图（单文件约束）的前提下模拟缎面拉丝观感
+    stainlessBrushed: new THREE.MeshStandardMaterial({
+      color: 0xbfc4c9,
+      roughness: 0.42,
+      metalness: 0.9,
+      envMapIntensity: 0.9,
+    }),
     // 阳台栏杆：深灰色金属
     railingGray: new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.5, metalness: 0.5 }),
     // 白色塑钢（推拉窗框）
