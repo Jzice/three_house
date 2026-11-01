@@ -1,7 +1,7 @@
 {
   "name": "house-3d",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "3D 房屋可视化：TypeScript + Vite 结构化工程，支持编译为单一 HTML 发布",
   "scripts": {

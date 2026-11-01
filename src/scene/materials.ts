@@ -251,6 +251,10 @@ export function createMaterials(): MaterialMap {
     wood: new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.7, metalness: 0.0 }),
     // 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边
     metalDoor: new THREE.MeshStandardMaterial({ color: 0x707478, roughness: 0.5, metalness: 0.35 }),
+    // 深灰仿铜门体/门框（一层入户门基底与套线）：沉稳炭灰带微铜，哑光金属感
+    doorDark: new THREE.MeshStandardMaterial({ color: 0x2c2c30, roughness: 0.5, metalness: 0.55 }),
+    // 金铜色装饰与五金（一层入户门描线/角饰/拉手/锁/格棂）：偏金，强反射
+    bronze: new THREE.MeshStandardMaterial({ color: 0xb8863b, roughness: 0.35, metalness: 0.7 }),
     // 磨砂玻璃门（卫生间）
     frostedGlass: new THREE.MeshStandardMaterial({
       color: 0xe8eef2,
@@ -258,6 +262,12 @@ export function createMaterials(): MaterialMap {
       opacity: 0.5,
       metalness: 0.0,
       roughness: 0.9,
+    }),
+    // 黑色（炭黑）铝合金：2F 阳台推拉门框料与门套，哑光金属质感
+    blackAluminum: new THREE.MeshStandardMaterial({
+      color: 0x2a2a2c,
+      roughness: 0.45,
+      metalness: 0.6,
     }),
     // 院子铺装：卵石碎拼
     paving: new THREE.MeshStandardMaterial({

@@ -17,9 +17,15 @@ export type MaterialKey =
   | 'glass'
   | 'wood'
   | 'frostedGlass'
+  /** 黑色（炭黑）铝合金：2F 阳台推拉门框料与门套 */
+  | 'blackAluminum'
   | 'paving'
   /** 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边 */
-  | 'metalDoor';
+  | 'metalDoor'
+  /** 深灰仿铜门体/门框：一层入户门基底与套线 */
+  | 'doorDark'
+  /** 金铜色描线/角饰/拉手/锁面板/格棂：一层入户门装饰与五金 */
+  | 'bronze';
 
 export type MaterialMap = Record<MaterialKey, THREE.MeshStandardMaterial>;
 
