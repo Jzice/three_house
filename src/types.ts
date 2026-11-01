@@ -115,9 +115,13 @@ export interface RoofConfig {
 
 /** 院子配置：环绕房屋的铺装与围墙（如 1F） */
 export interface YardConfig {
-  /** 自外墙皮向外扩展的距离（米，东/南/北；西边可用 extendWest 覆盖） */
-  extend: number;
-  /** 西侧外扩距离（默认取 extend；设 0 表示到房屋西墙为止、不设西围墙） */
+  /** 东院自东外墙皮向外扩展的距离（米） */
+  extendEast: number;
+  /** 前院（南侧）自南外墙皮向外扩展的距离（米） */
+  extendSouth: number;
+  /** 后院（北侧西北段）自北外墙皮向外扩展的距离（米）；东北角另由 rearEastDepth 控制 */
+  extendNorth: number;
+  /** 西院外扩距离（默认 0，表示到房屋西墙为止、不设西围墙） */
   extendWest?: number;
   /** 后院（北侧）梯形：东北角剩余深度（米，西北角深 = extend，斜边连向东北） */
   rearEastDepth?: number;
@@ -133,11 +137,9 @@ export interface YardConfig {
   fenceHNorth?: number;
   /** 围墙厚（米） */
   fenceT: number;
-  /** 压顶厚（米） */
-  capT: number;
   /** 院门宽（米，东面开口） */
   gateW: number;
-  /** 院门中心 z（默认 0 居中；东南角取 ydZ - fenceT - gateW/2 ≈ 6.68） */
+  /** 院门中心 z（东南角附近，默认 6.68；相对前院南沿 ySouthZ 取位） */
   gateZ?: number;
 }
 

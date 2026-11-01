@@ -29,7 +29,7 @@ export const FLOORS: FloorConfig[] = [
     stair: { steps1: 14, steps2: 9, platformH: 2.2, run1Length: 4.4, run2Length: 2.4 },
     // 1F 院子：东/南/北外扩 3m、西边到房屋西墙为止，卵石铺装（面高 0.30m）+ 0.5m 实体矮围墙，
     // 东面临街开 2.4m 院门（位于东南角，贴南围墙）
-    yard: { extend: 3, extendWest: 0, rearEastDepth: 0.5, rearStraight: 2, paveH: 0.3, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, capT: 0.05, gateW: 2.4, gateZ: 6.68 },
+    yard: { extendEast: 2.2, extendSouth: 2.2, extendNorth: 4.5, extendWest: 1, rearEastDepth: 0.5, rearStraight: 3, paveH: 0.5, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, gateW: 2.4, gateZ: 6.68 },
   },
   {
     index: 1,
@@ -537,19 +537,20 @@ export function getYard2D(
 ): { pts: { x: number; z: number }[]; gateW: number; gateZ: number } | null {
   const y = floor.yard;
   if (!y) return null;
-  const xEast = W / 2 + y.extend;
-  const xWest = -(W / 2 + (y.extendWest ?? y.extend));
-  const ydZ = D / 2 + y.extend;
-  const rearEastZ = -(D / 2 + (y.rearEastDepth ?? y.extend));
+  const xEast = W / 2 + y.extendEast;
+  const xWest = -(W / 2 + (y.extendWest ?? 0));
+  const ySouthZ = D / 2 + y.extendSouth;
+  const yNorthZ = D / 2 + y.extendNorth;
+  const rearEastZ = -(D / 2 + (y.rearEastDepth ?? y.extendNorth));
   const rearStraight = y.rearStraight ?? 0;
   return {
     // 西南 → 东南 → 东北（斜边东端） → 西北直角段东端 → 西北，闭合
     pts: [
-      { x: xWest, z: ydZ },
-      { x: xEast, z: ydZ },
+      { x: xWest, z: ySouthZ },
+      { x: xEast, z: ySouthZ },
       { x: xEast, z: rearEastZ },
-      { x: xWest + rearStraight, z: -ydZ },
-      { x: xWest, z: -ydZ },
+      { x: xWest + rearStraight, z: -yNorthZ },
+      { x: xWest, z: -yNorthZ },
     ],
     gateW: y.gateW,
     gateZ: y.gateZ ?? 0,
