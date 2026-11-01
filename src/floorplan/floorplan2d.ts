@@ -96,17 +96,24 @@ export function createFloorplan2D(
     ctx.setLineDash([]);
   }
 
-  /** 第一人称小地图的画布尺寸（像素） */
-  const MINIMAP_W = 320;
-  const MINIMAP_H = 280;
+  /** 第一人称小地图尺寸：按视口比例缩放并限制上下限，避免大屏过大、小屏过挤 */
+  function minimapSize(): { w: number; h: number } {
+    const w = Math.min(Math.max(window.innerWidth * 0.34, 180), 340);
+    const h = Math.min(Math.max(window.innerHeight * 0.34, 150), 280);
+    return { w: Math.round(w), h: Math.round(h) };
+  }
 
   function draw(): void {
-    // 第一人称模式下按小地图尺寸绘制（右下角常驻、随楼层切换）
+    // 第一人称模式下按小地图尺寸绘制（右下角常驻、随楼层切换、可隐藏）
     const minimap = callbacks.getMode() === 'fps';
-    const w = minimap ? MINIMAP_W : window.innerWidth;
-    const h = minimap ? MINIMAP_H : window.innerHeight;
-    canvas.width = w;
-    canvas.height = h;
+    const size = minimap ? minimapSize() : { w: window.innerWidth, h: window.innerHeight };
+    canvas.width = size.w;
+    canvas.height = size.h;
+    // 同步显示尺寸，使小地图随屏幕缩放且保持清晰（避免被 CSS 拉伸）
+    canvas.style.width = `${size.w}px`;
+    canvas.style.height = `${size.h}px`;
+    const w = size.w;
+    const h = size.h;
 
     const floor = callbacks.getFloor();
     // 楼层切换时重置为该层对应的尺寸标注（用户在本层新增的测量随之清空）

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { InteractiveObject, KeyState, ViewMode } from '../types';
+import type { InteractiveObject, KeyState, TouchMove, ViewMode } from '../types';
 import type { SceneContext } from '../scene/sceneSetup';
 import { VIEW, FLOORS } from '../config/houseConfig';
 
@@ -19,7 +19,11 @@ export interface ViewManager {
   setMode(mode: ViewMode): void;
   /** 切换活动楼层（保持当前模式，恢复该层记忆的相机） */
   setActiveFloor(floor: number): void;
-  updateFpsMovement(keys: KeyState): void;
+  /** 第一人称小地图显隐（仅在该模式下实际生效；非 FPS 时仅记忆状态） */
+  setMinimapVisible(visible: boolean): void;
+  /** 当前小地图是否可见 */
+  getMinimapVisible(): boolean;
+  updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void;
   /** 记录当前上帝视角相机（每层独立保存，切层/切模式后可恢复） */
   saveTpsView(): void;
   /** 当前活动楼层的模式 */
@@ -71,6 +75,8 @@ export function createViewManager(
 ): ViewManager {
   const { camera, controls, renderer } = ctx;
   let activeFloor = 0;
+  /** 第一人称小地图是否可见（按钮切换；仅 FPS 模式下实际显示） */
+  let minimapVisible = true;
 
   /** 上帝视角显示活动层及其以下各层（点 1F 只见 1F，点 2F 见 1F+2F）；第一人称仅活动层；2D 全隐藏 */
   function applyVisibility(): void {
@@ -96,9 +102,12 @@ export function createViewManager(
     } else if (mode === 'fps') {
       controls.enabled = false;
       // 第一人称：2D 图纸以小地图常驻右下角，随楼层切换（尺寸由 draw 按 getMode 决定）
-      canvas2D.style.display = 'block';
-      canvas2D.classList.add('minimap');
+      canvas2D.style.display = minimapVisible ? 'block' : 'none';
+      canvas2D.classList.toggle('minimap', minimapVisible);
       renderer.domElement.style.display = 'block';
+      // 进入第一人称重置为标准视野，触摸板捏合缩放从默认 FOV 起算
+      camera.fov = VIEW.fov;
+      camera.updateProjectionMatrix();
       camera.position.copy(st.fpsPos);
       st.fpsYaw = 0;
       st.fpsPitch = 0;
@@ -137,7 +146,19 @@ export function createViewManager(
     applyVisibility();
   }
 
-  function updateFpsMovement(keys: KeyState): void {
+  function setMinimapVisible(visible: boolean): void {
+    minimapVisible = visible;
+    if (floorStates[activeFloor].mode === 'fps') {
+      canvas2D.style.display = visible ? 'block' : 'none';
+      canvas2D.classList.toggle('minimap', visible);
+    }
+  }
+
+  function getMinimapVisible(): boolean {
+    return minimapVisible;
+  }
+
+  function updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void {
     tmpForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
     tmpForward.y = 0;
     tmpForward.normalize();
@@ -146,10 +167,16 @@ export function createViewManager(
     tmpRight.y = 0;
     tmpRight.normalize();
 
-    if (keys.w || keys.up) camera.position.addScaledVector(tmpForward, FPS_SPEED);
-    if (keys.s || keys.down) camera.position.addScaledVector(tmpForward, -FPS_SPEED);
-    if (keys.a || keys.left) camera.position.addScaledVector(tmpRight, -FPS_SPEED);
-    if (keys.d || keys.right) camera.position.addScaledVector(tmpRight, FPS_SPEED);
+    // 键盘分量（WASD/方向键）+ 触屏摇杆向量（上推前进、右推右移），支持同时输入
+    const fwd =
+      (keys.w || keys.up ? 1 : 0) - (keys.s || keys.down ? 1 : 0) +
+      (touchMove ? -touchMove.y : 0);
+    const strafe =
+      (keys.d || keys.right ? 1 : 0) - (keys.a || keys.left ? 1 : 0) +
+      (touchMove ? touchMove.x : 0);
+
+    if (fwd !== 0) camera.position.addScaledVector(tmpForward, fwd * FPS_SPEED);
+    if (strafe !== 0) camera.position.addScaledVector(tmpRight, strafe * FPS_SPEED);
 
     camera.position.x = THREE.MathUtils.clamp(camera.position.x, -FPS_LIMIT_X, FPS_LIMIT_X);
     camera.position.z = THREE.MathUtils.clamp(camera.position.z, -FPS_LIMIT_Z, FPS_LIMIT_Z);
@@ -171,6 +198,8 @@ export function createViewManager(
     },
     setMode,
     setActiveFloor,
+    setMinimapVisible,
+    getMinimapVisible,
     updateFpsMovement,
     saveTpsView,
     getMode: () => floorStates[activeFloor].mode,

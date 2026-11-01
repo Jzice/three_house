@@ -8,6 +8,7 @@ import { createFloorplan2D } from './floorplan/floorplan2d';
 import { createUI } from './ui/ui';
 import { attachKeyboard, attachPointerInteraction, createKeyState } from './view/interaction';
 import { createViewManager, updateInteractables } from './view/viewState';
+import { createTouchControls } from './view/touchControls';
 
 function bootstrap(): void {
   const canvas2D = document.getElementById('floorplan-canvas') as HTMLCanvasElement | null;
@@ -16,6 +17,8 @@ function bootstrap(): void {
   // ---- 场景 ----
   const ctx = createSceneContext();
   setupLights(ctx.scene);
+  // 3D 画布禁用浏览器默认触摸手势（滚动/双指缩放），否则会抢占第一人称双指转头与上帝视角拖拽
+  ctx.renderer.domElement.style.touchAction = 'none';
 
   const materials = createMaterials();
 
@@ -47,6 +50,8 @@ function bootstrap(): void {
       ui.setActiveMode(mode);
       // 进入第一人称需绘制右下角小地图（2D 由 setMode 内 onEnter2D 重绘）
       if (mode === 'fps') floorplan.draw();
+      syncJoystick(mode);
+      syncMinimapBtn();
     },
     onSwitchFloor: (floor) => {
       view.setActiveFloor(floor);
@@ -54,14 +59,45 @@ function bootstrap(): void {
       // 2D 全屏图与第一人称小地图都随当前楼层自动切换
       const mode = view.getMode();
       if (mode === '2d' || mode === 'fps') floorplan.draw();
+      if (mode === 'fps') syncMinimapBtn();
     },
     onToggleMeasure: () => floorplan.toggleMeasuring(),
+    onToggleMinimap: () => {
+      const visible = !view.getMinimapVisible();
+      view.setMinimapVisible(visible);
+      ui.setMinimap(visible);
+      if (visible && view.getMode() === 'fps') floorplan.draw();
+    },
   });
 
   // ---- 输入 ----
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
   attachPointerInteraction(ctx, () => view.getState(), () => floors[view.activeFloor].interactables);
+
+  // 触屏虚拟摇杆（仅触屏设备启用；桌面端返回 isTouch=false，getMove 恒为 {0,0}）
+  const touch = createTouchControls();
+  const info = document.getElementById('info');
+  if (info) {
+    if (touch.isTouch) {
+      // 触屏移动设备：摇杆移动 + 单指拖拽转头 + 轻点门窗
+      info.textContent = '左下摇杆移动 | 单指拖拽看四周 | 轻点门窗开关';
+    } else if (window.innerWidth <= 768) {
+      // 窄屏但无触屏（如笔记本小屏）：触摸板捏合缩放视野
+      info.textContent = '拖拽鼠标看四周 | 双指捏合缩放视野 | 点击门窗开关';
+    }
+  }
+
+  // 第一人称 + 触屏时显示摇杆，其余模式隐藏
+  function syncJoystick(mode: string): void {
+    const joy = document.getElementById('joystick');
+    if (joy) joy.style.display = mode === 'fps' && touch.isTouch ? 'block' : 'none';
+  }
+
+  // 进入第一人称后同步小地图按钮高亮（与 view 内部可见状态一致）
+  function syncMinimapBtn(): void {
+    ui.setMinimap(view.getMinimapVisible());
+  }
 
   // ---- 初始状态 ----
   view.setActiveFloor(0);
@@ -72,7 +108,10 @@ function bootstrap(): void {
   // ---- 尺寸变化 ----
   window.addEventListener('resize', () => {
     handleResize(ctx, () => {
-      if (view.getMode() === '2d') floorplan.draw();
+      const mode = view.getMode();
+      if (mode === '2d') floorplan.draw();
+      // 小地图随屏幕尺寸响应式，FPS 下尺寸变化需重绘
+      else if (mode === 'fps' && view.getMinimapVisible()) floorplan.draw();
     });
   });
 
@@ -85,7 +124,7 @@ function bootstrap(): void {
       // 持续记录当前层的上帝视角，切层后恢复该层上次视图（不重置到初始位置）
       view.saveTpsView();
     } else if (view.getMode() === 'fps') {
-      view.updateFpsMovement(keys);
+      view.updateFpsMovement(keys, touch.isTouch ? touch.getMove() : null);
     }
 
     if (view.getMode() !== '2d') {

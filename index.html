@@ -54,6 +54,13 @@
                 <path d="M4 12 h16 M12 4 v16"/>
             </svg>
         </button>
+        <button id="btn-minimap" class="btn" title="小地图" aria-label="小地图" style="display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 3 L3 6 V21 L9 18 L15 21 L21 18 V3 L15 6 Z"/>
+                <path d="M9 3 V18 M15 6 V21"/>
+                <circle cx="15" cy="9" r="1.6" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>
         <button id="btn-add-dim" class="btn btn-measure" title="+ 添加标注" aria-label="添加标注" style="display:none;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <circle cx="12" cy="12" r="9"/>
@@ -63,6 +70,11 @@
     </div>
     <div id="measure-tip">请在画布上点击两个点进行测量...</div>
     <div id="info">WASD移动 | 拖拽鼠标看四周 | 点击门窗开关 | 滚轮缩放(上帝视角)</div>
+
+    <!-- 触屏虚拟摇杆：仅第一人称 + 触屏设备显示（由 main.ts 控制显隐） -->
+    <div id="joystick" class="touch-only">
+        <div id="joystick-base"><div id="joystick-knob"></div></div>
+    </div>
 
     <canvas id="floorplan-canvas"></canvas>
 

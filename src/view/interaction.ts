@@ -6,8 +6,18 @@ import { PITCH_LIMIT } from './viewState';
 
 /** FPS 视角灵敏度 */
 const LOOK_SPEED = 0.003;
-/** 判定为"点击"而非"拖拽"的位移阈值（像素） */
+/** 鼠标：判定为"点击"而非"拖拽"的位移阈值（像素） */
 const CLICK_THRESHOLD = 5;
+/** 触摸：手指比鼠标粗，放宽阈值以区分"轻点门窗"与"轻微滑动" */
+const TOUCH_CLICK_THRESHOLD = 12;
+/** 触摸板双指捏合缩放视野（FOV）的上下限 */
+const FOV_MIN = 30;
+const FOV_MAX = 90;
+
+/** 窄屏/移动形态：触屏设备或窄视口（手机、平板、笔记本小屏），用于启用触屏单指转头与触摸板捏合缩放 */
+function isCompact(): boolean {
+  return window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 768;
+}
 
 export function createKeyState(): KeyState {
   return { w: false, a: false, s: false, d: false, up: false, down: false, left: false, right: false };
@@ -52,49 +62,39 @@ export function attachPointerInteraction(
   getInteractables: () => InteractiveObject[],
 ): void {
   const { camera, renderer } = ctx;
+  const canvas = renderer.domElement;
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
   const euler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-  let isDragging = false;
-  let prevX = 0;
-  let prevY = 0;
-  let movedDist = 0;
+  /** 当前落在画布上的所有指针（鼠标 + 触摸），用于多指手势 */
+  const pointers = new Map<number, { x: number; y: number }>();
 
-  renderer.domElement.addEventListener('pointerdown', (e) => {
-    if (getState().mode === '2d') return;
-    isDragging = true;
-    prevX = e.clientX;
-    prevY = e.clientY;
-    movedDist = 0;
-  });
+  // 鼠标（单指拖拽转头）状态
+  let mouseDragging = false;
+  let mousePrevX = 0;
+  let mousePrevY = 0;
+  let mouseMoved = 0;
 
-  renderer.domElement.addEventListener('pointermove', (e) => {
-    if (getState().mode === '2d' || !isDragging) return;
+  // 触摸单指：用于"轻点门窗"判定
+  let touchStart = { x: 0, y: 0 };
+  let touchMoved = 0;
+  // 触摸双指：两指中心，用于转头
+  let twoFingerCenter = { x: 0, y: 0 };
 
-    const deltaX = e.clientX - prevX;
-    const deltaY = e.clientY - prevY;
-    movedDist += Math.abs(deltaX) + Math.abs(deltaY);
+  /** 应用视角偏移（鼠标拖拽或双指拖动都会调用） */
+  function applyLook(dx: number, dy: number): void {
+    if (getState().mode !== 'fps') return;
+    const state = getState();
+    state.fpsYaw -= dx * LOOK_SPEED;
+    state.fpsPitch -= dy * LOOK_SPEED;
+    state.fpsPitch = THREE.MathUtils.clamp(state.fpsPitch, -PITCH_LIMIT, PITCH_LIMIT);
+    euler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
+    camera.quaternion.setFromEuler(euler);
+  }
 
-    if (getState().mode === 'fps') {
-      const state = getState();
-      state.fpsYaw -= deltaX * LOOK_SPEED;
-      state.fpsPitch -= deltaY * LOOK_SPEED;
-      state.fpsPitch = THREE.MathUtils.clamp(state.fpsPitch, -PITCH_LIMIT, PITCH_LIMIT);
-      euler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
-      camera.quaternion.setFromEuler(euler);
-    }
-
-    prevX = e.clientX;
-    prevY = e.clientY;
-  });
-
-  renderer.domElement.addEventListener('pointerup', (e) => {
-    if (getState().mode === '2d') return;
-    isDragging = false;
-
-    if (movedDist >= CLICK_THRESHOLD) return;
-
+  /** 单指轻点：射线拾取当前活动层门窗并切换开合 */
+  function pick(e: PointerEvent): void {
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
@@ -111,5 +111,112 @@ export function attachPointerInteraction(
       const target = obj as InteractiveObject;
       target.userData.isOpen = !target.userData.isOpen;
     }
+  }
+
+  function centerOf(): { x: number; y: number } {
+    let sx = 0;
+    let sy = 0;
+    for (const p of pointers.values()) {
+      sx += p.x;
+      sy += p.y;
+    }
+    const n = pointers.size || 1;
+    return { x: sx / n, y: sy / n };
+  }
+
+  /** 双指抬起后若仍剩一指，把它重置为"单指起点"，避免误判点击或跳变 */
+  function resetSingleFromRemainder(): void {
+    if (pointers.size === 1) {
+      const p = [...pointers.values()][0];
+      touchStart = { x: p.x, y: p.y };
+      touchMoved = 0;
+    }
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (getState().mode === '2d') return;
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (e.pointerType === 'mouse') {
+      // 鼠标：保持原行为——单指拖拽转头
+      mouseDragging = true;
+      mousePrevX = e.clientX;
+      mousePrevY = e.clientY;
+      mouseMoved = 0;
+    } else {
+      // 触摸：单指记录起点；双指起则建立转头基准中心
+      if (pointers.size === 1) {
+        touchStart = { x: e.clientX, y: e.clientY };
+        touchMoved = 0;
+      } else if (pointers.size === 2) {
+        twoFingerCenter = centerOf();
+      }
+    }
   });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (getState().mode === '2d' || !pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId)!;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (e.pointerType === 'mouse') {
+      if (!mouseDragging) return;
+      const dx = e.clientX - mousePrevX;
+      const dy = e.clientY - mousePrevY;
+      mouseMoved += Math.abs(dx) + Math.abs(dy);
+      if (getState().mode === 'fps') applyLook(dx, dy);
+      mousePrevX = e.clientX;
+      mousePrevY = e.clientY;
+    } else {
+      if (pointers.size >= 2) {
+        // 双指（或更多）：以全部手指的中心位移转头
+        const c = centerOf();
+        applyLook(c.x - twoFingerCenter.x, c.y - twoFingerCenter.y);
+        twoFingerCenter = c;
+      } else {
+        // 单指：累计位移用于轻点判定
+        const p = pointers.get(e.pointerId)!;
+        touchMoved = Math.abs(p.x - touchStart.x) + Math.abs(p.y - touchStart.y);
+        // 窄屏/移动形态：单指拖拽也转视角（与双指并存；轻点仍按阈值判定为点击）
+        if (isCompact()) applyLook(e.clientX - prev.x, e.clientY - prev.y);
+      }
+    }
+  });
+
+  function endPointer(e: PointerEvent): void {
+    if (getState().mode === '2d') {
+      pointers.delete(e.pointerId);
+      return;
+    }
+
+    if (e.pointerType === 'mouse') {
+      const wasDragging = mouseDragging;
+      mouseDragging = false;
+      pointers.delete(e.pointerId);
+      if (wasDragging && mouseMoved < CLICK_THRESHOLD) pick(e);
+      return;
+    }
+
+    // 触摸：单指抬起且几乎未移动 → 视为点击门窗
+    if (pointers.size === 1 && touchMoved < TOUCH_CLICK_THRESHOLD) {
+      pick(e);
+    }
+    pointers.delete(e.pointerId);
+    resetSingleFromRemainder();
+  }
+
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', (e) => {
+    pointers.delete(e.pointerId);
+    resetSingleFromRemainder();
+  });
+
+  // 触摸板双指捏合（表现为带 ctrlKey 的 wheel）缩放视野 FOV；仅第一人称 + 窄屏/移动形态启用
+  canvas.addEventListener('wheel', (e) => {
+    if (getState().mode !== 'fps' || !isCompact() || !e.ctrlKey) return;
+    e.preventDefault();
+    camera.fov = THREE.MathUtils.clamp(camera.fov + e.deltaY * 0.05, FOV_MIN, FOV_MAX);
+    camera.updateProjectionMatrix();
+  }, { passive: false });
 }

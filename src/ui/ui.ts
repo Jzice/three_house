@@ -7,12 +7,15 @@ export interface UI {
   setActiveFloor(floor: number): void;
   /** 同步测量按钮与提示文案 */
   setMeasuring(active: boolean): void;
+  /** 同步小地图按钮高亮（与 view 内部可见状态一致） */
+  setMinimap(visible: boolean): void;
 }
 
 export interface UIHandlers {
   onSwitchMode: (mode: ViewMode) => void;
   onSwitchFloor: (floor: number) => void;
   onToggleMeasure: () => void;
+  onToggleMinimap: () => void;
 }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -31,6 +34,7 @@ export function createUI(handlers: UIHandlers): UI {
   const btnFloor3 = el<HTMLButtonElement>('btn-floor-3');
   const btnFloor4 = el<HTMLButtonElement>('btn-floor-4');
   const btnAddDim = el<HTMLButtonElement>('btn-add-dim');
+  const btnMinimap = el<HTMLButtonElement>('btn-minimap');
   const measureTip = el<HTMLElement>('measure-tip');
 
   btnTPS.addEventListener('click', () => handlers.onSwitchMode('tps'));
@@ -41,6 +45,7 @@ export function createUI(handlers: UIHandlers): UI {
   btnFloor3.addEventListener('click', () => handlers.onSwitchFloor(2));
   btnFloor4.addEventListener('click', () => handlers.onSwitchFloor(3));
   btnAddDim.addEventListener('click', () => handlers.onToggleMeasure());
+  btnMinimap.addEventListener('click', () => handlers.onToggleMinimap());
 
   return {
     setActiveMode(mode) {
@@ -48,11 +53,15 @@ export function createUI(handlers: UIHandlers): UI {
       btnFPS.classList.remove('active');
       btn2D.classList.remove('active');
       btnAddDim.style.display = 'none';
+      btnMinimap.style.display = 'none';
+      btnMinimap.classList.remove('active');
       measureTip.style.display = 'none';
 
       if (mode === 'tps') btnTPS.classList.add('active');
-      else if (mode === 'fps') btnFPS.classList.add('active');
-      else if (mode === '2d') {
+      else if (mode === 'fps') {
+        btnFPS.classList.add('active');
+        btnMinimap.style.display = 'block';
+      } else if (mode === '2d') {
         btn2D.classList.add('active');
         btnAddDim.style.display = 'block';
       }
@@ -70,6 +79,9 @@ export function createUI(handlers: UIHandlers): UI {
     setMeasuring(active) {
       btnAddDim.classList.toggle('active', active);
       measureTip.style.display = active ? 'block' : 'none';
+    },
+    setMinimap(visible) {
+      btnMinimap.classList.toggle('active', visible);
     },
   };
 }

@@ -215,6 +215,12 @@ export interface WallSpec2D {
   color?: string;
 }
 
+/** 触屏虚拟摇杆输出：归一化方向向量，范围 [-1,1]，{0,0} 表示静止（无输入） */
+export interface TouchMove {
+  x: number;
+  y: number;
+}
+
 /** 键盘按键状态（仅 FPS 模式下更新） */
 export interface KeyState {
   w: boolean;

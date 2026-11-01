@@ -44,12 +44,12 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     cursor: default;
 }
 
-/* 第一人称模式：2D 图纸以小地图形式常驻右下角，随楼层自动切换 */
+/* 第一人称模式：2D 图纸以小地图形式常驻右下角，随楼层自动切换、可隐藏、半透明 */
 #floorplan-canvas.minimap {
-    width: 320px; height: 280px;
-    top: auto; left: auto; right: 15px; bottom: 50px;
-    border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 8px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    top: auto; left: auto; right: 15px; bottom: 50px;  /* 尺寸由 JS 按视口响应式设置 */
+    background-color: rgba(244, 246, 248, 0.45);  /* 仅背景半透明，墙线/标注保持清晰 */
+    border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     pointer-events: none; /* 不遮挡第一人称的门窗点击 */
     z-index: 60;
 }
@@ -69,7 +69,6 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     #info { font-size: 11px; bottom: 8px; letter-spacing: 0; }
     #measure-tip { top: 56px; left: 10px; font-size: 13px; }
     #floorplan-canvas.minimap {
-        width: 240px; height: 210px;
         right: 10px; bottom: 40px;
     }
 }
@@ -81,7 +80,6 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     .btn svg { width: 16px; height: 16px; }
     #info { display: none; }
     #floorplan-canvas.minimap {
-        width: 200px; height: 175px;
         right: 8px; bottom: 12px;
     }
 }
@@ -90,4 +88,50 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
 @media (pointer: coarse) and (min-width: 641px) {
     .btn { width: 48px; height: 48px; }
     .btn svg { width: 24px; height: 24px; }
+}
+
+/* ---- 触屏虚拟摇杆（第一人称模式下由 JS 显示） ---- */
+.touch-only { display: none; }
+
+#joystick {
+    position: absolute;
+    left: 24px; bottom: 90px;
+    z-index: 110;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;  /* 阻止浏览器默认的滚动/缩放手势 */
+}
+
+#joystick-base {
+    width: 128px; height: 128px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    position: relative;
+    touch-action: none;
+}
+
+#joystick-knob {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    position: absolute;
+    left: 50%; top: 50%;
+    margin-left: -28px; margin-top: -28px;  /* 居中后由 JS 用 transform 偏移 */
+    transform: translate(0, 0);
+}
+
+/* 小屏：摇杆略小，避免遮挡过多画面 */
+@media (max-width: 640px) {
+    #joystick { left: 16px; bottom: 60px; }
+    #joystick-base { width: 110px; height: 110px; }
+    #joystick-knob { width: 48px; height: 48px; margin-left: -24px; margin-top: -24px; }
+}
+
+/* 横屏高度受限：进一步缩小并贴底 */
+@media (max-height: 480px) {
+    #joystick { left: 14px; bottom: 14px; }
+    #joystick-base { width: 96px; height: 96px; }
+    #joystick-knob { width: 42px; height: 42px; margin-left: -21px; margin-top: -21px; }
 }
