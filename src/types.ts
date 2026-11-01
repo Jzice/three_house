@@ -11,12 +11,15 @@ export type MaterialKey =
   | 'railing'
   | 'railingGray'
   | 'pvc'
-  | 'column'
+  /** 白色乳胶漆：各层内墙、天花板、承重柱统一使用 */
+  | 'paint'
   | 'copper'
   | 'glass'
   | 'wood'
   | 'frostedGlass'
-  | 'paving';
+  | 'paving'
+  /** 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边 */
+  | 'metalDoor';
 
 export type MaterialMap = Record<MaterialKey, THREE.MeshStandardMaterial>;
 
@@ -33,6 +36,31 @@ export interface BoxSpec {
   receive?: boolean;
 }
 
+/** 整片墙上的一个矩形洞口（窗洞 / 门洞）：cx 为世界 x，y0 为洞口下沿（相对楼层地面） */
+export interface WallHole {
+  cx: number;
+  y0: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * 带洞口的整片墙：用一个 ExtrudeGeometry（外形挖洞）成型。
+ * 相比"多段墙盒拼接"，整片墙没有任何内部接缝，不会出现接缝处的
+ * 亚像素裂缝（室内透出暗线）或共面 z-fighting（闪点带）。
+ */
+export interface HoledWallSpec {
+  /** 墙中心 z */
+  z: number;
+  /** 墙厚（沿 z） */
+  d: number;
+  /** 墙宽（沿 x，居中于 0） */
+  w: number;
+  /** 墙高（自楼层地面起算） */
+  h: number;
+  holes: WallHole[];
+}
+
 /** 可交互对象（门扇 / 窗扇）挂在 userData 上的数据 */
 export interface InteractiveUserData {
   isInteractive: true;
@@ -42,8 +70,78 @@ export interface InteractiveUserData {
   closedAngle: number;
   /** 打开状态的角度 */
   openAngle: number;
+  /** 构件标识（如入户门 'main'、后门 'back'）：供第一人称通行判定查询该门是否开启 */
+  id?: string;
   /** 推拉门：沿本地 X 轴滑动的开/关位置；设置后动画走位移而非旋转 */
   slideX?: { closed: number; open: number };
+  /** 成组开启：主控对象开合时带动这些子窗扇按各自 openAngle 转动（如大窗的左右下格小窗） */
+  sashes?: Array<{ object: THREE.Object3D; openAngle: number }>;
+}
+
+/** 单跑梯段的行走面（第一人称贴地 / 自动切层用） */
+export interface StairRun {
+  /** 踏步区 x 范围 */
+  x0: number;
+  x1: number;
+  /** 起步端 z（低端） */
+  zLow: number;
+  /** 顶端 z（高端） */
+  zHigh: number;
+  /** 起步端标高 / 顶端标高 */
+  yLow: number;
+  yHigh: number;
+  /** 踏步数 */
+  steps: number;
+}
+
+/** 休息平台（半层）行走面 */
+export interface StairPlatform {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  /** 平台面标高 */
+  y: number;
+}
+
+/** 一层楼梯的完整行走面：下段 → 休息平台 → 上段 */
+export interface StairSurface {
+  /** 下段：自本层完成面升至休息平台（向北 / -z 上行） */
+  run1: StairRun;
+  /** 休息平台（半层） */
+  platform: StairPlatform;
+  /** 上段：自休息平台升至上层完成面（向南 / +z 上行） */
+  run2: StairRun;
+}
+
+/** 行走面高度查询结果 */
+export interface StairHeight {
+  /** 台阶面标高（逐级，用于脚下贴地） */
+  step: number;
+  /** 沿坡度的连续标高（用于判断人当前属于哪一层） */
+  cont: number;
+}
+
+/** 第一人称可行走的矩形区域（x0<x1、z0<z1） */
+export interface WalkRect {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+/** 第一人称可行走范围（房屋内部 + 门洞通道 + 院子） */
+export interface FpsWalkArea {
+  /** 房屋内部（外墙内皮再内缩 0.08m，避免贴墙穿模） */
+  inside: WalkRect;
+  /** 可穿出的门洞通道（位于墙厚范围内，连接屋内与院子）；id 对应可交互门，门关闭时不可通行 */
+  doors: (WalkRect & { id?: string })[];
+  /** 院子可行走矩形带（房屋四周环绕，不含房屋占位） */
+  yard: WalkRect[];
+  /** 院子东北斜围墙内侧半平面：直线 A→B，院内在其西南侧（叉积 > 0） */
+  slope?: { ax: number; az: number; bx: number; bz: number };
+  /** 院子铺装顶面标高（出屋后的眼高基准） */
+  yardTopY: number;
 }
 
 /** 带交互数据的 Object3D */
@@ -79,6 +177,12 @@ export interface InteriorDoorSpec {
   h?: number;
   /** 开启角度（弧度），默认 0.85 × 90°；90° 可让门扇完全贴靠相邻墙面 */
   openAngle?: number;
+  /**
+   * 铰链所在门洞侧：-1 = 门洞“负 x 侧”（默认），+1 = 门洞“正 x 侧”。
+   * 对西墙（rotY=π/2）而言，正 x 侧对应世界 -z（北侧）。卫生间门设 +1 即铰链在北边。
+   * 门扇一律朝门洞内侧（房间内）开启。
+   */
+  hingeSide?: 1 | -1;
 }
 
 /** 阳台配置：挂在南墙外侧的挑台 */
@@ -149,7 +253,7 @@ export interface FloorConfig {
   index: number;
   /** 显示名（1F / 2F / 3F） */
   name: string;
-  /** 本层楼板底面标高（米） */
+  /** 本层室内地坪完成面标高（米）：楼板顶面、墙体底面、楼梯起步面均以此为准 */
   baseY: number;
   /** 本层墙高（米） */
   wallH: number;
@@ -181,6 +285,8 @@ export interface WindowSpec {
   rotY: number;
   /** 开启样式：平开（默认）或左右推拉 */
   style?: 'casement' | 'sliding';
+  /** 开启构件：左右下方两枚小窗格对开（外开），其余格位固定不动 */
+  openSashes?: 'lower-sides';
 }
 
 /** 2D 平面图上的一条尺寸标注 */

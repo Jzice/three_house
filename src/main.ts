@@ -3,7 +3,7 @@ import './style.css';
 import { FLOORS } from './config/houseConfig';
 import { buildHouse } from './scene/buildHouse';
 import { createMaterials } from './scene/materials';
-import { createSceneContext, handleResize, setupLights } from './scene/sceneSetup';
+import { createSceneContext, createEnvMap, handleResize, setupLights } from './scene/sceneSetup';
 import { createFloorplan2D } from './floorplan/floorplan2d';
 import { createUI } from './ui/ui';
 import { attachKeyboard, attachPointerInteraction, createKeyState } from './view/interaction';
@@ -22,6 +22,15 @@ function bootstrap(): void {
 
   const materials = createMaterials();
 
+  // 抛光大理石地面 + 楼梯白色切割瓷砖：注入环境贴图产生反射（仅此两种材质，其他不受影响）
+  const envMap = createEnvMap(ctx.renderer);
+  materials.floor.envMap = envMap;
+  materials.floor.envMapIntensity = 1.1;
+  materials.floor.needsUpdate = true;
+  materials.stair.envMap = envMap;
+  materials.stair.envMapIntensity = 0.75;
+  materials.stair.needsUpdate = true;
+
   // ---- 两层楼房：按 FLOORS 分别装配（每层独立根节点） ----
   const floors = FLOORS.map((f) => buildHouse(materials, f));
   floors.forEach((fr) => ctx.scene.add(fr.root));
@@ -33,6 +42,15 @@ function bootstrap(): void {
     () => floorplan.draw(),
     (floor, visible) => {
       floors[floor].root.visible = visible;
+    },
+    // 第一人称通行判定：门关闭时该门洞不可穿出
+    (floor, id) => floors[floor].interactables.some((o) => o.userData.id === id && o.userData.isOpen),
+    // 走楼梯自动切层：同步按钮高亮与 2D / 小地图
+    (floor) => {
+      ui.setActiveFloor(floor);
+      const mode = view.getMode();
+      if (mode === '2d' || mode === 'fps') floorplan.draw();
+      if (mode === 'fps') syncMinimapBtn();
     },
   );
 

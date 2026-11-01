@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { BalconyConfig, FloorConfig, MaterialMap } from '../types';
-import { D, FLOOR_T, FLOOR_Y, H, T_EXT, TILE_SIZE, W } from '../config/houseConfig';
+import { D, T_EXT, TILE_SIZE, W } from '../config/houseConfig';
 
 /**
  * 南墙阳台（挑台）：
@@ -17,9 +17,8 @@ export function createBalcony(
   const group = new THREE.Group();
   group.name = 'balcony';
 
-  // 楼面标高：与本层楼板顶面齐平（楼板中心 baseY+(FLOOR_Y/H)*wallH，板厚按 wallH/H 缩放）
-  const floorTopY =
-    floor.baseY + (FLOOR_Y / H) * floor.wallH + (FLOOR_T * (floor.wallH / H)) / 2;
+  // 楼面标高：与本层楼板顶面齐平（floor.baseY 即室内地坪完成面）
+  const floorTopY = floor.baseY;
 
   const wallOuterZ = D / 2; // 南墙外表面 z = 5.12
   const wallHalfX = W / 2 - T_EXT; // 南墙两端 x = ±4.38
@@ -30,13 +29,21 @@ export function createBalcony(
   const slabD = spec.width + frontDepth;
   const slabZ = wallOuterZ + spec.width / 2 - frontDepth / 2;
 
-  // ---- 挑台板：地砖贴图按自身尺寸设重复 ----
+  // ---- 挑台板：地砖贴图按自身尺寸设重复；底面（挑台下的白色天花/底面）用乳胶漆 ----
   const mat = materials.floor.clone();
   const tex = (materials.floor.map as THREE.Texture).clone();
   tex.needsUpdate = true;
   tex.repeat.set(slabW / TILE_SIZE, slabD / TILE_SIZE);
   mat.map = tex;
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(slabW, spec.slabT, slabD), mat);
+  // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(slabW, spec.slabT, slabD), [
+    materials.paint,
+    materials.paint,
+    mat,
+    materials.paint,
+    materials.paint,
+    materials.paint,
+  ]);
   slab.position.set(0, floorTopY - spec.slabT / 2, slabZ);
   slab.castShadow = true;
   slab.receiveShadow = true;

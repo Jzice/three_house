@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { VIEW } from '../config/houseConfig';
+import { createEnvEquirect } from './materials';
 
 export interface SceneContext {
   scene: THREE.Scene;
@@ -39,7 +40,10 @@ export function setupLights(scene: THREE.Scene): void {
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
   scene.add(ambientLight);
 
-  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+  // 半球光：地面色取纯白，模拟室内地面/楼板的反弹光。
+  // 否则朝下的面（各层天花板、挑台底面）只吃环境光 + 深色地面光，会明显发灰、与白墙不像同一种材质。
+  // 上方天空色保持白色、强度 0.6 不变 → 地砖与外墙的亮度基本不受影响。
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.6);
   hemiLight.position.set(0, 20, 0);
   scene.add(hemiLight);
 
@@ -60,6 +64,19 @@ export function setupLights(scene: THREE.Scene): void {
   dirLight.shadow.bias = -0.00002;
   dirLight.shadow.normalBias = 0.008;
   scene.add(dirLight);
+}
+
+/**
+ * 生成 PMREM 环境贴图：给抛光大理石地面提供真实反射。
+ * 只挂到地面材质上（不设 scene.environment），因此墙体、家具等材质外观不受影响。
+ */
+export function createEnvMap(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const equirect = createEnvEquirect();
+  const target = pmrem.fromEquirectangular(equirect);
+  equirect.dispose();
+  pmrem.dispose();
+  return target.texture;
 }
 
 /** 窗口尺寸变化时的统一处理 */

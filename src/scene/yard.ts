@@ -25,6 +25,16 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   const paveH = spec.paveH; // 铺装面离地高度（抬高后的院子台面，0.50m）
   const t = spec.fenceT;
   const gateHalf = spec.gateW / 2;
+  const gz = spec.gateZ ?? 0; // 院门中心 z
+
+  // ---- 院门台阶几何（院门口要让出台阶位置，铺装据此开缺口） ----
+  const stepDepth = 0.4; // 每阶进深（x 向）
+  const stepCount = 3; // 三阶：1 阶突出院子东边界、2 阶缩进院子内
+  const stepSouthZ = ySouthZ - t; // 台阶南边 = 南围墙内皮
+  const stepNorthZ = gz - gateHalf; // 台阶北边 = 东围墙门垛（门洞通道北界）
+  const stepW = Math.max(0.5, stepSouthZ - stepNorthZ); // 门洞通道净宽（1.6m）
+  const stepZ = (stepSouthZ + stepNorthZ) / 2; // 台阶中心 z
+  const notchX0 = xEast - (stepCount - 1) * stepDepth; // 铺装缺口西沿（缩进 2 阶的西界）
 
   // ---- 铺装（顶面卵石碎拼；侧面/裙边与围墙同色）：南条 + 东条 + 西条矩形；后院为梯形（Shape 挤出） ----
   const dSouth = ySouthZ - D / 2; // 南条（前院）深
@@ -32,7 +42,10 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   const wEast = xEast - W / 2; // 东条宽
   const baseSide = materials.wall; // 平台侧面与围墙同色（浅灰 0xe0e0e0）
   const strips: [number, number, number, number][] = [
-    [cx, (ySouthZ + D / 2) / 2, yardW, dSouth], // 南条（前院）
+    // 南条（前院）：院门口让出 2 阶缩进台阶的位置 → 拆为主块 + 台阶北侧条 + 南围墙基脚条
+    [(xWest + notchX0) / 2, (ySouthZ + D / 2) / 2, notchX0 - xWest, dSouth], // 主块（西侧）
+    [(notchX0 + xEast) / 2, (D / 2 + stepNorthZ) / 2, xEast - notchX0, stepNorthZ - D / 2], // 台阶北侧条
+    [(notchX0 + xEast) / 2, (stepSouthZ + ySouthZ) / 2, xEast - notchX0, ySouthZ - stepSouthZ], // 南围墙基脚条
     [(xEast + W / 2) / 2, 0, wEast, D], // 东条（z 限于房屋南北皮内）
   ];
   // 西条：仅西院有外扩时，沿房屋西山墙铺装（z 限于房屋南北皮内），与前/东条同材质处理，补全西院台面
@@ -125,25 +138,29 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   }
 
   // ---- 东墙单段（斜边东北端 → 东南角院门）+ 压顶（矮） ----
-  const gz = spec.gateZ ?? 0; // 院门中心 z
   const segLen = gz - gateHalf - rearEastZ;
   addFence(t, segLen, xEast - t / 2, (gz - gateHalf + rearEastZ) / 2, hf);
 
-  // ---- 院门外踏步：街面（y=0）两级台阶升至铺装面（y=paveH），宽度 1.8m、居中于院门，逐层内收 ----
-  const stepW = 1.8; // 院门台阶宽度（小于 2.4m 门洞，居中内收）
-  const addStep = (xc: number, yBot: number, yTop: number): void => {
-    const h = yTop - yBot;
-    const s = new THREE.Mesh(
-      new THREE.BoxGeometry(0.4, h, stepW),
-      materials.wall,
-    );
-    s.position.set(xc, yBot + h / 2, gz);
+  // ---- 院门外踏步：街面（y=0）三级升至铺装面（y=paveH）----
+  // 宽度 = 门洞通道净宽（东墙门垛 → 南围墙内皮，1.6m）；南边与南围墙内皮齐平
+  // 1 阶突出院子东边界（xEast→xEast+0.4），2 阶缩进院子内（铺装已让出缺口）
+  const stepMat = materials.paving.clone();
+  const stepTex = (materials.paving.map as THREE.Texture).clone();
+  stepTex.needsUpdate = true;
+  stepTex.repeat.set(stepDepth / 2.5, stepW / 2.5);
+  stepMat.map = stepTex;
+  for (let i = 0; i < stepCount; i++) {
+    const h = (paveH * (i + 1)) / stepCount; // 踏面标高（逐级抬升至铺装面）
+    const xc = xEast + stepDepth * (0.5 - i); // 由外向内逐阶内收
+    // Box 材质顺序 [+x,-x,+y,-y,+z,-z]：仅顶面(+y)用卵石，立面保持围墙浅灰
+    const s = new THREE.Mesh(new THREE.BoxGeometry(stepDepth, h, stepW), [
+      baseSide, baseSide, stepMat, baseSide, baseSide, baseSide,
+    ]);
+    s.position.set(xc, h / 2, stepZ);
     s.castShadow = true;
     s.receiveShadow = true;
     group.add(s);
-  };
-  addStep(xEast + 0.6, 0, paveH / 2); // 外阶（街面 → 0.15m）
-  addStep(xEast + 0.2, paveH / 2, paveH); // 内阶（0.15m → 铺装面 0.30m）
+  }
 
   return group;
 }

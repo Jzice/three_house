@@ -20,6 +20,10 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
 .btn:active { transform: translateY(0); }
 .btn.active { background: #2980b9; color: white; }
 .btn-measure { background: #ea4335; color: white; }
+
+/* 楼层图标：默认空心块，.on 为实心块（实心块标记该按钮对应的楼层，即最上一层） */
+.btn-floor .slab { fill: none; stroke: currentColor; }
+.btn-floor .slab.on { fill: currentColor; stroke: none; }
 .btn-measure:hover { background: #d33b2c; color: white; }
 .btn-measure.active { background: #b3271c; color: white; }
 

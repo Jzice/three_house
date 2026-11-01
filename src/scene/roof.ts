@@ -21,13 +21,20 @@ export function createRoof(
   const cx = (x0 + x1) / 2;
   const cz = (z0 + z1) / 2;
 
-  // 屋面板（坐于墙顶，四周悬挑）
-  group.add(
-    createBox(
-      { w, h: spec.slabT, d, x: cx, y: baseY + spec.slabT / 2, z: cz, material: 'wall' },
-      materials,
-    ),
-  );
+  // 屋面板（坐于墙顶，四周悬挑）：底面即 3F 天花板 → 白色乳胶漆；外露面沿用外墙色
+  // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(w, spec.slabT, d), [
+    materials.wall,
+    materials.wall,
+    materials.wall,
+    materials.paint,
+    materials.wall,
+    materials.wall,
+  ]);
+  slab.position.set(cx, baseY + spec.slabT / 2, cz);
+  slab.castShadow = false;
+  slab.receiveShadow = false;
+  group.add(slab);
 
   // 女儿墙：沿板四周布置
   const t = spec.parapetT;

@@ -1,7 +1,16 @@
 import * as THREE from 'three';
-import type { InteractiveObject, KeyState, TouchMove, ViewMode } from '../types';
+import type {
+  FpsWalkArea,
+  InteractiveObject,
+  KeyState,
+  StairHeight,
+  StairSurface,
+  TouchMove,
+  ViewMode,
+  WalkRect,
+} from '../types';
 import type { SceneContext } from '../scene/sceneSetup';
-import { VIEW, FLOORS } from '../config/houseConfig';
+import { VIEW, FLOORS, W, D, getFpsWalkArea, getStairSurface, stairHeightAt } from '../config/houseConfig';
 
 /** 单层的视角状态：模式 + 上帝/第一人称相机与朝向 */
 export interface ViewState {
@@ -34,25 +43,90 @@ export interface ViewManager {
 
 const FPS_SPEED = 0.08;
 const FPS_EYE_Y = 1.6;
-const FPS_LIMIT_X = 4.3;
-const FPS_LIMIT_Z = 4.8;
 /** 俯仰角限位，避免翻转 */
 const PITCH_LIMIT = Math.PI / 2 - 0.1;
 /** 门窗开合插值系数 */
 const OPEN_LERP = 0.15;
+/** 眼高跟随脚下标高的平滑时间常数（秒）：台阶高度按此做插值过渡 */
+const EYE_SMOOTH_TAU = 0.09;
+/** 楼梯面匹配的最大高度差（米）：层间两段楼梯相差约 3m，超过此值视为不在脚下 */
+const STAIR_MATCH_LIMIT = 1.0;
+
+/** 各层的第一人称可行走范围（房屋内部 + 门洞通道 + 院子） */
+const walkAreas: FpsWalkArea[] = FLOORS.map((f) => getFpsWalkArea(f));
+/** 各层的楼梯行走面（无楼梯为 null） */
+const stairSurfaces: (StairSurface | null)[] = FLOORS.map((f) => getStairSurface(f));
+
+/** 点是否落在矩形区域内 */
+function inRect(r: WalkRect, x: number, z: number): boolean {
+  return x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+}
+
+/**
+ * 点是否在院子斜围墙的内侧（半平面判定）：
+ * 直线 A→B 的叉积 > 0 表示位于西南侧，即院内。
+ */
+function insideSlope(s: { ax: number; az: number; bx: number; bz: number }, x: number, z: number): boolean {
+  const dx = s.bx - s.ax;
+  const dz = s.bz - s.az;
+  return dx * (z - s.az) - dz * (x - s.ax) > 0;
+}
 
 // 复用临时向量，避免每帧分配
 const tmpForward = new THREE.Vector3();
 const tmpRight = new THREE.Vector3();
 const tmpEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
-/** 生成某层的初始视角状态（相机标高随楼层抬升） */
+/** 上帝视角：某层可见整体体量（活动层及其以下各层）的竖向顶标高（自地面 0 起算） */
+function visibleMassTop(index: number): number {
+  const f = FLOORS[index];
+  if (f.wallH > 0) return f.baseY + f.wallH; // 楼层：至墙顶
+  const r = f.roof; // 屋顶层：屋面板顶 + 女儿墙顶
+  return f.baseY + (r?.slabT ?? 0) + (r?.parapetH ?? 0);
+}
+
+/**
+ * 上帝视角机位（按可见整体体量自适应）：
+ * - 目标点取体量竖向中心 → 建筑落在屏幕正中（原先锚在活动层楼面，越高层整栋越偏低）
+ * - 机位沿固定水平方位 + 固定俯角，体量更高时自动后拉，保证整栋入画
+ */
+function computeTpsFrame(index: number): { pos: THREE.Vector3; target: THREE.Vector3 } {
+  const top = visibleMassTop(index);
+  const targetY = top / 2; // 体量竖向中心 → 屏幕中心
+  const [dx, dz] = VIEW.tpsPos;
+  const d0 = Math.hypot(dx, dz); // 水平距离基准
+  const hx = dx / d0;
+  const hz = dz / d0; // 目标点→相机的水平单位向量
+  // 楼体足迹相对目标点的水平半尺寸：b 沿视线方向（近端深度）、a 垂直视线方向（宽度）
+  const b = Math.abs((W / 2) * hx) + Math.abs((D / 2) * hz);
+  const a = Math.abs((W / 2) * hz) + Math.abs((D / 2) * hx);
+  const th = THREE.MathUtils.degToRad(VIEW.tpsAngle);
+  const tau = Math.tan(THREE.MathUtils.degToRad(VIEW.fov) / 2);
+  const m = VIEW.tpsMargin;
+  const half = top / 2; // 体量竖向半高
+  // 竖向入画：近端底角不得超出画面
+  const needV = (m / tau) * (b * Math.sin(th) + half * Math.cos(th)) + b * Math.cos(th) - half * Math.sin(th);
+  // 横向入画：按最小宽高比保守求解
+  const needH = b * Math.cos(th) + half * Math.sin(th) + (m * a) / (tau * VIEW.tpsMinAspect);
+  const L = Math.max(needV, needH, d0 / Math.cos(th)); // 不比基准机位更近
+  return {
+    target: new THREE.Vector3(VIEW.tpsTarget[0], targetY, VIEW.tpsTarget[1]),
+    pos: new THREE.Vector3(
+      VIEW.tpsTarget[0] + hx * L * Math.cos(th),
+      targetY + L * Math.sin(th),
+      VIEW.tpsTarget[1] + hz * L * Math.cos(th),
+    ),
+  };
+}
+
+/** 生成某层的初始视角状态（上帝视角机位按可见整体体量自适应） */
 function createFloorState(index: number): ViewState {
   const f = FLOORS[index];
+  const { pos, target } = computeTpsFrame(index);
   return {
     mode: 'tps',
-    tpsPos: new THREE.Vector3(VIEW.tpsPos[0], f.baseY + VIEW.tpsPos[1], VIEW.tpsPos[2]),
-    tpsTarget: new THREE.Vector3(VIEW.tpsTarget[0], f.baseY + VIEW.tpsTarget[1], VIEW.tpsTarget[2]),
+    tpsPos: pos,
+    tpsTarget: target,
     fpsPos: new THREE.Vector3(VIEW.fpsPos[0], f.baseY + FPS_EYE_Y, VIEW.fpsPos[2]),
     fpsYaw: 0,
     fpsPitch: 0,
@@ -66,23 +140,38 @@ const floorStates: ViewState[] = FLOORS.map((_, i) => createFloorState(i));
  * 并为每一层分别保存模式与相机状态（切换楼层后互不干扰）。
  * @param onEnter2D 进入 2D 模式时需要重绘平面图
  * @param setFloorVisible 由外部控制各楼层 3D 组的可见性
+ * @param isDoorOpen 查询某层指定 id 的门是否开启（用于第一人称能否穿出该门洞）
+ * @param onAutoFloor 第一人称走楼梯自动切层时通知外部同步 UI（按钮高亮 / 小地图重绘）
  */
 export function createViewManager(
   ctx: SceneContext,
   canvas2D: HTMLCanvasElement,
   onEnter2D: () => void,
   setFloorVisible: (floor: number, visible: boolean) => void,
+  isDoorOpen?: (floor: number, id: string) => boolean,
+  onAutoFloor?: (floor: number) => void,
 ): ViewManager {
   const { camera, controls, renderer } = ctx;
   let activeFloor = 0;
   /** 第一人称小地图是否可见（按钮切换；仅 FPS 模式下实际显示） */
   let minimapVisible = true;
+  /** 第一人称脚下标高（当前所踩踏面/完成面的绝对高度） */
+  let groundY = FLOORS[0].baseY;
+  /** 第一人称所属楼层（人在哪一层：楼梯半层归属下层楼层；离开楼梯后保持） */
+  let levelFloor = 0;
+  /** 上一帧移动更新的时刻（用于眼高插值的帧率无关平滑） */
+  let lastMoveTime = performance.now();
 
-  /** 上帝视角显示活动层及其以下各层（点 1F 只见 1F，点 2F 见 1F+2F）；第一人称仅活动层；2D 全隐藏 */
+  /**
+   * 可见性：3D 模式（上帝视角 / 第一人称）统一显示**活动层及其以下各层**；2D 全隐藏。
+   * - 上帝视角：需要看到活动层以下的完整楼体（点 2F 见 1F+2F）。
+   * - 第一人称：楼梯井开口向下即是下层楼梯，若只显示活动层，井口会露出场景背景色（灰块），
+   *   故与上帝视角保持一致，下层楼体一并显示。
+   */
   function applyVisibility(): void {
     const mode = floorStates[activeFloor].mode;
     floorStates.forEach((_, i) => {
-      const visible = mode === 'tps' ? i <= activeFloor : mode !== '2d' && i === activeFloor;
+      const visible = mode === '2d' ? false : i <= activeFloor;
       setFloorVisible(i, visible);
     });
   }
@@ -109,6 +198,16 @@ export function createViewManager(
       camera.fov = VIEW.fov;
       camera.updateProjectionMatrix();
       camera.position.copy(st.fpsPos);
+      // 脚下标高按当前位置重算（可能正站在楼梯上），眼高随之对齐，并重置平滑计时
+      levelFloor = activeFloor;
+      groundY = resolveGround(
+        walkAreas[activeFloor],
+        camera.position.x,
+        camera.position.z,
+        FLOORS[activeFloor].baseY,
+      ).step;
+      camera.position.y = groundY + FPS_EYE_Y;
+      lastMoveTime = performance.now();
       st.fpsYaw = 0;
       st.fpsPitch = 0;
       tmpEuler.set(0, 0, 0, 'YXZ');
@@ -137,6 +236,16 @@ export function createViewManager(
       controls.update();
     } else if (mode === 'fps') {
       camera.position.copy(st.fpsPos);
+      // 脚下标高按当前位置重算（可能正站在楼梯上），眼高随之对齐
+      levelFloor = activeFloor;
+      groundY = resolveGround(
+        walkAreas[activeFloor],
+        camera.position.x,
+        camera.position.z,
+        FLOORS[activeFloor].baseY,
+      ).step;
+      camera.position.y = groundY + FPS_EYE_Y;
+      lastMoveTime = performance.now();
       st.fpsYaw = 0;
       st.fpsPitch = 0;
       tmpEuler.set(0, 0, 0, 'YXZ');
@@ -158,6 +267,92 @@ export function createViewManager(
     return minimapVisible;
   }
 
+  /**
+   * 第一人称可行走判定：屋内 / 门洞通道 / 院子。
+   * 门洞通道需对应门处于开启状态才可**进入**；已在门洞内时（门在脚下被关上的情形）仍可自由挪动，避免卡死。
+   * @param fromInside 本次移动前人是否位于屋内（屋内 → 门洞需开门；门洞/院内 → 门洞可通行）
+   */
+  function isWalkable(area: FpsWalkArea, x: number, z: number, fromInside: boolean): boolean {
+    if (inRect(area.inside, x, z)) return true;
+    for (const d of area.doors) {
+      if (!inRect(d, x, z)) continue;
+      if (d.id && fromInside && !isDoorOpenNow(d.id)) continue; // 门未开 → 不可穿出
+      return true;
+    }
+    for (const r of area.yard) {
+      if (!inRect(r, x, z)) continue;
+      if (area.slope && !insideSlope(area.slope, x, z)) continue; // 斜围墙以外
+      return true;
+    }
+    return false;
+  }
+
+  /** 当前层指定 id 的门是否处于开启状态（未接入查询时视为可通行） */
+  function isDoorOpenNow(id: string): boolean {
+    if (!isDoorOpen) return true;
+    return isDoorOpen(activeFloor, id);
+  }
+
+  /**
+   * 求脚下高度：优先取活动层及其相邻层楼梯面上的高度。
+   * 同一 (x,z) 可能同时存在上下两层楼梯（两跑上下叠放），按与当前脚下高度的接近程度取舍
+   * （层间差约 3m，超过阈值即视为不在脚下这一段）。
+   * 不在楼梯上则取平层：屋外按院子铺装台面；屋内按**所属楼层**（粘性记忆，离开楼梯后仍保持）的完成面。
+   */
+  function resolveGround(area: FpsWalkArea, x: number, z: number, current: number): StairHeight {
+    let best: StairHeight | null = null;
+    let bestDiff = Infinity;
+    for (const f of [activeFloor - 1, activeFloor, activeFloor + 1]) {
+      if (f < 0 || f >= FLOORS.length) continue;
+      const s = stairSurfaces[f];
+      if (!s) continue;
+      const hit = stairHeightAt(s, x, z);
+      if (!hit) continue;
+      const diff = Math.abs(hit.step - current);
+      if (diff > STAIR_MATCH_LIMIT) continue;
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = hit;
+      }
+    }
+    if (best) {
+      // 在楼梯上：所属楼层由脚下标高决定（爬到上段顶端即进入上一层；半层平台归属下层）
+      levelFloor = floorForHeight(best.step);
+      return best;
+    }
+    if (!inRect(area.inside, x, z)) {
+      return { step: area.yardTopY, cont: area.yardTopY };
+    }
+    const level = FLOORS[levelFloor].baseY;
+    return { step: level, cont: level };
+  }
+
+  /**
+   * 由脚下标高推出人当前属于哪一层：取标高不超过该值的最高层。
+   * 楼梯自本层完成面升至上层完成面，故到达上层完成面即归入上层。
+   */
+  function floorForHeight(h: number): number {
+    let f = 0;
+    for (let i = 0; i < FLOORS.length; i++) {
+      if (h >= FLOORS[i].baseY - 0.02) f = i;
+    }
+    return f;
+  }
+
+  /** 自动切层（上下楼）：保持相机位置与朝向，仅切换活动层并通知外部同步 UI */
+  function autoSwitchFloor(floor: number): void {
+    if (floor === activeFloor) return;
+    const prev = floorStates[activeFloor];
+    activeFloor = floor;
+    levelFloor = floor;
+    const st = floorStates[floor];
+    st.mode = prev.mode;
+    // 新层的位置即当前位置；旧层位置保持"上次真正待在旧层时"的记录（此刻人已在楼梯/新层上）
+    st.fpsPos.copy(camera.position);
+    applyVisibility();
+    if (onAutoFloor) onAutoFloor(floor);
+  }
+
   function updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void {
     tmpForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
     tmpForward.y = 0;
@@ -175,13 +370,40 @@ export function createViewManager(
       (keys.d || keys.right ? 1 : 0) - (keys.a || keys.left ? 1 : 0) +
       (touchMove ? touchMove.x : 0);
 
-    if (fwd !== 0) camera.position.addScaledVector(tmpForward, fwd * FPS_SPEED);
-    if (strafe !== 0) camera.position.addScaledVector(tmpRight, strafe * FPS_SPEED);
+    const area = walkAreas[activeFloor];
+    const fromInside = inRect(area.inside, camera.position.x, camera.position.z);
+    // 分轴推进：x、z 各自判定，落在可行走区域内才生效（贴墙时可沿墙滑动）
+    if (fwd !== 0) {
+      const step = fwd * FPS_SPEED;
+      const nx = camera.position.x + tmpForward.x * step;
+      if (isWalkable(area, nx, camera.position.z, fromInside)) camera.position.x = nx;
+      const nz = camera.position.z + tmpForward.z * step;
+      if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
+    }
+    if (strafe !== 0) {
+      const step = strafe * FPS_SPEED;
+      const nx = camera.position.x + tmpRight.x * step;
+      if (isWalkable(area, nx, camera.position.z, fromInside)) camera.position.x = nx;
+      const nz = camera.position.z + tmpRight.z * step;
+      if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
+    }
 
-    camera.position.x = THREE.MathUtils.clamp(camera.position.x, -FPS_LIMIT_X, FPS_LIMIT_X);
-    camera.position.z = THREE.MathUtils.clamp(camera.position.z, -FPS_LIMIT_Z, FPS_LIMIT_Z);
-    // 锁定在当前楼层眼高（用楼层按钮上下楼，而非真实爬楼梯）
-    camera.position.y = FLOORS[activeFloor].baseY + FPS_EYE_Y;
+    // 眼高：跟随脚下标高（平层为完成面、楼梯为踏步面），按时间常数做插值过渡
+    const now = performance.now();
+    const dt = Math.min((now - lastMoveTime) / 1000, 0.1);
+    lastMoveTime = now;
+    const ground = resolveGround(area, camera.position.x, camera.position.z, groundY);
+    groundY = ground.step;
+    const targetEye = ground.step + FPS_EYE_Y;
+    const alpha = 1 - Math.exp(-dt / EYE_SMOOTH_TAU);
+    camera.position.y += (targetEye - camera.position.y) * alpha;
+
+    // 上下楼：按脚下标高自动切层（爬到梯顶进入上一层、走下梯底回到下一层）
+    const f = floorForHeight(ground.step);
+    if (f !== activeFloor) autoSwitchFloor(f);
+
+    // 记录本层第一人称位置（切模式/切层后可恢复原处）
+    floorStates[activeFloor].fpsPos.copy(camera.position);
   }
 
   /** 记录当前上帝视角相机（每层独立保存，切层/切模式后可恢复） */
@@ -207,9 +429,22 @@ export function createViewManager(
   };
 }
 
-/** 门窗开合动画：旋转门向目标角度插值；推拉门（slideX）向目标位移插值 */
+/** 门窗开合动画：旋转门向目标角度插值；推拉门（slideX）向目标位移插值；成组窗扇按各自角度插值 */
 export function updateInteractables(interactables: InteractiveObject[]): void {
   for (const obj of interactables) {
+    // 成组开启的窗（左右下格小窗格）：主控开合带动子扇绕各自枢轴转动
+    const sashes = obj.userData.sashes;
+    if (sashes) {
+      const open = obj.userData.isOpen;
+      for (const s of sashes) {
+        s.object.rotation.y = THREE.MathUtils.lerp(
+          s.object.rotation.y,
+          open ? s.openAngle : 0,
+          OPEN_LERP,
+        );
+      }
+      continue;
+    }
     const slide = obj.userData.slideX;
     if (slide) {
       const targetX = obj.userData.isOpen ? slide.open : slide.closed;

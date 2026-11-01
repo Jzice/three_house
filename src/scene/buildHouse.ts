@@ -2,24 +2,27 @@ import * as THREE from 'three';
 import type { BoxSpec, FloorConfig, InteractiveObject, MaterialMap } from '../types';
 import {
   COLUMNS,
-  FLOOR_T,
-  FLOOR_Y,
   getExteriorWalls,
   getFloorSlabs,
   getInteriorDoors,
   getInteriorWalls,
+  getSouthWall,
   getWindows,
   H,
   MAIN_DOOR,
   SLIDING_DOOR,
   STAIR,
   TILE_SIZE,
+  BACK_DOOR,
 } from '../config/houseConfig';
 import {
   createBox,
+  createExteriorSwingDoor,
+  createHoledWall,
   createInteriorDoor,
   createInteractiveMainDoor,
   createInteractiveWindow,
+  createLowerSashWindow,
   createSlidingGlassDoor,
   createSlidingWindow,
 } from './builders';
@@ -62,27 +65,50 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
 
   // 外墙 -> 内墙 -> 柱（均按层重映射；柱仅存在于有楼梯的楼层）
   addAll(getExteriorWalls(floor));
+  // 南墙：整片带洞墙（单网格挖洞，避免多段墙盒拼接在窗/门边留下接缝）
+  const southWall = getSouthWall(floor);
+  if (southWall) root.add(createHoledWall(southWall, floor.baseY, materials));
   addAll(getInteriorWalls(floor));
   if (floor.stair) addAll(COLUMNS);
 
-  // 楼板：每块按自身尺寸设置 0.8m 瓷砖重复，并按层重映射标高
-  for (const raw of getFloorSlabs(floor)) {
-    const spec = remapBox(raw, floor);
+  // 楼板：每块按自身尺寸设置 0.8m 瓷砖重复。
+  // 楼板为**世界坐标**（厚度 SLAB_T 绝对、不随层高缩放，顶面 = 本层完成面），故不走 remapBox。
+  for (const spec of getFloorSlabs(floor)) {
     const mat = materials.floor.clone();
     const tex = (materials.floor.map as THREE.Texture).clone();
     tex.needsUpdate = true;
     tex.repeat.set(spec.w / TILE_SIZE, spec.d / TILE_SIZE);
+    // 贴图相位对齐**全局砖缝网格**（x≡-4.40、z≡-4.90）：
+    // 楼板为避让梯井拆成多块后，各块若从自身原点起铺，拼缝处砖缝会错位。
+    // BoxGeometry 顶面 UV：u 随 +x 增大、v 随 -z 增大
+    // （three 源码 buildPlane('x','z','y', 1, 1, …)），故 z 向相位用南沿反推。
+    const x0 = spec.x - spec.w / 2;
+    const z1 = spec.z + spec.d / 2;
+    tex.offset.set((x0 + 4.4) / TILE_SIZE, (-4.9 - z1) / TILE_SIZE);
     mat.map = tex;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), mat);
+    // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]：顶面为地砖，底面即下层天花板用白色乳胶漆
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), [
+      materials.paint,
+      materials.paint,
+      mat,
+      materials.paint,
+      materials.paint,
+      materials.paint,
+    ]);
     mesh.position.set(spec.x, spec.y, spec.z);
     mesh.castShadow = spec.cast ?? false;
     mesh.receiveShadow = spec.receive ?? false;
     root.add(mesh);
   }
 
-  // 可交互窗（按层抬升 + 竖向缩放；推拉窗走滑动逻辑）
+  // 可交互窗（按层抬升 + 竖向缩放；推拉窗走滑动逻辑；大窗走下方小窗格对开）
   for (const spec of getWindows(floor)) {
-    const builder = spec.style === 'sliding' ? createSlidingWindow : createInteractiveWindow;
+    const builder =
+      spec.style === 'sliding'
+        ? createSlidingWindow
+        : spec.openSashes === 'lower-sides'
+          ? createLowerSashWindow
+          : createInteractiveWindow;
     const { container, parts } = builder(spec, materials, floor);
     root.add(container);
     interactables.push(...parts);
@@ -96,6 +122,21 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
         : createSlidingGlassDoor(SLIDING_DOOR, materials, floor);
     root.add(mainDoor.container);
     interactables.push(...mainDoor.parts);
+  }
+
+  // 1F 北墙后门：矩形金属单开门（1.1m×2m，铰链在东侧、朝室外/院子开），灰色哑光漆 + 门框包边
+  if (floor.index === 0) {
+    const backDoor = createExteriorSwingDoor(
+      BACK_DOOR.w,
+      BACK_DOOR.h,
+      1, // 铰链在东侧
+      -Math.PI / 2 * 0.85, // 负角 = 朝室外（北向，院子）开
+      materials,
+      'back',
+    );
+    backDoor.container.position.set(BACK_DOOR.x, floor.baseY, BACK_DOOR.z);
+    root.add(backDoor.container);
+    interactables.push(...backDoor.parts);
   }
 
   // 可交互内门（卧室/杂物间=木门，卫生间=磨砂玻璃门）
@@ -139,8 +180,7 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
  * 材质/高度/截面沿用 STAIR 配置（railHeight 0.9m）。
  */
 function addVoidGuard(materials: MaterialMap, floor: FloorConfig, root: THREE.Group): void {
-  const floorTopY =
-    floor.baseY + (FLOOR_Y / H) * floor.wallH + (FLOOR_T * (floor.wallH / H)) / 2;
+  const floorTopY = floor.baseY; // 本层完成面 = 楼板顶面
   const z = -1.28;
   const xA = -4.4;
   const xB = -3.26; // 仅西侧一半（开口 x∈[-4.40,-2.12] 的西半）

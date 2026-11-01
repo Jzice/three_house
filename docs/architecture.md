@@ -119,7 +119,9 @@ animate()
   ├─ mode === 'fps' → updateFpsMovement(keys)
   │      ├─ 由 camera.quaternion 推导水平前/右向量
   │      ├─ 按 WASD/方向键平移
-  │      └─ 钳制到户型范围内 (x ±4.3, z ±4.8)，眼高固定 1.6
+  │      ├─ 按「可行走区域」分轴推进（屋内 + 门洞通道 + 院子）
+  │      ├─ 脚下高度 = 楼梯踏面（逐级）/ 平层完成面 → 眼高 = 脚下 + 1.6（0.09s 插值）
+  │      └─ 脚下标高跨过上层完成面 → 自动切层（保持相机位置与朝向）
   └─ mode !== '2d' → updateInteractables() + renderer.render()
          └─ 每个可交互部件向 openAngle / closedAngle 插值 (lerp 0.15)
 ```
@@ -155,6 +157,7 @@ flowchart LR
 | 单文件发布 | `vite-plugin-singlefile` | 直接内联 JS/CSS，无需额外打包后处理脚本 |
 | `three` 版本 | 锁定 `0.160.0` | 与重构前 CDN 版本一致，确保渲染结果（含 `colorSpace`、`PCFSoftShadowMap`）不变 |
 | 模块解耦 | 用回调（`getMode` / `onEnter2D`）代替直接 import | `floorplan` 可独立测试与复用 |
-| 材质管理 | 集中 `MaterialMap` 字典，`stair` 复用 `floor` 实例 | 材质数量可控，避免重复生成瓷砖贴图 |
+| 材质管理 | 集中 `MaterialMap` 字典，`stair` 为独立白色切割瓷砖材质（含环境反射） | 材质数量可控，避免重复生成瓷砖贴图 |
+| 第一人称移动 | 不做完整碰撞，用「可行走区域」（屋内矩形 + 门洞通道 + 院子矩形带）分轴推进；楼梯按「踏面高度」贴地，跨过上层完成面自动切层 | 与既有"可穿内墙"的漫游手感一致；门洞通道绑定门的开合状态，实现"开门才能出去"；楼梯可直接上下楼。代价：外墙不可穿越，内墙仍可穿行 |
 | 类型收窄 | `InteractiveObject = Object3D & { userData: InteractiveUserData }` | 在保留 three 原生 `userData` 机制的同时获得类型保护 |
 | 资源内联 | 瓷砖贴图用 Canvas 程序化生成 | 无外部图片依赖，才能做到真正的离线单文件 |
