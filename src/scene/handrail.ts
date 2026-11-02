@@ -60,6 +60,37 @@ export interface StraightRailOpts {
   /** 管半径（米） */
   tubeR: number;
   material: THREE.Material;
+  /** 首点虚拟前驱方向（单位向量）：使首点也生成转角，用于跨楼层交接处共享弯头 */
+  firstDir?: THREE.Vector3;
+  /** 首点虚拟前驱段长（米）：转角半径夹取用，保证与相邻楼层段一致 */
+  firstLen?: number;
+  /** 末点虚拟后继方向（单位向量）：使末点也生成转角 */
+  lastDir?: THREE.Vector3;
+  /** 末点虚拟后继段长（米） */
+  lastLen?: number;
+  /** 末点直截量（米，不生成弯头）：仅把末段回退截断，用于楼层交接处封口 */
+  lastTrim?: number;
+}
+
+/**
+ * 计算转角两侧切削量 t = R·tan(θ/2)，供跨楼层交接处共享弯头时预先算出切点。
+ * 与 createStraightRailTube 内部半径夹取逻辑完全一致：半径受两侧直段长度约束，
+ * 且保底 R ≥ 1.2·tubeR，否则退化为斜接（返回 0）。
+ */
+export function elbowTrim(
+  dirIn: THREE.Vector3,
+  dirOut: THREE.Vector3,
+  lenPrev: number,
+  lenNext: number,
+  elbowR: number,
+  tubeR: number,
+): number {
+  const theta = Math.acos(THREE.MathUtils.clamp(dirIn.dot(dirOut), -1, 1));
+  if (theta < MIN_ELBOW_ANGLE || theta > MAX_ELBOW_ANGLE) return 0;
+  const tanHalf = Math.tan(theta / 2);
+  const r = Math.min(elbowR, lenPrev / (2 * tanHalf), lenNext / (2 * tanHalf));
+  if (r < tubeR * 1.2) return 0;
+  return r * tanHalf;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -236,6 +267,36 @@ export function createStraightRailTube(o: StraightRailOpts): THREE.Group {
     trims[i] = r * tanHalf;
   }
 
+  // ---- 端点转角（跨楼层交接处共享弯头）：用虚拟前驱/后继段长夹取半径 ----
+  // 首点：虚拟前驱 dir 从相邻楼层段来，段长 firstLen，保证与对方段算出同一切点
+  if (o.firstDir && o.firstLen !== undefined && n >= 2 && radii[0] === 0) {
+    const dIn = o.firstDir.clone().normalize();
+    const dOut = dirs[0];
+    const theta = Math.acos(THREE.MathUtils.clamp(dIn.dot(dOut), -1, 1));
+    thetas[0] = theta;
+    if (theta >= MIN_ELBOW_ANGLE && theta <= MAX_ELBOW_ANGLE) {
+      const tanHalf = Math.tan(theta / 2);
+      const r = Math.min(elbowR, o.firstLen / (2 * tanHalf), lens[0] / (2 * tanHalf));
+      if (r >= tubeR * 1.2) { radii[0] = r; trims[0] = r * tanHalf; }
+    }
+  }
+  // 末点：优先虚拟后继转角（共享弯头），否则显式直截（楼层封口）
+  if (n >= 2 && radii[n - 1] === 0) {
+    if (o.lastDir && o.lastLen !== undefined) {
+      const dIn = dirs[n - 2];
+      const dOut = o.lastDir.clone().normalize();
+      const theta = Math.acos(THREE.MathUtils.clamp(dIn.dot(dOut), -1, 1));
+      thetas[n - 1] = theta;
+      if (theta >= MIN_ELBOW_ANGLE && theta <= MAX_ELBOW_ANGLE) {
+        const tanHalf = Math.tan(theta / 2);
+        const r = Math.min(elbowR, lens[n - 2] / (2 * tanHalf), o.lastLen / (2 * tanHalf));
+        if (r >= tubeR * 1.2) { radii[n - 1] = r; trims[n - 1] = r * tanHalf; }
+      }
+    } else if (o.lastTrim !== undefined) {
+      trims[n - 1] = o.lastTrim;
+    }
+  }
+
   // ---- 直段：圆柱（自带端盖），严格沿折线方向 ----
   for (let i = 0; i < n - 1; i++) {
     const S = points[i].clone().addScaledVector(dirs[i], trims[i]);
@@ -249,14 +310,19 @@ export function createStraightRailTube(o: StraightRailOpts): THREE.Group {
     group.add(mesh);
   }
 
-  // ---- 转角：圆弧弯头（TorusGeometry 的局部 +Y 对应入向、切向连续） ----
-  for (let i = 1; i < n - 1; i++) {
+  // ---- 转角：圆弧弯头（含首末点虚拟前驱/后继转角，用于跨楼层共享弯头） ----
+  for (let i = 0; i < n; i++) {
     const R = radii[i];
     if (R <= 0) continue;
+    // 端点用虚拟前驱/后继方向，内部顶点用相邻折线方向
+    let dIn: THREE.Vector3, dOut: THREE.Vector3;
+    if (i === 0 && o.firstDir) { dIn = o.firstDir.clone().normalize(); dOut = dirs[0]; }
+    else if (i === n - 1 && o.lastDir) { dIn = dirs[n - 2]; dOut = o.lastDir.clone().normalize(); }
+    else if (i > 0 && i < n - 1) { dIn = dirs[i - 1]; dOut = dirs[i]; }
+    else continue; // 端点无虚拟邻居：不生成转角
     const theta = thetas[i];
-    const dIn = dirs[i - 1];
-    const dOut = dirs[i];
     const sinT = Math.sin(theta);
+    if (sinT < 1e-6) continue;
     const cosT = Math.cos(theta);
     // e1 为局部 +X（弧起点方向），e2 = dIn 为局部 +Y，保证弧的起止切向与两侧直段一致
     _e1.copy(dIn).multiplyScalar(cosT).sub(dOut).multiplyScalar(1 / sinT);

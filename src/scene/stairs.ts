@@ -11,8 +11,10 @@ import {
 import {
   createHandrailRun,
   createStraightRailTube,
+  elbowTrim,
   type HandrailParams,
   type HandrailPost,
+  type StraightRailOpts,
 } from './handrail';
 
 /**
@@ -230,6 +232,39 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
     elbowR: STAIR.elbowR,
   };
 
+  // ---- 跨楼层交接点（扶手中心线，含栏杆高 rh）：把整楼连续折线在楼层处拆成共享弯头的显示组 ----
+  // 1F 第二跑 c0->d0 与 2F 第一跑 a1 之间、2F 第二跑 c1->d1 与 3F 洞口护栏 gEast->d1 之间，
+  // 用同一弯头圆弧接通；弯头归上层组，下层组末段按同一切点直截，两层同显时无缝、仅显下层时平整封口。
+  const f1 = FLOORS[0];
+  const f2 = FLOORS[1];
+  const f3 = FLOORS[2];
+  const tubeR = STAIR.handrailD / 2;
+  const c0 = new THREE.Vector3(STAIR.run2RailX, f1.baseY + f1.stair!.platformH + rh, pfz);
+  const d0 = new THREE.Vector3(STAIR.run2RailX, f1.baseY + f1.wallH + rh, pfz + f1.stair!.run2Length);
+  const a1 = new THREE.Vector3(STAIR.run1RailX, f2.baseY + rh, pfz + f2.stair!.run1Length);
+  const dirRun2ToD0 = new THREE.Vector3().subVectors(d0, c0).normalize();
+  const lenRun2ToD0 = d0.distanceTo(c0);
+  const dirJog = new THREE.Vector3().subVectors(a1, d0).normalize();
+  const lenJog = a1.distanceTo(d0);
+  const tJogD0 = elbowTrim(dirRun2ToD0, dirJog, lenRun2ToD0, lenJog, STAIR.elbowR, tubeR);
+  const c1 = new THREE.Vector3(STAIR.run2RailX, f2.baseY + f2.stair!.platformH + rh, pfz);
+  const d1 = new THREE.Vector3(STAIR.run2RailX, f2.baseY + f2.wallH + rh, pfz + f2.stair!.run2Length);
+  // 护栏水平段立在 3F 完成面上（与 d1 = 2F 墙顶 = 3F 完成面同高），整段水平
+  const gWest = new THREE.Vector3(VOID_GUARD.x0, f3.baseY + rh, VOID_GUARD.z);
+  const gEast = new THREE.Vector3(VOID_GUARD.x1, f3.baseY + rh, VOID_GUARD.z);
+  const dirRun2ToD1 = new THREE.Vector3().subVectors(d1, c1).normalize();
+  const lenRun2ToD1 = d1.distanceTo(c1);
+  // 3F 护栏在 d1 处弯头的虚拟后继方向：越过 d1 顺楼梯向下（= -dirRun2ToD1）。
+  // 弯头占住 d1 两侧，楼梯侧切点在 d1 - dirRun2ToD1·t，与 2F 末段 lastTrim 封口点重合；
+  // 若误传 +dirRun2ToD1，弧会扫过 d1 冲上空中成"回头钩"，与 2F 段脱开。
+  const dirD1Down = dirRun2ToD1.clone().negate();
+  // 弯头在 d1 处的出侧方向 = 护栏离开方向（d1→gEast）。2F 侧封口与 3F 弯头必须用同一夹角：
+  // 若误传 gEast→d1（驶入方向），θ 变 98.7°（正确 81.3°），tGuard 多切 3.9cm，弯折处露出缺口。
+  const dirGuard = new THREE.Vector3().subVectors(gEast, d1).normalize();
+  const lenGuard = d1.distanceTo(gEast);
+  // 2F 第二跑顶在 d1 处封口（弯头归 3F 护栏组），与 3F 护栏 d1 弯头算出同一切点
+  const tGuard = elbowTrim(dirRun2ToD1, dirGuard, lenRun2ToD1, lenGuard, STAIR.elbowR, tubeR);
+
   // 一段直跑立柱：落在各踏面中部（平整踏面），首根上移到第 1 级（k 从 1 起），末根落在顶步；
   // 底部标高 = 该级踏面顶面（+微小抬升避免共面闪烁），柱顶由 createHandrailRun 按轴线反算
   const flightPosts = (
@@ -266,14 +301,22 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
     const c = new THREE.Vector3(STAIR.run2RailX, platformY + rh, pfz);
     const d = new THREE.Vector3(STAIR.run2RailX, baseY + floor.wallH + rh, pfz + fs.run2Length);
 
-    group.add(
-      createStraightRailTube({
-        points: [a, b, c, d],
-        elbowR: STAIR.elbowR,
-        tubeR: STAIR.handrailD / 2,
-        material: materials.railing,
-      }),
-    );
+    const railPoints: THREE.Vector3[] = [a, b, c, d];
+    const railOpts: StraightRailOpts = {
+      points: railPoints,
+      elbowR: STAIR.elbowR,
+      tubeR: STAIR.handrailD / 2,
+      material: materials.railing,
+    };
+    if (floor.index === 0) {
+      railOpts.lastTrim = tJogD0; // 1F 第二跑顶在楼层交接处封口（弯头归 2F 组）
+    } else if (floor.index === 1) {
+      railPoints.unshift(d0); // 复用 1F 第二跑顶作 2F 起点，含 0.16m 梯口横移
+      railOpts.firstDir = dirRun2ToD0; // 共享 D0 弯头（首点虚拟前驱 = 1F 第二跑方向）
+      railOpts.firstLen = lenRun2ToD0;
+      railOpts.lastTrim = tGuard; // 2F 第二跑顶在洞口护栏交接处封口（弯头归 3F 组）
+    }
+    group.add(createStraightRailTube(railOpts));
 
     const n1 = floor.index === 0 ? 7 : 4; // 1F run1=7，其余直跑=4
     group.add(
@@ -301,14 +344,6 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
   // ---- 3F 楼梯洞口护栏：水平段向西，东端用圆弧弯头接到 2F 第二跑顶端 D1 ----
   if (floor.index === 2) {
     const vg = VOID_GUARD;
-    const vgY = floor.baseY + rh;
-    const d1 = new THREE.Vector3(
-      STAIR.run2RailX,
-      FLOORS[1].baseY + FLOORS[1].wallH + rh,
-      pfz + FLOORS[1].stair!.run2Length,
-    );
-    const gWest = new THREE.Vector3(vg.x0, vgY, vg.z);
-    const gEast = new THREE.Vector3(vg.x1, vgY, vg.z);
 
     group.add(
       createStraightRailTube({
@@ -316,6 +351,8 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
         elbowR: STAIR.elbowR,
         tubeR: STAIR.handrailD / 2,
         material: materials.railing,
+        lastDir: dirD1Down, // 东端弯头顺楼梯向下回弯，与 2F 末段封口点严丝合缝（弯头归 3F 组）
+        lastLen: lenRun2ToD1,
       }),
     );
 
@@ -323,9 +360,11 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
       createHandrailRun({
         start: gWest,
         end: gEast,
+        // 立柱内收（与管端 -4.35 / -3.5 脱开、各外伸约 10~15cm，管端贴墙/贴梯口转角）：
+        // 西柱 -4.2（柱心距墙内皮 0.18m、底座西缘距墙 0.13m），东柱 -3.6，间距 0.6m，分布不再稀疏也不贴墙。
         posts: [
-          { x: vg.x0, z: vg.z, baseY: floor.baseY },
-          { x: vg.x1, z: vg.z, baseY: floor.baseY },
+          { x: -4.2, z: vg.z, baseY: floor.baseY },
+          { x: -3.6, z: vg.z, baseY: floor.baseY },
         ],
         railHeight: rh,
         materials,
