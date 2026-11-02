@@ -7,8 +7,8 @@
  * 依赖方向（符合 AGENTS.md 单向约束）：只依赖 three / types / config / 本目录的纯模块；
  * 不 import scene / view / floorplan / ui。渲染动作通过构造函数注入的回调与 scene/renderer 实例完成。
  *
- * 房屋朝向：太阳方位 → 场景方向由 solar.toSceneDirection 完成（内部以"+z=正西"换算），
- * 几何与 2D 图纸保持不变。
+ * 房屋朝向：太阳方位 → 场景方向由 solar.toSceneDirection 完成（按"正门 +z 所朝方位"
+ * frontAzimuthDeg 换算，默认西=270°，可由 UI 通过 setFrontAzimuth 设置），几何与 2D 图纸保持不变。
  */
 import * as THREE from 'three';
 import type {
@@ -20,7 +20,7 @@ import type {
   SkyParams,
   WeatherSnapshot,
 } from '../types';
-import { DEFAULT_LOCATION, FALLBACK_WEATHER } from '../config/siteConfig';
+import { DEFAULT_LOCATION, FALLBACK_WEATHER, FRONT_AZIMUTH_DEG } from '../config/siteConfig';
 import { solarPosition, toSceneDirection, sunTimes, utcToLocalMinutes } from './solar';
 import { createWeatherService, type WeatherService } from './weather';
 import { createSkyTexture, createNeutralEnvMap } from './sky';
@@ -63,6 +63,8 @@ export interface Environment {
   setManualLocalDate(dateISO: string, minutes: number): void;
   /** 立即刷新天气 */
   refreshWeather(): void;
+  /** 设置房屋正面（+z 入户门侧）所朝的真实方位角（度，自北顺时针）；默认 270（西） */
+  setFrontAzimuth(deg: number): void;
   /** 一键开启/关闭实时天气（关闭即停止联网并切晴天） */
   setWeatherEnabled(enabled: boolean): void;
   /** 开启/关闭实时光照（动态阴影）；默认关闭，开启后由太阳高度自动决定是否投射阴影 */
@@ -90,6 +92,8 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   // 关闭期间 weather 始终保持此晴天值，光照仅由太阳/时间决定。
   let weather: WeatherSnapshot = { ...FALLBACK_WEATHER };
   let weatherEnabled = opts.weatherEnabled ?? false;
+  // 房屋正面（+z 入户门侧）所朝真实方位角（度，自北顺时针）；默认西=270，与默认地点武穴组合即"默认武穴·朝西"
+  let frontAzimuthDeg = FRONT_AZIMUTH_DEG;
 
   let currentEnvMap: THREE.Texture | null = null;
   let currentSkyTex: THREE.Texture | null = null;
@@ -126,6 +130,7 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       precip: weather.precipitation,
       visibility: weather.visibility,
       isDay: elevation > -0.5 * DEG,
+      frontAzimuth: frontAzimuthDeg * DEG,
     };
   }
 
@@ -198,11 +203,11 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     const solar = solarPosition(utc, location.lat, location.lon);
     const lighting = computeLighting(solar, weather);
     lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
-    const sunDir = toSceneDirection(solar);
+    const sunDir = toSceneDirection(solar, frontAzimuthDeg * DEG);
     const moonDir = toSceneDirection({
       azimuth: solar.azimuth + Math.PI,
       elevation: Math.abs(solar.elevation),
-    });
+    }, frontAzimuthDeg * DEG);
     applyLighting(lights, lighting, sunDir, moonDir);
     applyFog(scene, lighting);
   }
@@ -281,17 +286,23 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       recompute();
       emitSnapshot(true);
     },
+    setFrontAzimuth(deg) {
+      frontAzimuthDeg = ((deg % 360) + 360) % 360;
+      forceDirty = true;
+      recompute();
+      emitSnapshot(true);
+    },
     getSnapshot,
     update(render3D) {
       const utc = currentUtcMs();
       const solar = solarPosition(utc, location.lat, location.lon);
       const lighting = computeLighting(solar, weather);
       lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
-      const sunDir = toSceneDirection(solar);
+      const sunDir = toSceneDirection(solar, frontAzimuthDeg * DEG);
       const moonDir = toSceneDirection({
         azimuth: solar.azimuth + Math.PI,
         elevation: Math.abs(solar.elevation),
-      });
+      }, frontAzimuthDeg * DEG);
       applyLighting(lights, lighting, sunDir, moonDir);
       applyFog(scene, lighting);
 

@@ -12,11 +12,14 @@
 import * as THREE from 'three';
 import type { SkyParams } from '../types';
 import { toSceneDirection } from './solar';
+import { FRONT_AZIMUTH_DEG } from '../config/siteConfig';
 import { WEATHER_PALETTE } from './lighting';
 
 const NIGHT_SKY = 0x1b2436;
 const NIGHT_GROUND = 0x12160f;
 const NIGHT_HORIZON = 0x222d44;
+
+const DEG = Math.PI / 180;
 
 /** 简单可复现随机数（mulberry32），保证云/星不逐帧闪烁 */
 function mulberry32(seed: number): () => number {
@@ -115,7 +118,8 @@ export function createSkyTexture(params: SkyParams): THREE.CanvasTexture {
   }
 
   // ---- 太阳 / 月亮 ----
-  const sunDir = toSceneDirection({ azimuth: params.azimuth, elevation: params.elevation });
+  const frontAz = params.frontAzimuth ?? FRONT_AZIMUTH_DEG * DEG; // 房屋正面所朝方位（缺省回落到默认西）
+  const sunDir = toSceneDirection({ azimuth: params.azimuth, elevation: params.elevation }, frontAz);
   const sunPx = dirToCanvas(sunDir, W, H);
   if (params.elevation > -0.02) {
     // 越接近地平，辉光越大越暖
@@ -136,7 +140,7 @@ export function createSkyTexture(params: SkyParams): THREE.CanvasTexture {
 
   if (params.elevation < 0.02) {
     // 月亮：太阳对侧，抬升 |elevation|
-    const moonDir = toSceneDirection({ azimuth: params.azimuth + Math.PI, elevation: Math.abs(params.elevation) });
+    const moonDir = toSceneDirection({ azimuth: params.azimuth + Math.PI, elevation: Math.abs(params.elevation) }, frontAz);
     const moonPx = dirToCanvas(moonDir, W, H);
     const mr = 6 + (1 - dayFactor) * 2;
     const rg = ctx.createRadialGradient(moonPx.x, moonPx.y, 0, moonPx.x, moonPx.y, mr * 4);
@@ -210,6 +214,7 @@ export function createNeutralEnvTexture(params?: SkyParams): THREE.CanvasTexture
   const elevDeg = params ? (params.elevation * 180) / Math.PI : 60;
   const dayFactor = smoothstep(-6, 6, elevDeg); // 0 夜 → 1 昼
   const bright = 0.18 + 0.82 * dayFactor; // 昼夜亮度系数
+  const frontAz = params?.frontAzimuth ?? FRONT_AZIMUTH_DEG * DEG; // 房屋正面所朝方位（缺省回落到默认西）
 
   const mix = (hex: number): RGB => {
     const c = hexToRgb(hex);
@@ -233,7 +238,7 @@ export function createNeutralEnvTexture(params?: SkyParams): THREE.CanvasTexture
 
   // 与太阳同向的柔和暖白高光（随太阳位置移动），强度随昼夜
   if (params && dayFactor > 0.05) {
-    const sunDir = toSceneDirection({ azimuth: params.azimuth, elevation: params.elevation });
+    const sunDir = toSceneDirection({ azimuth: params.azimuth, elevation: params.elevation }, frontAz);
     const sunPx = dirToCanvas(sunDir, W, H);
     const radius = 120 + (1 - dayFactor) * 60;
     const a = 0.5 * dayFactor;

@@ -50,7 +50,7 @@ src/
 - `floorplan` **不得** import `view`：它通过 `getMode()` 回调获知当前模式，重绘动作由 `main.ts` 注入。
 - `ui` **不得** import 任何渲染模块：只做 DOM 与回调，模式切换的具体动作由 `main.ts` 编排。
 - 跨模块的"副作用"（如进入 2D 要重绘）一律通过构造函数回调注入，不要直接 import。
-- **环境层 `src/environment/`**：只依赖 `three` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
+- **环境层 `src/environment/`**：只依赖 `three` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `setFrontAzimuth` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
 
 ## 4. 核心约定
 
@@ -60,6 +60,7 @@ src/
 
 - 楼板 / 墙 / 柱用 `BoxSpec` 描述：`{ w, h, d, x, y, z, material, cast?, receive? }`。
 - **坐标是中心点，不是角点**，单位为**米**。原点在房屋平面中心：`x ∈ [-4.62, 4.62]`，`z ∈ [-5.12, 5.12]`（`-z` 北侧／楼梯间侧，`+z` 南侧／入户门侧），`y = 0` 地面，`H = 3.5` 层顶。
+- **坐标系两套叫法的区别（重要）**：这里的"南／北"只是**设计命名习惯**（把正门(+z)叫"南面"、后门(−z)叫"北面"）。在武穴真实地理中，正门(+z)实际朝**西**、后门(−z)实际朝**东**，即房屋主轴（z 轴）与地理东西轴重合（+z→西、−z→东），x 轴对应地理南北（±x→南/北）。太阳方位换算（`solar.toSceneDirection`）按"正门 +z 所朝真实方位"旋转，该朝向可由日照面板"房屋正面朝向"设置（默认西=270°，与默认地点武穴一致），详见 `docs/architecture.md` §7.2。
 - 门头、窗上墙用 `header()` 等推导函数生成，**改 `H` 会自动联动**，不要手写死数值。
 - 新增 `MaterialKey` 时，必须同时在 `src/scene/materials.ts` 的 `createMaterials()` 中给出实现。
 

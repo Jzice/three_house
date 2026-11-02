@@ -444,6 +444,11 @@ export interface SkyParams {
   visibility: number;
   /** 是否白昼 */
   isDay: boolean;
+  /**
+   * 房屋正面（+z 入户门侧）所朝的真实方位角（弧度，自北顺时针）。
+   * 供太阳/月亮盘与高光按该朝向定位（与平行光方向一致）；缺省时回落到 FRONT_AZIMUTH_DEG。
+   */
+  frontAzimuth?: number;
 }
 
 /** 由太阳位置与天气推导出的光照参数（集中调参，applyLighting 仅改属性） */

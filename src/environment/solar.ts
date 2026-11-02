@@ -1,19 +1,25 @@
 /**
  * 太阳位置纯函数（NOAA 简化天文算法）。
- * 不依赖任何模块，便于推演与单元测试。
  *
  * 约定：
  * - 全部角度以弧度计。
  * - `azimuth`（方位角）自**正北**顺时针：北=0、东=π/2、南=π、西=3π/2。
  * - `elevation`（高度角）自地平线向上，向上为正。
  *
- * 房屋朝向换算见 {@link toSceneDirection}：
- *   需求规定"房屋正面（+z 入户门侧）朝正西"，即在真实方位里 +z ⇔ 西（az=3π/2）。
- *   由"北=-x、东=-z"可得模型方向
- *     dir = ( -cos(az)·cos(el),  sin(el),  -sin(az)·cos(el) )
- *   校验：az=西(3π/2)→(0, +·, +cos el) 即 +z ✓；az=东(π/2)→ -z ✓（太阳从门正对面升起）；
- *         az=北(0)→ -x ✓；az=南(π)→ +x ✓。
+ * 房屋朝向（真实地理 vs 设计命名）：
+ *   设计阶段把正门(+z)称作"南面"、后门(−z)称作"北面"只是称呼习惯；
+ *   在武穴真实地理中正门(+z)实际朝**西**、后门(−z)实际朝**东**，即房屋主轴（z 轴）
+ *   与地理东西轴重合（+z→西、−z→东），x 轴对应地理南北（±x→南/北）。
+ *   方位换算见 {@link toSceneDirection}：把"真实方位角"按"正门 +z 所朝方位"
+ *   （{@link FRONT_AZIMUTH_DEG}，默认西=3π/2，可由 UI 覆盖）旋转到场景方向。
+ *   推导（frontAz = FRONT_AZIMUTH_DEG）：
+ *     rel = az - frontAz；dir = ( -sin(rel)·cos(el), sin(el), cos(rel)·cos(el) )
+ *   校验（frontAz=西）：az=西→ +z ✓；az=东→ −z（太阳从后门/东侧升起）✓；
+ *        az=北→ −x ✓；az=南→ +x ✓。
+ *
+ * 注意：本模块仅引用 config 中的一个朝向常量，无其它运行时依赖。
  */
+import { FRONT_AZIMUTH_DEG } from '../config/siteConfig';
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
@@ -51,7 +57,10 @@ export function solarPosition(utcMs: number, latDeg: number, lonDeg: number): So
   // 格林尼治平恒星时 → 本地恒星时 → 时角
   const gmst = ((280.46061837 + 360.98564736629 * n) % 360) * DEG;
   const lst = gmst + lonDeg * DEG;
-  const ha = lst - ra; // 时角（弧度）
+  let ha = lst - ra; // 时角（弧度）
+  // 归一化到 [-π, π]：否则 ha∈(π,2π) 本属"上午、太阳在东侧"会被误判为下午翻到西侧，
+  // 造成太阳白天几乎全程偏西、早晨也从正门/西侧升起（高度角仅用 cos(ha)，不受影响）。
+  ha = Math.atan2(Math.sin(ha), Math.cos(ha));
 
   const lat = latDeg * DEG;
   const cosEl = Math.cos(lat) * Math.cos(dec) * Math.cos(ha) + Math.sin(lat) * Math.sin(dec);
@@ -101,15 +110,25 @@ export function sunTimes(utcMs: number, latDeg: number, lonDeg: number): { sunri
 }
 
 /**
- * 按"房屋正面 +z = 正西（frontAzimuthDeg=270°）"把真实太阳方位换算为场景方向向量（已归一化）。
- * 见文件头推导：dir = ( -cos(az)·cos(el), sin(el), -sin(az)·cos(el) )。
+ * 把真实太阳方位换算为场景方向向量（已归一化到单位向量）。
+ *
+ * @param p 太阳位置（真实方位角/高度角，自正北顺时针）
+ * @param frontAzimuthRad 房屋正面（+z 入户门侧）所朝的真实方位角（弧度）。
+ *        默认 {@link FRONT_AZIMUTH_DEG}（西=3π/2）；UI 选择其它朝向时由 environment 传入。
+ *        推导：rel = p.azimuth - frontAzimuthRad；
+ *              dir = ( -sin(rel)·cos(el), sin(el), cos(rel)·cos(el) )
+ *        当 frontAzimuthRad=西(3π/2) 时与历史公式 (-cos az·cos el, sin el, -sin az·cos el) 逐位一致。
  */
-export function toSceneDirection(p: SolarPosition): { x: number; y: number; z: number } {
+export function toSceneDirection(
+  p: SolarPosition,
+  frontAzimuthRad: number = FRONT_AZIMUTH_DEG * DEG,
+): { x: number; y: number; z: number } {
+  const rel = p.azimuth - frontAzimuthRad;
   const ce = Math.cos(p.elevation);
   return {
-    x: -Math.cos(p.azimuth) * ce,
+    x: -Math.sin(rel) * ce,
     y: Math.sin(p.elevation),
-    z: -Math.sin(p.azimuth) * ce,
+    z: Math.cos(rel) * ce,
   };
 }
 

@@ -246,7 +246,7 @@ root.add(furnitureRoot);
 | --- | --- | --- |
 | `DEFAULT_LOCATION` | `SiteLocation` | 默认地点：湖北武穴（29.844°N, 115.561°E, UTC+8） |
 | `BUILTIN_LOCATIONS` | `SiteLocation[]` | 内置城市表（约 30 个，含经纬度与 `tz`） |
-| `FRONT_AZIMUTH_DEG` | `number` | 房屋正面（+z）所朝真实方位角 = 270（西） |
+| `FRONT_AZIMUTH_DEG` | `number` | 房屋正面（+z）所朝真实方位角 = 270（西），即默认地点武穴的实际朝向；可由日照面板"房屋正面朝向"覆盖（`Environment.setFrontAzimuth`） |
 | `WEATHER_REFRESH_MS` | `number` | 天气轮询间隔（10 分钟） |
 | `WEATHER_TIMEOUT_MS` | `number` | 单次天气请求超时（5 秒） |
 | `FALLBACK_WEATHER` | `WeatherSnapshot` | 断网/失败时的降级值（晴，`stale=true`） |

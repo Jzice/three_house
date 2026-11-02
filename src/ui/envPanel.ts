@@ -9,7 +9,7 @@
  */
 import type { Environment } from '../environment/environment';
 import type { EnvironmentSnapshot, SiteLocation, WeatherKind } from '../types';
-import { BUILTIN_LOCATIONS, DEFAULT_LOCATION, makeCustomLocation } from '../config/siteConfig';
+import { BUILTIN_LOCATIONS, DEFAULT_LOCATION, FRONT_AZIMUTH_DEG, makeCustomLocation } from '../config/siteConfig';
 import { WEATHER_TEXT } from '../environment/weather';
 
 const CLOUD =
@@ -119,6 +119,19 @@ export function createEnvPanel(env: Environment): EnvPanel {
         <span class="env-live-label">实时光照</span>
         <button id="env-light" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
       </div>
+      <div class="env-row env-row-orient">
+        <span class="env-live-label">房屋正面朝向</span>
+        <select id="env-front" class="env-select env-select-inline">
+          <option value="0">北</option>
+          <option value="45">东北</option>
+          <option value="90">东</option>
+          <option value="135">东南</option>
+          <option value="180">南</option>
+          <option value="225">西南</option>
+          <option value="270">西</option>
+          <option value="315">西北</option>
+        </select>
+      </div>
       <div class="env-row env-row-compass">
         <div class="env-compass">
           <span class="c-n">N</span><span class="c-e">E</span><span class="c-s">S</span><span class="c-w">W</span>
@@ -163,6 +176,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
   const timeLabel = el<HTMLSpanElement>(panel, 'env-time-label');
   const liveBtn = el<HTMLButtonElement>(panel, 'env-live');
   const lightBtn = el<HTMLButtonElement>(panel, 'env-light');
+  const frontSel = el<HTMLSelectElement>(panel, 'env-front');
   const needle = el<HTMLDivElement>(panel, 'env-needle');
   const elevEl = el<HTMLDivElement>(panel, 'env-elev');
   const suntimesEl = el<HTMLDivElement>(panel, 'env-suntimes');
@@ -178,6 +192,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
 
   // ---- 初始值 ----
   citySel.value = DEFAULT_LOCATION.id;
+  frontSel.value = String(FRONT_AZIMUTH_DEG); // 默认：正门朝西（武穴）
   dateInput.value = todayISO();
   let currentDate = dateInput.value;
   let live = false; // 默认不跟随实时，固定正午 12:00
@@ -270,6 +285,10 @@ export function createEnvPanel(env: Environment): EnvPanel {
     lightBtn.classList.toggle('on', lightingOn);
     lightBtn.setAttribute('aria-checked', String(lightingOn));
     env.setShadowEnabled(lightingOn);
+  });
+
+  frontSel.addEventListener('change', () => {
+    env.setFrontAzimuth(Number(frontSel.value));
   });
 
   refreshBtn.addEventListener('click', () => {

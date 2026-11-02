@@ -191,15 +191,18 @@ graph TD
 - `solar.ts` / `weather.ts` / `sky.ts` / `ground.ts` / `lighting.ts` 为**纯函数或薄封装**，不持有状态；`environment.ts` 是唯一有状态编排器（工厂 + 闭包）。
 - `environment.ts` 只 import `three` / `types` / `config` / 上述纯模块；`ui/envPanel.ts` 只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。
 
-### 7.2 太阳位置与"正面朝西"换算
+### 7.2 太阳位置与"房屋正面朝向"换算
 
-`solar.ts` 以 **UTC 时刻 + 经纬度** 算出太阳高度角 `elevation` 与方位角 `azimuth`（**自正北顺时针**：北 0、东 90°、南 180°、西 270°）。需求规定"房屋正面（+z 入户门侧）朝正西"，在 `siteConfig.ts` 仅声明 `FRONT_AZIMUTH_DEG = 270`，换算由 `toSceneDirection` 完成：
+`solar.ts` 以 **UTC 时刻 + 经纬度** 算出太阳高度角 `elevation` 与方位角 `azimuth`（**自正北顺时针**：北 0、东 90°、南 180°、西 270°）。
+
+**设计命名 vs 真实地理**：这里"正门(+z)=南面、后门(−z)=北面"只是设计阶段的称呼习惯；在武穴真实地理中正门(+z)实际朝**西**、后门(−z)实际朝**东**，即房屋主轴（z 轴）与地理东西轴重合（+z→西、−z→东），x 轴对应地理南北（±x→南/北）。因此朝向换算按"正门 +z 所朝真实方位"旋转，该方位由 `siteConfig.FRONT_AZIMUTH_DEG`（默认 270°=西，与默认地点武穴一致）声明，并可由日照面板的"房屋正面朝向"覆盖（`Environment.setFrontAzimuth` → `toSceneDirection` 第二参）：
 
 ```
-dir = ( -cos(az)·cos(el),  sin(el),  -sin(az)·cos(el) )   // 已归一化
+rel  = azimuth - frontAzimuth          // frontAzimuth 默认 3π/2（西）
+dir  = ( -sin(rel)·cos(el),  sin(el),  cos(rel)·cos(el) )   // 已归一化
 ```
 
-校验：az=270°(西)→`+z` ✓（太阳从门面正前方升起）；az=90°(东)→`-z` ✓（太阳在门正对面升起）；az=0°(北)→`-x`；az=180°(南)→`+x`。**几何、2D、视角均不改动**。
+校验（frontAzimuth=270° 西）：az=270°(西)→`+z` ✓（正门/西侧受夕照）；az=90°(东)→`-z` ✓（太阳从后门/东侧升起）；az=0°(北)→`-x`；az=180°(南)→`+x`。**几何、2D、视角均不改动**；罗盘指针与日出/日落时刻显示的是地理真实太阳方位，与房屋朝向无关。
 
 日出/日落由 `sunTimes()` 扫描当日高度角跨越 −0.833° 插值求得，再按地点时区换算成本地 HH:MM 供面板显示。
 

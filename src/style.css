@@ -181,6 +181,8 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     width: 100%; padding: 7px 8px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px;
     background: rgba(255, 255, 255, 0.85); font-size: 13px; color: #2C3238;
 }
+.env-row-orient { justify-content: space-between; }
+.env-select-inline { width: 92px; flex: 0 0 auto; padding: 5px 6px; font-size: 12px; }
 .env-custom { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .env-geo { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6B737C; }
 .env-geo input { width: 90px; padding: 5px 6px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 6px; font-size: 12px; }
