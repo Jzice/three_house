@@ -53,6 +53,30 @@ const TOGGLE_ICON =
   CLOUD +
   '"/><g stroke-linecap="round"><line x1="16" y1="6" x2="16" y2="8"/><line x1="15" y1="7" x2="17" y2="7"/></g></svg>';
 
+/** 环境面板设置的本地存储键（仅存用户改动的 UI 状态，不含联网天气读数） */
+const STORAGE_KEY = 'house-env-settings';
+
+/** 持久化的环境设置结构（与界面控件一一对应） */
+interface PersistedSettings {
+  /** 地点：内置城市 id 或 'custom' */
+  city: string;
+  /** 自定义经纬度（city==='custom' 时有效） */
+  lat?: number;
+  lon?: number;
+  /** 手动日期（YYYY-MM-DD） */
+  date: string;
+  /** 当日分钟数（0~1439） */
+  minutes: number;
+  /** 是否跟随实时 */
+  live: boolean;
+  /** 房屋正面朝向（度，自北顺时针） */
+  front: number;
+  /** 实时光照（动态阴影）开关 */
+  lighting: boolean;
+  /** 实时天气开关 */
+  weather: boolean;
+}
+
 function formatMin(min: number): string {
   if (Number.isNaN(min)) return '--:--';
   const h = Math.floor(min / 60);
@@ -206,6 +230,112 @@ export function createEnvPanel(env: Environment): EnvPanel {
 
   const wxMain = panel.querySelector('.env-wx-main') as HTMLElement;
 
+  // ---- 开关 UI 状态同步（供事件与开机恢复共用，避免重复样式代码） ----
+  function setLiveUI(on: boolean): void {
+    live = on;
+    liveBtn.classList.toggle('on', on);
+    liveBtn.setAttribute('aria-checked', String(on));
+    timeInput.disabled = on;
+  }
+  function setLightingUI(on: boolean): void {
+    lightingOn = on;
+    lightBtn.classList.toggle('on', on);
+    lightBtn.setAttribute('aria-checked', String(on));
+  }
+  function setWeatherUI(on: boolean): void {
+    weatherOn = on;
+    wxEnableBtn.classList.toggle('on', on);
+    wxEnableBtn.setAttribute('aria-checked', String(on));
+    refreshBtn.disabled = !on;
+  }
+
+  /** 持久化当前界面选项（隐私模式/配额超限时静默降级，不阻塞交互） */
+  function saveSettings(): void {
+    const isCustom = citySel.value === 'custom';
+    const settings: PersistedSettings = {
+      city: citySel.value,
+      date: currentDate,
+      minutes: Number(timeInput.value),
+      live,
+      front: Number(frontSel.value),
+      lighting: lightingOn,
+      weather: weatherOn,
+    };
+    if (isCustom) {
+      const lat = Number(latInput.value);
+      const lon = Number(lonInput.value);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        settings.lat = lat;
+        settings.lon = lon;
+      }
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    } catch {
+      // localStorage 不可用：忽略，保持内存状态即可
+    }
+  }
+
+  /** 开机恢复：读取本地设置并驱动场景与控件（解析失败则退回默认） */
+  function loadSettings(): void {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return; // 隐私模式：不读取
+    }
+    if (!raw) return;
+    let s: PersistedSettings;
+    try {
+      s = JSON.parse(raw) as PersistedSettings;
+    } catch {
+      return;
+    }
+    if (!s || typeof s !== 'object') return;
+
+    // 地点：内置城市直接套用；自定义回填经纬度后套用
+    if (s.city === 'custom' && typeof s.lat === 'number' && typeof s.lon === 'number') {
+      customBox.style.display = 'block';
+      latInput.value = String(s.lat);
+      lonInput.value = String(s.lon);
+      applyCustomGeo();
+    } else {
+      const loc = BUILTIN_LOCATIONS.find((c) => c.id === s.city);
+      if (loc) {
+        customBox.style.display = 'none';
+        citySel.value = loc.id;
+        env.setLocation(loc);
+      }
+    }
+
+    // 日期 + 时间轴
+    if (typeof s.date === 'string') {
+      dateInput.value = s.date;
+      currentDate = s.date;
+    }
+    if (typeof s.minutes === 'number') {
+      timeInput.value = String(s.minutes);
+      timeLabel.textContent = formatMin(s.minutes);
+    }
+
+    // 跟随实时
+    setLiveUI(Boolean(s.live));
+    env.setLive(Boolean(s.live));
+    if (!s.live) env.setManualLocalDate(currentDate, Number(timeInput.value));
+
+    // 房屋正面朝向
+    if (typeof s.front === 'number') {
+      frontSel.value = String(s.front);
+      env.setFrontAzimuth(s.front);
+    }
+
+    // 实时光照 / 实时天气（读数由快照被动刷新，不持久化联网数据）
+    setLightingUI(Boolean(s.lighting));
+    env.setShadowEnabled(Boolean(s.lighting));
+    setWeatherUI(Boolean(s.weather));
+    env.setWeatherEnabled(Boolean(s.weather));
+  }
+
   function applyCustomGeo(): void {
     const lat = Number(latInput.value);
     const lon = Number(lonInput.value);
@@ -244,51 +374,51 @@ export function createEnvPanel(env: Environment): EnvPanel {
       const loc = BUILTIN_LOCATIONS.find((c) => c.id === citySel.value) as SiteLocation;
       env.setLocation(loc);
     }
+    saveSettings();
   });
 
-  latInput.addEventListener('change', applyCustomGeo);
-  lonInput.addEventListener('change', applyCustomGeo);
+  latInput.addEventListener('change', () => {
+    applyCustomGeo();
+    saveSettings();
+  });
+  lonInput.addEventListener('change', () => {
+    applyCustomGeo();
+    saveSettings();
+  });
 
   dateInput.addEventListener('change', () => {
     currentDate = dateInput.value || todayISO();
-    live = false;
-    liveBtn.classList.remove('on');
-    liveBtn.setAttribute('aria-checked', 'false');
-    timeInput.disabled = false;
+    setLiveUI(false);
     env.setLive(false);
     env.setManualLocalDate(currentDate, Number(timeInput.value));
+    saveSettings();
   });
 
   timeInput.addEventListener('input', () => {
     const minutes = Number(timeInput.value);
     timeLabel.textContent = formatMin(minutes);
     // 拖动时间轴即进入手动模式
-    if (live) {
-      live = false;
-      liveBtn.classList.remove('on');
-      liveBtn.setAttribute('aria-checked', 'false');
-    }
+    if (live) setLiveUI(false);
     env.setLive(false);
     env.setManualLocalDate(currentDate, minutes);
+    saveSettings();
   });
 
   liveBtn.addEventListener('click', () => {
-    live = !live;
-    liveBtn.classList.toggle('on', live);
-    liveBtn.setAttribute('aria-checked', String(live));
-    timeInput.disabled = live;
+    setLiveUI(!live);
     env.setLive(live);
+    saveSettings();
   });
 
   lightBtn.addEventListener('click', () => {
-    lightingOn = !lightingOn;
-    lightBtn.classList.toggle('on', lightingOn);
-    lightBtn.setAttribute('aria-checked', String(lightingOn));
+    setLightingUI(!lightingOn);
     env.setShadowEnabled(lightingOn);
+    saveSettings();
   });
 
   frontSel.addEventListener('change', () => {
     env.setFrontAzimuth(Number(frontSel.value));
+    saveSettings();
   });
 
   refreshBtn.addEventListener('click', () => {
@@ -297,11 +427,9 @@ export function createEnvPanel(env: Environment): EnvPanel {
   });
 
   wxEnableBtn.addEventListener('click', () => {
-    weatherOn = !weatherOn;
-    wxEnableBtn.classList.toggle('on', weatherOn);
-    wxEnableBtn.setAttribute('aria-checked', String(weatherOn));
-    refreshBtn.disabled = !weatherOn;
+    setWeatherUI(!weatherOn);
     env.setWeatherEnabled(weatherOn);
+    saveSettings();
   });
 
   // 点击面板外部 / Esc 关闭
@@ -321,6 +449,9 @@ export function createEnvPanel(env: Environment): EnvPanel {
       toggle.classList.remove('active');
     }
   });
+
+  // 开机恢复本地设置（env 已就绪；面板读数由后续快照被动刷新，不被此处覆盖）
+  loadSettings();
 
   return {
     update(s: EnvironmentSnapshot) {

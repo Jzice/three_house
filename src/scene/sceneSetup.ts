@@ -31,7 +31,15 @@ export function createSceneContext(): SceneContext {
   document.body.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.maxPolarAngle = Math.PI / 2 - 0.05;
+  // 上帝视角(tps)下放宽限制，便于抬头/平视拉远看天空（太阳/云/星空）。
+  // 仅 tps 模式 controls.enabled=true，fps/2d 不受影响。
+  // 允许相机降至与房屋同高（房屋落入画面下方、上方露出天空），保留俯视取景（min=0）。
+  controls.maxPolarAngle = Math.PI / 2;
+  // 缩放距离：近距避免穿入房屋，远距小于 far(1000) 以保证天穹(半径≤882m)不被远裁剪面裁出圆洞。
+  controls.minDistance = 4;
+  controls.maxDistance = 800;
+  // 允许平移：把目标点下移到房屋下方，可将更多天空纳入画面（右键拖拽 / 触摸双指）。
+  controls.enablePan = true;
 
   return { scene, camera, renderer, controls };
 }
