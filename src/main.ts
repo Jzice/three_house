@@ -33,6 +33,7 @@ function bootstrap(): void {
   const env = createEnvironment({
     scene: ctx.scene,
     renderer: ctx.renderer,
+    camera: ctx.camera,
     lights,
     materials,
     weatherEnabled: WEATHER_ENABLED_DEFAULT,

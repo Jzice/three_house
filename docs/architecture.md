@@ -127,7 +127,7 @@ animate()
   │      ├─ 按「可行走区域」分轴推进（屋内 + 门洞通道 + 院子）
   │      ├─ 脚下高度 = 楼梯踏面（逐级）/ 平层完成面 → 眼高 = 脚下 + 1.6（0.09s 插值）
   │      └─ 可见层：脚高越过中段休息台（1F→2F 2.5m / 2F→3F 5.3m）即切上层；UI 楼层（按钮/小地图）按完成面判定（休息台仍显示下层）
-  ├─ env.update(mode !== '2d')  → 推进时间/天气；按太阳方位变化(≥0.5°)或天气变化节流重建天空与 PMREM（最小间隔 150ms）；2D 下仅推进状态、标记回 3D 时强制重建
+  ├─ env.update(mode !== '2d')  → 推进时间/天气；每帧更新 Sky 太阳方向/昼夜/云层与星空透明度，星空位置按 1s 节流；PMREM 环境贴图按太阳方位(≥0.5°)/天气变化节流（最小 150ms）；2D 下仅推进状态、标记回 3D 时强制重建
   └─ mode !== '2d' → updateInteractables() + renderer.render()
          └─ 每个可交互部件向 openAngle / closedAngle 插值 (lerp 0.15)
 ```
@@ -179,16 +179,22 @@ graph TD
     M["main.ts"] --> EN["environment/environment.ts<br/>编排：时间/地点/天气 · 节流重建"]
     EN --> SO["solar.ts<br/>NOAA 太阳位置(纯函数)"]
     EN --> WE["weather.ts<br/>Open-Meteo 客户端"]
-    EN --> SK["sky.ts<br/>等距柱状天空贴图 + PMREM"]
+    EN --> SKY["skyDome.ts<br/>three Sky 大气散射 + 着色器夜间压暗 + 地平雾带 + 云层"]
+    SKY --> ATM["skyAtmosphere.ts<br/>大气参数表 + 近地平线天空色复算(CPU)"]
+    EN --> SF["starfield.ts<br/>真实星空 Points + 银河 + 月亮"]
+    EN --> CEL["celestial.ts<br/>astronomy-engine 恒星时/天体定位"]
+    EN --> SK["sky.ts<br/>中性环境反射贴图 + PMREM"]
     EN --> GR["ground.ts<br/>大地平面 + 雾"]
     EN --> LI["lighting.ts<br/>光照参数映射(纯函数)"]
     EN --> SI["config/siteConfig.ts"]
+    CEL --> CAT["starCatalog.ts<br/>内置亮星星表(离线)"]
     M --> SS["scene/sceneSetup.ts<br/>createLights 句柄"]
     LI --> SS
     EN -. 仅持有 scene/renderer/lights 实例 .-> SS
 ```
 
-- `solar.ts` / `weather.ts` / `sky.ts` / `ground.ts` / `lighting.ts` 为**纯函数或薄封装**，不持有状态；`environment.ts` 是唯一有状态编排器（工厂 + 闭包）。
+- `solar.ts` / `weather.ts` / `skyDome.ts` / `skyAtmosphere.ts` / `starfield.ts` / `celestial.ts` / `sky.ts` / `ground.ts` / `lighting.ts` 为**纯函数或薄封装**，不持有状态；`environment.ts` 是唯一有状态编排器（工厂 + 闭包）。
+- `skyDome.ts` / `starfield.ts` / `celestial.ts` / `skyAtmosphere.ts` 只依赖 `three` / `astronomy-engine` / `types` / `config` / 本目录纯模块；`starCatalog.ts` 为提交进仓库的静态星表数据（构建期打包，运行时不联网）。`skyAtmosphere.ts` 是 Sky.js 片元算法的 CPU 复算（只为取"地平色的值"，不参与渲染），升级 three 时必须与 `Sky.js` 同步核对。
 - `environment.ts` 只 import `three` / `types` / `config` / 上述纯模块；`ui/envPanel.ts` 只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。
 
 ### 7.2 太阳位置与"房屋正面朝向"换算
@@ -206,14 +212,20 @@ dir  = ( -sin(rel)·cos(el),  sin(el),  cos(rel)·cos(el) )   // 已归一化
 
 日出/日落由 `sunTimes()` 扫描当日高度角跨越 −0.833° 插值求得，再按地点时区换算成本地 HH:MM 供面板显示。
 
-### 7.3 天空、地面与反射
+### 7.3 天空、星空与反射
 
-- `sky.ts` 用一张 1024×512 等距柱状 Canvas 贴图**一图两用**：既作 `scene.background`，又经 `PMREMGenerator` 生成环境贴图注入 `floor` / `stair`（地面/楼梯反射与天空一致）。贴图绘制昼夜/晨昏渐变 + 太阳/月亮光晕 + 固定 seed 的云层噪声 + 夜间星空 + 轻微去色带噪点；太阳/月亮位置按 7.2 的场景方向定位。
-- `ground.ts` 新增 `y=0.08` 的 400×400m 草地/土面（程序化贴图 ×60 平铺，略低于 1F 楼板底 0.10），并用 `scene.fog`（线性雾）让地平线融入天空地平色。
+- `skyDome.ts`：`scene.background = null`，背景改由场景内的大半径穹顶承担。白天用 three 自带 `Sky`（Preetham 大气散射）网格，太阳方向复用 `solar.toSceneDirection`，并随天气调整 `turbidity` / `rayleigh` / `mieCoefficient`（参数表在 `skyAtmosphere.ts`）；**夜间压暗写在 Sky 片元着色器里**（`uNightScale`，白昼 1 → 深夜 0.1，输出空间相乘），不再用黑色半透明球罩——球罩有实体边缘，边缘落在地平线附近时会露出一圈未压暗的亮天空，形成横贯画面的亮带。云层用程序化 Canvas 等距柱状贴图（不引入外部图片），按云量与昼夜调不透明度/颜色。
+- **穹顶与星穹每帧跟随相机平移**（`environment.update()` 里把 `skyDome.object3D` / `starfield.object3D` 的位置对齐 `camera.position`）。天空盒（±450m）、云层（882m）、星点（880m）、月亮（860m）都小于远裁剪面（1000m）：上帝视角用滚轮 dolly 拉远后，视线中心处的球面到相机距离超过 1000m 会被整片裁掉，天空上就会出现一块圆形缺口（表现为"黑色圆球虚影"）。跟随相机可让球面到相机的距离恒定，任何缩放级别下都不会被裁切。
+- 地平线接缝：Sky 片元着色器在 `colorspace_fragment` 之后追加**地平雾色带**——`horizonMix = smoothstep(-0.012, 0.11, direction.y)`，地平线及以下取 `uHorizonColor`（= 雾色），向上约 6° 平滑过渡回大气散射色。注入点在色彩空间转换之后、且雾色按输出空间传值，与材质雾（three 在 `colorspace_fragment` 之后叠雾）逐位同色，因此"地面尽头 / 雾 / 天空下半球"在交界处完全连续。
+- `starfield.ts` + `celestial.ts` + `starCatalog.ts`：夜间真实星空。内置 2851 颗视星等 ≤5.5 的亮星（RA/Dec/星等/B-V），`celestial.ts` 用 `astronomy-engine` 求本地恒星时（`SiderealTime`）并把星表赤经赤纬按观测者纬度/经度/房屋正朝向旋转到场景方向；`starfield.ts` 以 `THREE.Points`（加色混合、常量像素尺寸、按星等调大小/亮度、按 B-V 调色温、按地平线高度淡出）渲染。银河为沿银道面程序化采样的暗弱星点云（赤道坐标，随星空一同旋转）；月亮为程序化 Canvas 月面球体，位置由 `astronomy-engine` 的 `Equator` + `Horizon` 求解，地平线以下自动隐藏。
+- `sky.ts` 只保留**中性环境反射贴图**：经 `PMREMGenerator` 注入 `floor` / `stair` / `stainlessBrushed`，刻意不含蓝天以避免抛光地面反射发蓝；随昼夜轻度调暗。
+- `ground.ts` 为 `y=0.08` 的 1200×1200m 草地/土面（程序化贴图 ×180 平铺，单块约 6.67m，略低于 1F 楼板底 0.10）。地面边缘（600m）已超出最大雾远平面（500m），因此地面尽头必然是纯雾色；地面边缘与真实地平线之间仍有约 1.9°（相机 20m 高）的角度缺口，由 Sky 的**地平雾色带**用同一雾色填平。**不要盲目放大地面**：相机 `VIEW.far = 1000`，超出的部分只会被远裁剪面切掉。
 
 ### 7.4 光照映射与可读性补光
 
-`lighting.ts` 由 `computeLighting(solar, weather)` 输出 `LightingParams`：`applyLighting()` 仅修改灯光句柄属性（不新建对象）。策略为**太阳为主 + 保留可读性补光**——太阳决定主要光色（低角度暖橙、正午近白）与方向，保留较弱基准环境光（夜间 0.18、白天约 0.45）+ 半球光，保证三种视角与背光房间仍清晰；夜间转为冷色月光、`castShadow` 关闭。`scene.fog` 颜色/远近由天气基值与能见度插值（晴 80/500 → 雾 8/60）。
+`lighting.ts` 由 `computeLighting(solar, weather)` 输出 `LightingParams`：`applyLighting()` 仅修改灯光句柄属性（不新建对象）。策略为**太阳为主 + 保留可读性补光**——太阳决定主要光色（低角度暖橙、正午近白）与方向，保留较弱基准环境光（夜间 0.18、白天约 0.45）+ 半球光，保证三种视角与背光房间仍清晰；夜间转为冷色月光、`castShadow` 关闭。**月光方向不再用"太阳对侧"假值**，而由 `celestial.writeMoonSceneDir`（astronomy-engine）求解，与可见月亮方向一致；月亮位于地平线下时月光强度置 0。`scene.fog` 的远近由天气基值与能见度插值（晴 80/500 → 雾 8/60）。
+
+**雾色（= 地平色）不再来自调色板**，而由 `skyAtmosphere.horizonSkyColorHex()` 在 CPU 上复算 Sky 的 Preetham 片元算法，取"近地平线方位平均色"并复现夜间压暗（`0.1 + 0.9·dayFactor`）。这样天空、雾、远景地面同源同色——若雾色另取一个饱和的地平蓝（旧 `WEATHER_PALETTE.horizon = 0xbcd8ff`），白天会在过曝白的天空下压出一条蓝色横带、夜间会因为偏蓝偏亮而露出一道亮带。
 
 ### 7.5 天气（Open-Meteo）与降级
 
@@ -222,5 +234,7 @@ dir  = ( -sin(rel)·cos(el),  sin(el),  cos(rel)·cos(el) )   // 已归一化
 
 ### 7.6 节流与降级
 
-- 天空绘制约 10~20ms，`environment.update()` 只在太阳方位变化 ≥0.5° 或天气变化时重建，并设最小间隔 150ms（拖动时间轴不每帧重绘）；2D 模式不重建天空但标记，回到 3D 立即重建。
-- PMREM 环境贴图随天空同步重建，并对旧 `envMap`/`skyTex` 调用 `dispose()` 防泄漏；切换地点时取消上一次未完成的天气请求。
+- `environment.update()` 每帧只做廉价更新：Sky 的太阳方向 uniform、昼夜因子、云层颜色/不透明度，以及星空昼夜透明度；**不每帧重建几何**。
+- 星空位置重算按 1 秒签名节流（恒星每小时才转 15°，1Hz 已足够平滑），且仅在时刻/经纬度/房屋朝向变化时触发；银河与月亮共用同一节流。
+- 中性环境反射贴图的 PMREM 重建成本较高（约 10~20ms），沿用"太阳方位变化 ≥0.5° 或天气变化 + 最小间隔 150ms"节流；2D 模式不重建但标记，回到 3D 立即重建。
+- 对旧 `envMap` 调用 `dispose()` 防泄漏，`dispose()` 时释放 Sky 网格、星空 Points、银河、月亮与云层贴图；切换地点时取消上一次未完成的天气请求。

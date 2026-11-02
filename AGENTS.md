@@ -18,8 +18,8 @@ npm install          # 安装依赖
 npm run dev          # 开发服务器（localhost:5173），本地 node_modules 解析 three，不依赖外网
 npm run typecheck    # TypeScript 严格模式检查
 
-npm run build        # dist/index.html      完全自包含（three 内联，离线可用，~489 KB）
-npm run build:cdn    # dist/index.cdn.html  单文件 + three 走 CDN（~21 KB）
+npm run build        # dist/index.html      完全自包含（three/星表/天文库内联，离线可用，~714 KB）
+npm run build:cdn    # dist/index.cdn.html  单文件 + three 走 CDN（~219 KB）
 npm run build:all    # 一次同时产出以上两种（发布用这个）
 ```
 
@@ -37,7 +37,7 @@ src/
 ├── scene/                   # sceneSetup · materials · builders · stairs · buildHouse
 ├── view/                    # viewState（三模式状态机）· interaction（键鼠）
 ├── floorplan/floorplan2d.ts # 2D 平面图绘制、标注拖拽、测量
-├── environment/             # 环境层：solar(太阳) · weather(Open-Meteo) · sky(天空贴图) · ground(大地/雾) · lighting(光照映射) · environment(编排)
+├── environment/             # 环境层：solar(太阳) · weather(Open-Meteo) · celestial(天文定位) · starCatalog(内置星表) · skyDome(白天 Sky) · skyAtmosphere(大气参数/地平色复算) · starfield(星空/银河/月亮) · sky(中性反射) · ground(大地/雾) · lighting(光照映射) · environment(编排)
 └── ui/
     ├── ui.ts                # 既有按钮绑定与状态同步
     └── envPanel.ts          # 环境面板（地点 / 日照 / 天气，仅 DOM + 回调）
@@ -50,7 +50,7 @@ src/
 - `floorplan` **不得** import `view`：它通过 `getMode()` 回调获知当前模式，重绘动作由 `main.ts` 注入。
 - `ui` **不得** import 任何渲染模块：只做 DOM 与回调，模式切换的具体动作由 `main.ts` 编排。
 - 跨模块的"副作用"（如进入 2D 要重绘）一律通过构造函数回调注入，不要直接 import。
-- **环境层 `src/environment/`**：只依赖 `three` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `setFrontAzimuth` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
+- **环境层 `src/environment/`**：只依赖 `three` / `astronomy-engine` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `setFrontAzimuth` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
 
 ## 4. 核心约定
 
@@ -105,7 +105,12 @@ src/
 | 改默认地点 / 城市列表 / 朝向换算 | `src/config/siteConfig.ts` |
 | 改太阳位置算法 / 日出日落 | `src/environment/solar.ts` |
 | 改天气来源 / WMO 映射 / 降级 | `src/environment/weather.ts` |
-| 改天空外观（昼夜 / 云 / 星空）或地面 / 雾 | `src/environment/sky.ts` / `src/environment/ground.ts` |
+| 改白天天空外观（大气散射 / 云 / 地平雾带） | `src/environment/skyDome.ts` |
+| 改大气参数（turbidity/rayleigh/mie）或地平雾色算法 | `src/environment/skyAtmosphere.ts`（须与 three `Sky.js` 同步） |
+| 改夜间星空 / 银河 / 月亮外观 | `src/environment/starfield.ts` |
+| 改星表数据（增删星、换星等阈值） | `src/environment/starCatalog.ts`（构建期生成的数据文件） |
+| 改天文定位（恒星时 / 月亮 / 朝向换算） | `src/environment/celestial.ts` |
+| 改地面 / 雾 | `src/environment/ground.ts` |
 | 改光照强度 / 色温 / 雾浓度映射 | `src/environment/lighting.ts` |
 | 改环境编排（时间 / 地点 / 天气节流、PMREM） | `src/environment/environment.ts` |
 | 改环境面板 UI（地点 / 日照 / 天气交互） | `src/ui/envPanel.ts` + `src/style.css`（`.env-*`） |
@@ -118,6 +123,7 @@ src/
 - **CDN 模式的 importmap 顺序**：必须出现在第一个 module script 之前。`vite.config.ts` 里用 `order: 'pre'` + 替换 `<head>`（而非 `</head>`）实现，改动时不要破坏这个顺序。
 - **两次 Vite 构建会互相覆盖**：`build()` 会清空 `outDir`，所以 `scripts/build-all.mjs` 先构建到 `dist/.tmp-<variant>/` 再改名搬运。不要用 `vite build --mode cdn` 直接覆盖 `dist/index.html`。
 - **2D 模式跳过 WebGL 渲染**（`mode !== '2d'` 才 `render`），这是刻意的，不要"修"掉。
+- **穹顶 / 星穹必须跟随相机**（`environment.update()` 里对齐 `camera.position`）：天空盒、云层、星点、月亮的半径（450~882m）都小于相机远裁剪面（1000m），一旦相机 dolly 拉远，球面到相机的距离超过 far 就会被整片裁掉，天空上出现圆形缺口（"黑色圆球虚影"）。新增任何天球类网格时同样要挂在跟随相机的 group 下。
 - **构建产物 `dist/` 与 `node_modules/` 已 gitignore**，不要提交，也不要手工编辑产物。
 
 ## 7. 改完之后怎么验证

@@ -1,10 +1,12 @@
 /**
  * 大地平面与雾。
  *
- * - `createGround`：房屋外围的程序化草地/土面（Canvas 贴图，60×60 平铺），略低于 1F 楼板底
- *   （y=0.08，板底 0.10），既不共面打架也不露缝；院子铺装（y=0.5）仍由 yard 负责。
- * - `applyFog`：按 lighting 推导的雾色/近远平面设置 `scene.fog`（线性雾），使 400m 大地边缘
- *   在远处溶入地平色，与天空背景无缝衔接。
+ * - `createGround`：房屋外围的程序化草地/土面（Canvas 贴图，180×180 平铺，单块仍为约 6.67m），
+ *   略低于 1F 楼板底（y=0.08，板底 0.10），既不共面打架也不露缝；院子铺装（y=0.5）仍由 yard 负责。
+ * - `applyFog`：按 lighting 推导的雾色/近远平面设置 `scene.fog`（线性雾）。地面为 1200×1200m，
+ *   边缘（600m）已超出最大雾远平面（500m），因此地面尽头必然是纯雾色；地面边缘与真实地平线之间
+ *   仍有约 1.9°（相机 20m 高）的角度缺口，由 skyDome 的**地平雾色带**填成同一雾色，两侧同色即无缝。
+ *   注意：地面不要盲目放大——相机 `VIEW.far = 1000`，超过它的部分只会被远裁剪面切掉。
  *
  * 不引入图片资源，符合单文件发布约束。
  */
@@ -81,11 +83,11 @@ function createGrassTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** 创建大地平面（400×400m，y=0.08，朝上面） */
+/** 创建大地平面（1200×1200m，y=0.08，朝上面；边缘超出雾远平面） */
 export function createGround(): THREE.Mesh {
   const tex = createGrassTexture();
-  tex.repeat.set(60, 60);
-  const geo = new THREE.PlaneGeometry(400, 400);
+  tex.repeat.set(180, 180);
+  const geo = new THREE.PlaneGeometry(1200, 1200);
   const mat = new THREE.MeshStandardMaterial({
     map: tex,
     roughness: 0.95,

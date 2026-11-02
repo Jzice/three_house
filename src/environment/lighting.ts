@@ -3,28 +3,18 @@
  *
  * - `computeLighting`：由太阳位置与天气实况推导 {@link LightingParams}（集中调参，颜色/强度锚点见 AGENTS 计划）。
  * - `applyLighting`：仅修改灯光句柄的属性，不新建对象；渲染循环里复用模块级临时向量。
- * - `WEATHER_PALETTE`：天气 → 天色/地平/地面色，供天空绘制与雾复用，保证地平线一致。
+ * - **雾色不再来自调色板**，而由 `skyAtmosphere.horizonSkyColorHex` 复算天空在地平线附近的
+ *   方位平均色（含夜间压暗）。远景地面被雾溶成这个颜色，天空也向它过渡，两者在交界处逐位同色，
+ *   昼夜晴雾都不会出现"天空与地面之间的亮带/暗缝"。天气差异由大气参数（turbidity/rayleigh/mie）体现。
  *
  * 不 import sceneSetup，灯光句柄以结构类型 {@link LightHandles} 描述（符合单向依赖）。
  */
 import * as THREE from 'three';
 import type { LightingParams, WeatherSnapshot, WeatherKind, LightHandles } from '../types';
 import type { SolarPosition } from './solar';
-
-/** 天气 → 天顶/地平/地面 调色板（数值为 0xRRGGBB） */
-export const WEATHER_PALETTE: Record<WeatherKind, { sky: number; horizon: number; ground: number }> = {
-  clear: { sky: 0x3f93da, horizon: 0xbcd8ff, ground: 0x6b7a55 },
-  partly: { sky: 0x7396c4, horizon: 0xc6d3e0, ground: 0x67754f },
-  overcast: { sky: 0x8f9ba7, horizon: 0xb9c0c8, ground: 0x59654a },
-  fog: { sky: 0xb9c1c8, horizon: 0xd8dde2, ground: 0x707a63 },
-  drizzle: { sky: 0x828c96, horizon: 0xaab2bb, ground: 0x55604a },
-  rain: { sky: 0x727e89, horizon: 0x9aa4ad, ground: 0x4d5740 },
-  snow: { sky: 0xb6bec2, horizon: 0xe2e8ec, ground: 0x8a907f },
-  thunder: { sky: 0x515a66, horizon: 0x808a96, ground: 0x444c3b },
-};
+import { ATMOSPHERE, horizonSkyColorHex } from './skyAtmosphere';
 
 const NIGHT_GROUND = 0x12160f;
-const NIGHT_HORIZON = 0x222d44;
 
 /** 各天气的雾基值（近/远，米）；能见度再在 [0.5,1] 倍率上缩放远平面 */
 const FOG_BY_KIND: Record<WeatherKind, { near: number; far: number }> = {
@@ -43,6 +33,11 @@ const smoothstep = (a: number, b: number, x: number): number => {
   const t = clamp01((x - a) / (b - a));
   return t * t * (3 - 2 * t);
 };
+
+/** 昼夜因子：太阳高度 -6°~+6° 平滑过渡（0=夜 1=昼）；天空/星空/光照共用同一判据 */
+export function daylightFactor(elevation: number): number {
+  return smoothstep(-6, 6, (elevation * 180) / Math.PI);
+}
 
 /** 太阳色温：低角度暖橙 → 高角度近白；云量越高越去饱和（偏冷灰） */
 function sunColorByElevation(elevDeg: number, cloud: number): number {
@@ -65,17 +60,18 @@ export function computeLighting(solar: SolarPosition, weather: WeatherSnapshot):
   const elevDeg = (solar.elevation * 180) / Math.PI;
   const c = weather.cloudCover / 100;
   const precip = Math.min(weather.precipitation / 5, 1);
-  const dayFactor = smoothstep(-6, 6, elevDeg); // 0 夜 → 1 昼
+  const dayFactor = daylightFactor(solar.elevation); // 0 夜 → 1 昼
   const sinEl = Math.max(0, Math.sin(solar.elevation));
 
   const sunIntensity =
     elevDeg <= 0 ? 0 : 1.1 * Math.pow(sinEl, 0.5) * (1 - 0.8 * Math.pow(c, 1.1)) * (1 - 0.5 * precip);
   const sunColor = sunColorByElevation(elevDeg, c);
 
-  const pal = WEATHER_PALETTE[weather.kind];
-  const horizonColor = new THREE.Color(pal.horizon).lerp(new THREE.Color(NIGHT_HORIZON), 1 - dayFactor);
-  // 半球光地面色改为中性日光（暖灰）：不再用偏绿的 pal.ground，避免室内被草地绿染色；
-  // pal.ground 仍用于天空贴图下半球与户外观感，保持不变。
+  // 雾色 = 天空在地平线附近的方位平均色（CPU 复算 Preetham，含夜间压暗）。
+  // 远景地面被雾溶成此色、天空也向它过渡，因此接缝两侧逐位同色：
+  // 白天不会出现"蓝雾压在过曝白天空下"的横带，夜间也不会出现未压暗的亮带。
+  const fogColor = horizonSkyColorHex(solar.elevation, ATMOSPHERE[weather.kind], dayFactor);
+  // 半球光地面色改为中性日光（暖灰），避免室内被草地绿染色
   const groundColor = new THREE.Color(0xc4bfb4).lerp(new THREE.Color(NIGHT_GROUND), 1 - dayFactor);
 
   // 天空环境光改为日光（暖白）：不再使用偏蓝的天色调色板，夜间向低饱和冷色过渡
@@ -99,7 +95,7 @@ export function computeLighting(solar: SolarPosition, weather: WeatherSnapshot):
     hemiIntensity,
     ambientIntensity,
     moonIntensity,
-    fogColor: horizonColor.getHex(),
+    fogColor,
     fogNear: fogBase.near,
     fogFar,
     shadowEnabled: elevDeg > 4,

@@ -114,7 +114,7 @@ Select-String -Path dist/index.cdn.html -Pattern 'from"three'
 ### 选择建议
 
 - 交付给客户 / 内网演示 / 需要离线 → **自包含模式**（`npm run build`）。
-- 线上页面且用户网络正常 → **CDN 模式**（`npm run build:cdn`），首包从 489 KB 降到 21 KB；也可把 importmap 指向自己的 CDN 或私有镜像，只需改 `vite.config.ts` 中的 `THREE_VERSION` 与 URL。
+- 线上页面且用户网络正常 → **CDN 模式**（`npm run build:cdn`），首包从约 714 KB 降到约 219 KB（星表与天文库仍在单文件内，只有 three 走 CDN）；也可把 importmap 指向自己的 CDN 或私有镜像，只需改 `vite.config.ts` 中的 `THREE_VERSION` 与 URL。
 
 ## 5. 开发期说明
 

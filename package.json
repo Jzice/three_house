@@ -1,7 +1,7 @@
 {
   "name": "house-3d",
   "private": true,
-  "version": "0.3.9",
+  "version": "0.4.0",
   "type": "module",
   "description": "3D 房屋可视化：TypeScript + Vite 结构化工程，支持编译为单一 HTML 发布",
   "scripts": {
@@ -10,9 +10,12 @@
     "build": "tsc --noEmit && node scripts/build-all.mjs offline",
     "build:cdn": "tsc --noEmit && node scripts/build-all.mjs cdn",
     "build:all": "tsc --noEmit && node scripts/build-all.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "gen:cad": "esbuild scripts/genHouseCad.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/genHouseCad.mjs && node node_modules/.cache/genHouseCad.mjs",
+    "gen:dxf": "esbuild scripts/genHouseDxf.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/genHouseDxf.mjs && node node_modules/.cache/genHouseDxf.mjs"
   },
   "dependencies": {
+    "astronomy-engine": "^2.1.19",
     "three": "0.160.0"
   },
   "devDependencies": {

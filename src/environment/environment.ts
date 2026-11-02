@@ -1,10 +1,11 @@
 /**
  * 环境层编排器（唯一有状态的模块，工厂 + 闭包，不引入状态框架）。
  *
- * 职责：把"时间（实时/手动）→ 太阳位置 → 天空贴图/光照参数 → 场景背景/环境反射/灯光/雾"
- * 与"地点 → 经纬度 → 太阳算法/天气"两条链路串起来，并按节流策略重建天空（绘制成本约 10~20ms）。
+ * 职责：把"时间（实时/手动）→ 太阳位置 → 3D 天空/星空/光照参数 → 穹顶/环境反射/灯光/雾"
+ * 与"地点 → 经纬度 → 太阳算法/天气"两条链路串起来。Sky 太阳方向、昼夜因子与云层每帧廉价更新；
+ * 星空位置按 1s 节流重算；PMREM 中性环境反射贴图按太阳方位/天气变化节流重建（约 10~20ms）。
  *
- * 依赖方向（符合 AGENTS.md 单向约束）：只依赖 three / types / config / 本目录的纯模块；
+ * 依赖方向（符合 AGENTS.md 单向约束）：只依赖 three / astronomy-engine / types / config / 本目录的纯模块；
  * 不 import scene / view / floorplan / ui。渲染动作通过构造函数注入的回调与 scene/renderer 实例完成。
  *
  * 房屋朝向：太阳方位 → 场景方向由 solar.toSceneDirection 完成（按"正门 +z 所朝方位"
@@ -21,11 +22,20 @@ import type {
   WeatherSnapshot,
 } from '../types';
 import { DEFAULT_LOCATION, FALLBACK_WEATHER, FRONT_AZIMUTH_DEG } from '../config/siteConfig';
-import { solarPosition, toSceneDirection, sunTimes, utcToLocalMinutes } from './solar';
+import {
+  solarPosition,
+  toSceneDirection,
+  sunTimes,
+  utcToLocalMinutes,
+  type SolarPosition,
+} from './solar';
 import { createWeatherService, type WeatherService } from './weather';
-import { createSkyTexture, createNeutralEnvMap } from './sky';
+import { createNeutralEnvMap } from './sky';
+import { createSkyDome, type SkyDome } from './skyDome';
+import { createStarfield, type Starfield } from './starfield';
+import { writeMoonSceneDir } from './celestial';
 import { createGround, applyFog } from './ground';
-import { computeLighting, applyLighting } from './lighting';
+import { computeLighting, applyLighting, daylightFactor } from './lighting';
 
 const DEG = Math.PI / 180;
 /** 本地当天 12:00（正午）对应的 UTC 毫秒：默认固定日照基准 */
@@ -34,10 +44,10 @@ function localNoonUtcMs(loc: SiteLocation): number {
   const base = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
   return base + 720 * 60000 - loc.tz * 3600000;
 }
-/** 天空重建阈值：太阳方位/高度变化超过此值，或强制/天气变化时重建 */
+/** 环境反射重建阈值：太阳方位/高度变化超过此值，或强制/天气变化时重建 */
 const REBUILD_AZ_DEG = 0.5;
 const REBUILD_EL_DEG = 0.5;
-/** 天空重建最小间隔（拖动时间轴时避免每帧重绘，约 6~7 次/秒） */
+/** 环境反射重建最小间隔（拖动时间轴时避免每帧重绘，约 6~7 次/秒） */
 const REBUILD_MIN_MS = 150;
 /** 快照（UI 读数）节流间隔 */
 const SNAPSHOT_THROTTLE_MS = 500;
@@ -45,6 +55,8 @@ const SNAPSHOT_THROTTLE_MS = 500;
 export interface EnvironmentOptions {
   scene: THREE.Scene;
   renderer: THREE.WebGLRenderer;
+  /** 相机：天空穹顶与星穹每帧跟随相机平移（避免拉远时球面被远裁剪面切出圆洞） */
+  camera: THREE.Camera;
   lights: LightHandles;
   /** 初始 envMap 注入 floor/stair（在 buildHouse 之前传入） */
   materials?: MaterialMap;
@@ -79,7 +91,7 @@ export interface Environment {
 }
 
 export function createEnvironment(opts: EnvironmentOptions): Environment {
-  const { scene, renderer, lights } = opts;
+  const { scene, renderer, lights, camera } = opts;
   const materials = opts.materials;
   const cb = opts.callbacks ?? {};
 
@@ -96,7 +108,8 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   let frontAzimuthDeg = FRONT_AZIMUTH_DEG;
 
   let currentEnvMap: THREE.Texture | null = null;
-  let currentSkyTex: THREE.Texture | null = null;
+  /** 复用临时向量：真实月亮方向（供月光，避免每帧 new） */
+  const _moonDir = new THREE.Vector3();
 
   // 重建判定状态
   let lastSunAz = NaN;
@@ -110,6 +123,14 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   // 大地平面（仅新增一个 mesh，不改变院子铺装）
   const ground = createGround();
   scene.add(ground);
+
+  // 3D 天空穹顶：白天 three Sky 大气散射 + 夜间真实星空/银河/月亮。
+  // 全部为场景内对象（非 scene.background 贴图），素材程序化生成 / 星表内置，离线可用。
+  const skyDome: SkyDome = createSkyDome();
+  scene.add(skyDome.object3D);
+  const starfield: Starfield = createStarfield(renderer.getPixelRatio());
+  scene.add(starfield.object3D);
+  scene.background = null; // 背景改由 Sky 穹顶承担
 
   const weatherService: WeatherService = createWeatherService({
     location,
@@ -170,18 +191,26 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     currentEnvMap = env;
   }
 
-  /** 重建天空贴图与 PMREM 环境贴图 */
-  function rebuildSky(): void {
+  /**
+   * 刷新天空穹顶与天体（廉价，可每帧调用）：Sky 只改 uniform，
+   * 星空内部按秒节流重算星点位置，不会每帧重建 BufferGeometry。
+   */
+  function applySkyState(utcMs: number, solar: SolarPosition, dayFactor: number): void {
+    const frontAz = frontAzimuthDeg * DEG;
+    skyDome.setSunDirection(toSceneDirection(solar, frontAz));
+    skyDome.setWeather(weather, dayFactor);
+    skyDome.setDayFactor(dayFactor);
+    starfield.setDayFactor(dayFactor);
+    starfield.update(utcMs, location.lat, location.lon, frontAz);
+  }
+
+  /** 重建中性环境反射贴图（PMREM 成本较高，沿用节流） */
+  function rebuildEnv(): void {
     const solar = solarPosition(currentUtcMs(), location.lat, location.lon);
     const skyParams = makeSkyParams(solar.elevation, solar.azimuth);
-    const skyTex = createSkyTexture(skyParams);
-    scene.background = skyTex; // 蓝色天空背景保持不变
-    // 反射用环境贴图改为中性日光（不含蓝天），避免地面/楼梯反射出发蓝
+    // 反射用环境贴图保持中性日光（不含蓝天），避免地面/楼梯反射出发蓝
     const env = createNeutralEnvMap(renderer, skyParams);
     applyEnvMapToScene(env, currentEnvMap === null);
-
-    if (currentSkyTex && currentSkyTex !== skyTex) currentSkyTex.dispose();
-    currentSkyTex = skyTex;
 
     lastSunAz = solar.azimuth;
     lastSunEl = solar.elevation;
@@ -197,19 +226,27 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     emitSnapshot(true);
   }
 
+  /** 推导光照并应用：太阳主光 + 由 astronomy-engine 定位的真实月亮方向（月亮在地平线下时关闭月光） */
+  function applyLightingAndFog(utc: number, solar: SolarPosition): void {
+    const lighting = computeLighting(solar, weather);
+    lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
+    const frontAz = frontAzimuthDeg * DEG;
+    const sunDir = toSceneDirection(solar, frontAz);
+    const moonSinAlt = writeMoonSceneDir(utc, location.lat, location.lon, frontAz, _moonDir);
+    if (moonSinAlt <= 0) lighting.moonIntensity = 0;
+    applyLighting(lights, lighting, sunDir, _moonDir);
+    applyFog(scene, lighting);
+    // 地平雾色与雾色同源：远处地面、雾、地平线以下的穹顶三者同色，
+    // 天空再向上约 6° 平滑过渡回大气色，消除地平线处的亮带/暗缝（昼夜通用）
+    skyDome.setHorizonColor(lighting.fogColor);
+  }
+
   /** 由当前状态推导光照并应用到灯光与雾（廉价，每帧可调用） */
   function recompute(): void {
     const utc = currentUtcMs();
     const solar = solarPosition(utc, location.lat, location.lon);
-    const lighting = computeLighting(solar, weather);
-    lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
-    const sunDir = toSceneDirection(solar, frontAzimuthDeg * DEG);
-    const moonDir = toSceneDirection({
-      azimuth: solar.azimuth + Math.PI,
-      elevation: Math.abs(solar.elevation),
-    }, frontAzimuthDeg * DEG);
-    applyLighting(lights, lighting, sunDir, moonDir);
-    applyFog(scene, lighting);
+    applyLightingAndFog(utc, solar);
+    applySkyState(utc, solar, daylightFactor(solar.elevation));
   }
 
   function emitSnapshot(force: boolean): void {
@@ -233,9 +270,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     };
   }
 
-  // 初始构建一次天空与光照
+  // 初始构建一次环境反射与光照；天空状态由 recompute 内的 applySkyState 同步
   recompute();
-  rebuildSky();
+  rebuildEnv();
   emitSnapshot(true);
 
   return {
@@ -294,17 +331,19 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     },
     getSnapshot,
     update(render3D) {
+      // 穹顶与星穹跟随相机平移：天空盒（±450m）、云层（882m）、星点（880m）、月亮（860m）
+      // 都远小于远裁剪面（1000m）。相机 dolly 拉远后，球面在视线中心处到相机的距离会超过
+      // 远裁剪面而整片被裁掉，在天空上留下一块圆形缺口——也就是"拉远后出现的黑色圆球虚影"。
+      // 让穹顶随相机移动，球面到相机的距离恒定，任何缩放级别下都不会被裁切。
+      skyDome.object3D.position.copy(camera.position);
+      starfield.object3D.position.copy(camera.position);
+
       const utc = currentUtcMs();
       const solar = solarPosition(utc, location.lat, location.lon);
-      const lighting = computeLighting(solar, weather);
-      lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
-      const sunDir = toSceneDirection(solar, frontAzimuthDeg * DEG);
-      const moonDir = toSceneDirection({
-        azimuth: solar.azimuth + Math.PI,
-        elevation: Math.abs(solar.elevation),
-      }, frontAzimuthDeg * DEG);
-      applyLighting(lights, lighting, sunDir, moonDir);
-      applyFog(scene, lighting);
+      applyLightingAndFog(utc, solar);
+
+      // 天空/星空每帧廉价更新（星空内部按秒节流）
+      applySkyState(utc, solar, daylightFactor(solar.elevation));
 
       const sig = weatherSig();
       const azChanged = Math.abs((solar.azimuth - lastSunAz) / DEG) > REBUILD_AZ_DEG;
@@ -314,10 +353,10 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       const now = Date.now();
 
       if (render3D && need && now - lastRebuildMs > REBUILD_MIN_MS) {
-        rebuildSky();
+        rebuildEnv();
         lastRebuildMs = now;
       } else if (!render3D) {
-        // 2D 模式不重建天空，但标记，回到 3D 立即重建
+        // 2D 模式不重建反射贴图，但标记，回到 3D 立即重建
         forceDirty = true;
       }
 
@@ -326,8 +365,11 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     dispose() {
       weatherService.dispose();
       currentEnvMap?.dispose();
-      currentSkyTex?.dispose();
       scene.remove(ground);
+      scene.remove(skyDome.object3D);
+      skyDome.dispose();
+      scene.remove(starfield.object3D);
+      starfield.dispose();
     },
   };
 }
