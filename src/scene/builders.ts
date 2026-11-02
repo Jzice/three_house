@@ -109,7 +109,7 @@ export function createInteractiveMainDoor(
   const doorW = 2.4;
   const halfW = doorW / 2;
   const totalH = FRONT_DOOR_H;
-  const doorT = 0.1; // 门扇厚度
+  const doorT = 0.05; // 门扇厚度（真实住宅入户门约 4.5~5cm）
   const leafH = 2.05; // 门扇高（亮窗置于其上）
   const transomH = totalH - leafH; // 亮窗高 0.55
   const sideW = 0.25; // 固定窄梃宽
@@ -284,7 +284,7 @@ export function createSlidingGlassDoor(
       [frameT, h, halfW / 2 - frameT / 2, 0],
     ];
     for (const [bw, bh, bx, by] of bars) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.08), materials.blackAluminum);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.05), materials.blackAluminum);
       bar.position.set(bx, by, 0);
       leaf.add(bar);
     }
@@ -327,11 +327,27 @@ export function createSlidingGlassDoor(
 }
 
 /**
- * 窗框料深：比墙厚（T_EXT）多 4mm，框的内外两面各比墙面凸出 2mm。
- * - 框填满整个墙厚 → 窗侧不出现凹槽（凹槽从室内看是一条黑缝、斜看是一条暗线）；
- * - 框面凸出 2mm → 压住墙/框接缝；与墙体错开 2mm 也避免共面 z-fighting。
+ * 窗框/窗扇型材：单一薄型材（约 7cm 深）靠外墙（局部 +z = 室外法线方向）齐平，
+ * 室内侧留深窗台/窗套（reveal）。只呈现一圈框，无重影。
+ * 窗框与玻璃覆盖整个洞口，窗洞其余墙厚为实心墙 reveal，不透光。
  */
-const FRAME_D = T_EXT + 0.004;
+const FRAME_FD = 0.07;                              // 窗框薄型材深度（真实断桥铝约 60~70 系列）
+const SASH_D = 0.06;                                // 可开启窗扇薄型材深度
+const FRAME_Z = T_EXT / 2 + 0.015 - FRAME_FD / 2;    // 框/扇局部深度：贴外墙、外表面比墙外凸 2mm
+
+/** 一根窗框料（外框/竖梃/横梃）：单一薄型材，位于外墙侧 FRAME_Z 平面。 */
+function addFrameBar(
+  group: THREE.Object3D,
+  bw: number,
+  bh: number,
+  bx: number,
+  by: number,
+  mat: THREE.Material,
+): void {
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, FRAME_FD), mat);
+  bar.position.set(bx, by, FRAME_Z);
+  group.add(bar);
+}
 
 /** 可开启的窗：固定外框 + 一扇绕左侧立边旋转的窗扇 */
 export function createInteractiveWindow(
@@ -353,14 +369,12 @@ export function createInteractiveWindow(
     [frameT + OV, h + OV * 2, w / 2 + (OV - frameT) / 2, 0],
   ];
   for (const [bw, bh, bx, by] of frameBars) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, FRAME_D), materials.copper);
-    bar.position.set(bx, by, 0);
-    container.add(bar);
+    addFrameBar(container, bw, bh, bx, by, materials.copper);
   }
 
   // 窗扇
   const windowSash = new THREE.Group();
-  windowSash.position.set(-w / 2 + frameT, 0, 0);
+  windowSash.position.set(-w / 2 + frameT, 0, FRAME_Z);
 
   const innerW = w - frameT * 2;
   const innerH = h - frameT * 2;
@@ -373,7 +387,7 @@ export function createInteractiveWindow(
   // 两道竖向分隔
   const vOffsets = [sideW + vT / 2, sideW + vT + centerW + vT / 2];
   for (const vx of vOffsets) {
-    const v = new THREE.Mesh(new THREE.BoxGeometry(vT, h, FRAME_D), materials.copper);
+    const v = new THREE.Mesh(new THREE.BoxGeometry(vT, h, SASH_D), materials.copper);
     v.position.x = vx;
     windowSash.add(v);
   }
@@ -381,7 +395,7 @@ export function createInteractiveWindow(
   // 两道横向分隔
   const hOffsets = [sideW / 2, sideW + vT + centerW + vT + sideW / 2];
   for (const hx of hOffsets) {
-    const hBar = new THREE.Mesh(new THREE.BoxGeometry(sideW, hT, FRAME_D), materials.copper);
+    const hBar = new THREE.Mesh(new THREE.BoxGeometry(sideW, hT, SASH_D), materials.copper);
     hBar.position.set(hx, 0.3, 0);
     windowSash.add(hBar);
   }
@@ -406,11 +420,10 @@ export function createInteractiveWindow(
 }
 
 /**
- * 大窗（1.8×1.8）：左右下方两枚小窗扇对开（向室外各开 45°），窗框框梁全部固定。
- * 固定件：外框、两根通高竖梃、两道横梃（左右侧列各一）、上部两侧玻璃、中列整块玻璃——开窗后网格完整。
- * 可开启件：左下格 / 右下格各一枚小平开窗扇（玻璃 + 自身一圈细铜边），内嵌在格位内、枢轴在格位外侧竖边，
- * 只带走自己的玻璃与细边，不牵动窗框的框梁。
- * 整扇窗挂一个主控组，点击窗上任意构件即同时开合两扇。
+ * 大窗（1.8×1.8）：仅左右两列的下格可开，其余为固定玻璃；两枚小平开窗扇各自绕外缘竖边向室外开。
+ * 固定件：外框、两根通高竖梃、两道横梃（左右侧列各一）、上部两侧玻璃、中列整块玻璃——固定不动。
+ * 可开启件：左下格 / 右下格各一枚小平开窗扇（玻璃 + 自身一圈细铜边），扇体自铰链向格内延伸，
+ * 枢轴分别在左列左缘 / 右列右缘（即各自外缘）；沿局部 +z（室外法线）朝室外开，不牵动窗框框梁。
  */
 export function createLowerSashWindow(
   spec: WindowSpec,
@@ -423,7 +436,7 @@ export function createLowerSashWindow(
   const hT = 0.04; // 横梃高
   const centerW = 0.54; // 中列宽
   const sashT = 0.025; // 小窗扇自身细铜边宽
-  const sashD = 0.12; // 小窗扇自身细铜边厚（居墙厚中部，开合时仍嵌在洞口内）
+  const sashD = SASH_D; // 小窗扇自身细铜边厚（薄型材，居中嵌于洞口，开合时仍嵌在洞口内）
   const deg = (d: number): number => THREE.MathUtils.degToRad(d);
 
   const innerW = w - frameT * 2;
@@ -450,64 +463,69 @@ export function createLowerSashWindow(
     [frameT + OV, h + OV * 2, w / 2 + (OV - frameT) / 2, 0],
   ];
   for (const [bw, bh, bx, by] of frameBars) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, FRAME_D), materials.copper);
-    bar.position.set(bx, by, 0);
-    frame.add(bar);
+    addFrameBar(frame, bw, bh, bx, by, materials.copper);
   }
   // 两根通高竖梃（左右侧列与中列的分隔；开窗后仍在原位，网格不断）
   for (const mx of [xL + sideW + vT / 2, xR - sideW - vT / 2]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(vT, innerH, FRAME_D), materials.copper);
-    m.position.set(mx, 0, 0);
-    frame.add(m);
+    addFrameBar(frame, vT, innerH, mx, 0, materials.copper);
   }
   // 左右侧列各一道横梃（将侧列分为上下两格；中列为整块，不分隔）
   for (const hx of [xL + sideW / 2, xR - sideW / 2]) {
-    const r = new THREE.Mesh(new THREE.BoxGeometry(sideW, hT, FRAME_D), materials.copper);
-    r.position.set(hx, barY, 0);
-    frame.add(r);
+    addFrameBar(frame, sideW, hT, hx, barY, materials.copper);
   }
 
-  // 每个小方格独立开合：枢轴在格外侧竖边，点击在 0°/45°/60°/90° 间循环（hingeSign 决定朝向）
-  const buildPane = (
-    cellLeft: number, cellRight: number, cellTop: number, cellBot: number, hingeSign: 1 | -1,
+  // 固定玻璃（上左 / 中列整块 / 上右）：不参与开合，仅作采光
+  const addFixedGlass = (
+    cellLeft: number, cellRight: number, cellTop: number, cellBot: number,
+  ): void => {
+    const gw = cellRight - cellLeft - 0.012;
+    const gh = cellTop - cellBot - 0.012;
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, 0.02), materials.glass);
+    glass.position.set((cellLeft + cellRight) / 2, (cellTop + cellBot) / 2, FRAME_Z);
+    frame.add(glass);
+  };
+  addFixedGlass(xL, xL + sideW, yT, barTop); // 左上
+  addFixedGlass(xL + sideW + vT, xR - sideW - vT, yT, yB); // 中列整块
+  addFixedGlass(xR - sideW, xR, yT, barTop); // 右上
+
+  // 可开启窗扇：仅左右两列的下格；铰链位于各自外缘（左扇左缘 / 右扇右缘），只朝室外开。
+  // hingeOnLeft=true → 枢轴在格左缘、扇体向格内(+x)延伸；false → 枢轴在格右缘、扇体向格内(-x)延伸。
+  const buildSash = (
+    cellLeft: number, cellRight: number, cellTop: number, cellBot: number, hingeOnLeft: boolean,
   ): InteractiveObject => {
     const pw = cellRight - cellLeft;
     const ph = cellTop - cellBot;
-    const pivotX = hingeSign < 0 ? cellLeft : cellRight; // 左铰链在左缘，右铰链在右缘
+    const dir = hingeOnLeft ? 1 : -1; // 扇体自铰链向格内延伸的方向
+    const pivotX = hingeOnLeft ? cellLeft : cellRight;
     const sash = new THREE.Group();
-    sash.position.set(pivotX, (cellTop + cellBot) / 2, 0);
+    sash.position.set(pivotX, (cellTop + cellBot) / 2, FRAME_Z);
     const edge = (ew: number, eh: number, ex: number, ey: number): void => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.copper);
       b.position.set(ex, ey, 0);
       sash.add(b);
     };
-    edge(sashT, ph, (hingeSign * sashT) / 2, 0); // 铰接侧边
-    edge(sashT, ph, hingeSign * (pw - sashT / 2), 0); // 自由侧边
-    edge(pw - sashT * 2, sashT, (hingeSign * pw) / 2, ph / 2 - sashT / 2); // 上沿
-    edge(pw - sashT * 2, sashT, (hingeSign * pw) / 2, -ph / 2 + sashT / 2); // 下沿
+    edge(sashT, ph, (dir * sashT) / 2, 0); // 铰接侧边
+    edge(sashT, ph, dir * (pw - sashT / 2), 0); // 自由侧边
+    edge(pw - sashT * 2, sashT, (dir * pw) / 2, ph / 2 - sashT / 2); // 上沿
+    edge(pw - sashT * 2, sashT, (dir * pw) / 2, -ph / 2 + sashT / 2); // 下沿
     const glass = new THREE.Mesh(
       new THREE.BoxGeometry(pw - sashT * 2, ph - sashT * 2, 0.02),
       materials.glass,
     );
-    glass.position.set((hingeSign * pw) / 2, 0, 0);
+    glass.position.set((dir * pw) / 2, 0, 0);
     sash.add(glass);
     const part = markInteractive(sash, 'window', 0);
     part.userData.openAngles = [0, deg(45), deg(60), deg(90)];
     part.userData.openStep = 0;
-    part.userData.hingeSign = hingeSign;
+    // 左铰扇取负角、右铰扇取正角 → 两者均绕外缘向室外(+z)开
+    part.userData.hingeSign = hingeOnLeft ? -1 : 1;
     container.add(sash);
     return part;
   };
 
   const parts: InteractiveObject[] = [];
-  // 左列：上格 / 下格（铰链在左缘）
-  parts.push(buildPane(xL, xL + sideW, yT, barTop, -1));
-  parts.push(buildPane(xL, xL + sideW, barBot, yB, -1));
-  // 中列：整块（铰链在左缘）
-  parts.push(buildPane(xL + sideW + vT, xR - sideW - vT, yT, yB, -1));
-  // 右列：上格 / 下格（铰链在右缘）
-  parts.push(buildPane(xR - sideW, xR, yT, barTop, 1));
-  parts.push(buildPane(xR - sideW, xR, barBot, yB, 1));
+  parts.push(buildSash(xL, xL + sideW, barBot, yB, true)); // 左下格（铰链在外缘左）
+  parts.push(buildSash(xR - sideW, xR, barBot, yB, false)); // 右下格（铰链在外缘右）
 
   container.position.set(x, y, z);
   container.rotation.y = rotY;
@@ -546,14 +564,10 @@ export function createSlidingWindow(
     [frameT + OV, h + OV * 2, halfW + (OV - frameT) / 2, 0],
   ];
   for (const [bw, bh, bx, by] of frameBars) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, FRAME_D), pvc);
-    bar.position.set(bx, by, 0);
-    container.add(bar);
+    addFrameBar(container, bw, bh, bx, by, pvc);
   }
   // 中竖梃
-  const mullion = new THREE.Mesh(new THREE.BoxGeometry(frameT, h - 2 * frameT, FRAME_D), pvc);
-  mullion.position.set(0, 0, 0);
-  container.add(mullion);
+  addFrameBar(container, frameT, h - 2 * frameT, 0, 0, pvc);
 
   const buildLeaf = (): THREE.Group => {
     const leaf = new THREE.Group();
@@ -564,7 +578,7 @@ export function createSlidingWindow(
       [frameT, leafH, leafW / 2 - frameT / 2, 0],
     ];
     for (const [bw, bh, bx, by] of bars) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.12), pvc);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.05), pvc);
       bar.position.set(bx, by, 0);
       leaf.add(bar);
     }
@@ -578,14 +592,14 @@ export function createSlidingWindow(
 
   // 左扇：闭合居中 -halfLeaf，开启向左滑 travel
   const leftLeaf = buildLeaf();
-  leftLeaf.position.set(-halfLeaf, 0, 0);
+  leftLeaf.position.set(-halfLeaf, 0, FRAME_Z);
   const leftPart = markInteractive(leftLeaf, 'window', 0);
   leftPart.userData.slideX = { closed: -halfLeaf, open: -halfLeaf - travel };
   container.add(leftLeaf);
 
   // 右扇：闭合居中 +halfLeaf，开启向右滑 travel
   const rightLeaf = buildLeaf();
-  rightLeaf.position.set(halfLeaf, 0, 0);
+  rightLeaf.position.set(halfLeaf, 0, FRAME_Z);
   const rightPart = markInteractive(rightLeaf, 'window', 0);
   rightPart.userData.slideX = { closed: halfLeaf, open: halfLeaf + travel };
   container.add(rightLeaf);
@@ -693,7 +707,7 @@ export function createInteriorDoor(
 ): InteractiveBuildResult {
   const w = spec.w;
   const h = spec.h ?? 2.1;
-  const t = 0.06;
+  const t = 0.045; // 门扇厚度（真实住宅内门约 4~4.5cm）
 
   // 铰链放在门洞一侧立边（hingeSide：-1 负 x 侧 / +1 正 x 侧），门扇朝房间内开启
   const side = spec.hingeSide ?? -1;
@@ -750,7 +764,7 @@ export function createExteriorSwingDoor(
   materials: MaterialMap,
   id?: string,
 ): InteractiveBuildResult {
-  const t = 0.05;
+  const t = 0.045; // 门扇厚度（真实住宅外开门约 4.5cm）
   const side = hingeSide;
   const hingeX = side * (w / 2);
   const hinge = new THREE.Group();
@@ -765,7 +779,7 @@ export function createExteriorSwingDoor(
   leaf.add(panel);
 
   // 门扇四周门框包边（薄金属条，略厚于面板，正反两面压住边）
-  const ft = 0.05;
+  const ft = 0.045;
   const fd = t + 0.02;
   const bars: Array<[number, number, number, number]> = [
     [w, ft, 0, h - ft / 2],
