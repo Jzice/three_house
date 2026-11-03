@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { VIEW } from '../config/houseConfig';
 import type { LightHandles } from '../types';
@@ -6,15 +7,17 @@ import type { LightHandles } from '../types';
 export interface SceneContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer;
+  renderer: WebGPURenderer;
   controls: OrbitControls;
 }
 
-/** 创建场景、相机、渲染器与轨道控制器 */
+/** 创建场景、相机、渲染器与轨道控制器。
+ *  说明：渲染底座为 WebGPURenderer（来自 three/webgpu）。该渲染器在缺少 WebGPU 的设备上会
+ *  自动回退到 WebGL2 后端，因此无需为兼容性做分支；首屏会检测并给出降级提示（见 main.ts）。 */
 export function createSceneContext(): SceneContext {
   const scene = new THREE.Scene();
-  // 背景由环境层（天空贴图）按太阳/天气实时设置；此处不预设兜底色。
-  // 2D 模式跳过 WebGL 渲染，不受影响。
+  // 背景由环境层（天空穹顶）按太阳/天气实时设置；此处不预设兜底色。
+  // 2D 模式跳过渲染，不受影响。
 
   const camera = new THREE.PerspectiveCamera(
     VIEW.fov,
@@ -23,7 +26,7 @@ export function createSceneContext(): SceneContext {
     VIEW.far,
   );
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new WebGPURenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;

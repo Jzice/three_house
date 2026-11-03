@@ -2,24 +2,26 @@
  * 环境层编排器（唯一有状态的模块，工厂 + 闭包，不引入状态框架）。
  *
  * 职责：把"时间（实时/手动）→ 太阳位置 → 3D 天空/星空/光照参数 → 穹顶/环境反射/灯光/雾"
- * 与"地点 → 经纬度 → 太阳算法/天气"两条链路串起来。Sky 太阳方向、昼夜因子与云层每帧廉价更新；
- * 星空位置按 1s 节流重算；PMREM 中性环境反射贴图按太阳方位/天气变化节流重建（约 10~20ms）。
+ * 与"地点 → 经纬度 → 太阳算法/天气"两条链路串起来。metaverse-sky 接管天空/云/降水/大气/IBL
+ * 的**视觉呈现**，但太阳方向、真实星表、真实月亮方向等**数据**仍由各纯模块（solar / celestial /
+ * starfield / weather）产出，本层只做编排。
  *
- * 依赖方向（符合 AGENTS.md 单向约束）：只依赖 three / astronomy-engine / types / config / 本目录的纯模块；
- * 不 import scene / view / floorplan / ui。渲染动作通过构造函数注入的回调与 scene/renderer 实例完成。
+ * 依赖方向（符合 AGENTS.md 单向约束）：只依赖 three / astronomy-engine / types / config /
+ * metaverse-sky / 本目录的纯模块；不 import scene / view / floorplan / ui。
  *
  * 房屋朝向：太阳方位 → 场景方向由 solar.toSceneDirection 完成（按"正门 +z 所朝方位"
  * frontAzimuthDeg 换算，默认西=270°，可由 UI 通过 setFrontAzimuth 设置），几何与 2D 图纸保持不变。
  */
 import * as THREE from 'three';
+import type { WebGPURenderer } from 'three/webgpu';
 import type {
   EnvironmentSnapshot,
   EnvironmentCallbacks,
   LightHandles,
   MaterialMap,
   SiteLocation,
-  SkyParams,
   WeatherSnapshot,
+  PrecipKind,
 } from '../types';
 import { DEFAULT_LOCATION, FALLBACK_WEATHER, FRONT_AZIMUTH_DEG } from '../config/siteConfig';
 import {
@@ -29,37 +31,24 @@ import {
   utcToLocalMinutes,
   type SolarPosition,
 } from './solar';
-import { createWeatherService, type WeatherService } from './weather';
-import { createNeutralEnvMap } from './sky';
-import { createSkyDome, type SkyDome } from './skyDome';
+import { createWeatherService, mapWeatherToSky, type WeatherService } from './weather';
 import { createStarfield, type Starfield } from './starfield';
 import { writeMoonSceneDir } from './celestial';
 import { createGround, applyFog, GROUND_TILE } from './ground';
 import { computeLighting, applyLighting, daylightFactor } from './lighting';
-import { ATMOSPHERE, createHorizonLut } from './skyAtmosphere';
+import { createMetaSky, type MetaSkyHandle } from './metaSky';
 
 const DEG = Math.PI / 180;
-/** 本地当天 12:00（正午）对应的 UTC 毫秒：默认固定日照基准 */
-function localNoonUtcMs(loc: SiteLocation): number {
-  const d = new Date();
-  const base = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-  return base + 720 * 60000 - loc.tz * 3600000;
-}
-/** 环境反射重建阈值：太阳方位/高度变化超过此值，或强制/天气变化时重建 */
-const REBUILD_AZ_DEG = 0.5;
-const REBUILD_EL_DEG = 0.5;
-/** 环境反射重建最小间隔（拖动时间轴时避免每帧重绘，约 6~7 次/秒） */
-const REBUILD_MIN_MS = 150;
 /** 快照（UI 读数）节流间隔 */
 const SNAPSHOT_THROTTLE_MS = 500;
 
 export interface EnvironmentOptions {
   scene: THREE.Scene;
-  renderer: THREE.WebGLRenderer;
+  renderer: WebGPURenderer;
   /** 相机：天空穹顶与星穹每帧跟随相机平移（避免拉远时球面被远裁剪面切出圆洞） */
   camera: THREE.Camera;
   lights: LightHandles;
-  /** 初始 envMap 注入 floor/stair（在 buildHouse 之前传入） */
+  /** 预留：材质 envMap 现由 scene.environment 统一提供，无需逐材质注入 */
   materials?: MaterialMap;
   callbacks?: Partial<EnvironmentCallbacks>;
   initialLocation?: SiteLocation;
@@ -82,18 +71,45 @@ export interface Environment {
   setWeatherEnabled(enabled: boolean): void;
   /** 开启/关闭实时光照（动态阴影）；默认关闭，开启后由太阳高度自动决定是否投射阴影 */
   setShadowEnabled(enabled: boolean): void;
+  /** 设置降水动画覆盖（晴/雨/雪/冰雹；null 表示跟随实况） */
+  setWeatherOverride(kind: PrecipKind | null): void;
   getSnapshot(): EnvironmentSnapshot;
   /**
-   * 每帧推进。render3D=false（2D 模式）时只推进状态、不重建天空（回到 3D 时强制重建）；
-   * render3D=true 时应用光照/雾并按节流重建天空。
+   * 每帧推进。render3D=false（2D 模式）时仍推进状态（回到 3D 时无重建负担）；
+   * render3D=true 时应用光照/雾并驱动 metaverse-sky 视觉。
    */
   update(render3D: boolean): void;
   dispose(): void;
 }
 
+/** 中性日天环境贴图（equirect）：供地面/楼梯等 PBR 材质的细微环境反射，
+ *  不含蓝天以免发黑/发蓝；夜间强度由 metaverse-sky 的 syncEnvironmentLighting 收暗。 */
+function createNeutralEnvTexture(): THREE.Texture {
+  const W = 32;
+  const H = 16;
+  const data = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    const t = y / (H - 1); // 0=顶(天) .. 1=底(地)
+    const r = 150 + (190 - 150) * t;
+    const g = 160 + (188 - 160) * t;
+    const b = 185 + (180 - 185) * t;
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      data[i] = Math.round(r);
+      data[i + 1] = Math.round(g);
+      data[i + 2] = Math.round(b);
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export function createEnvironment(opts: EnvironmentOptions): Environment {
   const { scene, renderer, lights, camera } = opts;
-  const materials = opts.materials;
   const cb = opts.callbacks ?? {};
 
   let location: SiteLocation = opts.initialLocation ?? DEFAULT_LOCATION;
@@ -107,38 +123,38 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   let weatherEnabled = opts.weatherEnabled ?? false;
   // 房屋正面（+z 入户门侧）所朝真实方位角（度，自北顺时针）；默认西=270，与默认地点武穴组合即"默认武穴·朝西"
   let frontAzimuthDeg = FRONT_AZIMUTH_DEG;
+  // 降水动画覆盖：null=跟随实况；否则强制该类型（面板手动演示）
+  let precipOverride: PrecipKind | null = null;
 
-  let currentEnvMap: THREE.Texture | null = null;
   /** 复用临时向量：真实月亮方向（供月光，避免每帧 new） */
   const _moonDir = new THREE.Vector3();
 
-  // 重建判定状态
-  let lastSunAz = NaN;
-  let lastSunEl = NaN;
-  let lastWeatherSig = '';
-  let lastRebuildMs = 0;
-  let forceDirty = true;
-
   let lastEmitMs = 0;
 
-  // 共享地平色查找表（含云色混合 + 夜间压暗）：地面逐方位雾与 Sky 穹顶近地平线收敛共用，
-  // 保证天地两侧逐位同色；每帧只写一次（带缓存）。创建后先交给地面与天空，再在 applyLightingAndFog 写入。
-  const horizonLut = createHorizonLut();
-
-  // 大地平面（仅新增一个 mesh，不改变院子铺装）；雾色为逐方位地平色查找表
-  const groundLayer = createGround(horizonLut);
+  // 大地平面（仅新增一个 mesh，不改变院子铺装）；雾色沿用 scene.fog 均匀雾色
+  const groundLayer = createGround();
   const ground = groundLayer.mesh;
   scene.add(ground);
   // 草地贴图（按世界坐标锚定，每帧随地面跟随相机时同步偏移，避免纹理滑动）
   const groundTex = (ground.material as THREE.MeshStandardMaterial).map ?? null;
 
-  // 3D 天空穹顶：白天 three Sky 大气散射 + 夜间真实星空/银河/月亮。
-  // 全部为场景内对象（非 scene.background 贴图），素材程序化生成 / 星表内置，离线可用。
-  const skyDome: SkyDome = createSkyDome(horizonLut);
-  scene.add(skyDome.object3D);
+  // 天空 / 云 / 大气 / 降水 / IBL：由 metaverse-sky 接管视觉呈现。
+  // 传入一个不参与场景照明的"太阳方向引用"灯，避免 metaverse-sky 改动真实太阳主光的位置(220m)
+  // 与强度/色温（否则会破坏本工程自有的照明模型与阴影几何）；真实主光由 lights.sun 在 60m 处驱动。
+  const sunRef = new THREE.DirectionalLight(0xffffff, 0);
+  const metaSky: MetaSkyHandle = createMetaSky({ scene, camera, sun: sunRef });
+
+  // 真实星空 / 银河 / 月亮（data 层仍为内置星表 + astronomy-engine，作为 metaverse-sky 之上的 overlay）
   const starfield: Starfield = createStarfield(renderer.getPixelRatio());
   scene.add(starfield.object3D);
-  scene.background = null; // 背景改由 Sky 穹顶承担
+
+  // 中性环境反射贴图：供 PBR 材质细微反射（夜间由 metaverse-sky 收暗）
+  scene.environment = createNeutralEnvTexture();
+  scene.environmentIntensity = 1;
+  scene.background = null; // 背景由 metaverse-sky 天空穹顶承担
+
+  // metaverse-sky 的降水 envelope 含 2.4s 缓动，故只在"类型/强度"变化时下发，避免每帧重置计时
+  let lastPrecipSig = '';
 
   const weatherService: WeatherService = createWeatherService({
     location,
@@ -150,86 +166,35 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     return clock.live ? Date.now() : clock.manualMs;
   }
 
-  function makeSkyParams(elevation: number, azimuth: number): SkyParams {
-    return {
-      kind: weather.kind,
-      elevation,
-      azimuth,
-      cloudCover: weather.cloudCover / 100,
-      precip: weather.precipitation,
-      visibility: weather.visibility,
-      isDay: elevation > -0.5 * DEG,
-      frontAzimuth: frontAzimuthDeg * DEG,
-    };
-  }
-
-  function weatherSig(): string {
-    return `${weather.kind}|${weather.cloudCover}|${weather.precipitation}|${weather.visibility}`;
-  }
-
-  /** 把新环境贴图注入需反射的材质（floor/stair）与场景中所有已持有旧 envMap 的材质 */
-  function applyEnvMapToScene(env: THREE.Texture, isInitial: boolean): void {
-    if (materials) {
-      materials.floor.envMap = env;
-      materials.floor.needsUpdate = true;
-      materials.stair.envMap = env;
-      materials.stair.needsUpdate = true;
-      // 拉丝不锈钢横杆：高金属度若无环境贴图会发黑，必须同步注入
-      materials.stainlessBrushed.envMap = env;
-      materials.stainlessBrushed.needsUpdate = true;
+  /** 把天气实况（+ 手动覆盖）映射并下发到 metaverse-sky（云量/大气/风每帧下发无害，降水受 timing 约束需节流） */
+  function applyWeatherToSky(): void {
+    const m = mapWeatherToSky(weather, precipOverride);
+    metaSky.setClouds(m.coverage);
+    metaSky.setAtmosphere(m.turbidity, m.rayleigh);
+    metaSky.setWind(m.windDeg, m.windSpeed);
+    const precipSig = `${m.precipType}|${m.precipIntensity.toFixed(3)}`;
+    if (precipSig !== lastPrecipSig) {
+      metaSky.setPrecipitation(m.precipType, m.precipIntensity);
+      lastPrecipSig = precipSig;
     }
-    const old = currentEnvMap;
-    if (!isInitial && old) {
-      scene.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        const applyOne = (mat: THREE.Material | undefined): void => {
-          if (!mat) return;
-          const sm = mat as THREE.MeshStandardMaterial;
-          if (sm.envMap === old) {
-            sm.envMap = env;
-            sm.needsUpdate = true;
-          }
-        };
-        if (Array.isArray(mesh.material)) mesh.material.forEach(applyOne);
-        else applyOne(mesh.material);
-      });
-      old.dispose();
-    }
-    currentEnvMap = env;
   }
 
   /**
-   * 刷新天空穹顶与天体（廉价，可每帧调用）：Sky 只改 uniform，
+   * 刷新天空/天体（廉价，可每帧调用）：metaverse-sky 只改 uniform / 强度，
    * 星空内部按秒节流重算星点位置，不会每帧重建 BufferGeometry。
    */
   function applySkyState(utcMs: number, solar: SolarPosition, dayFactor: number): void {
     const frontAz = frontAzimuthDeg * DEG;
-    skyDome.setSunDirection(toSceneDirection(solar, frontAz));
-    skyDome.setWeather(weather, dayFactor);
-    skyDome.setDayFactor(dayFactor);
+    metaSky.setSunDirection(toSceneDirection(solar, frontAz));
+    applyWeatherToSky();
+    metaSky.syncEnvironmentLighting();
     starfield.setDayFactor(dayFactor);
     starfield.update(utcMs, location.lat, location.lon, frontAz);
   }
 
-  /** 重建中性环境反射贴图（PMREM 成本较高，沿用节流） */
-  function rebuildEnv(): void {
-    const solar = solarPosition(currentUtcMs(), location.lat, location.lon);
-    const skyParams = makeSkyParams(solar.elevation, solar.azimuth);
-    // 反射用环境贴图保持中性日光（不含蓝天），避免地面/楼梯反射出发蓝
-    const env = createNeutralEnvMap(renderer, skyParams);
-    applyEnvMapToScene(env, currentEnvMap === null);
-
-    lastSunAz = solar.azimuth;
-    lastSunEl = solar.elevation;
-    lastWeatherSig = weatherSig();
-    forceDirty = false;
-  }
-
-  /** 天气更新：立即重算光照，标记天空重建（2D 下延迟到回到 3D） */
+  /** 天气更新：立即重算光照，并刷新天空视觉 */
   function onWeather(w: WeatherSnapshot): void {
     weather = w;
-    forceDirty = true;
     recompute();
     emitSnapshot(true);
   }
@@ -242,12 +207,8 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
     const moonSinAlt = writeMoonSceneDir(utc, location.lat, location.lon, frontAz, _moonDir);
     if (moonSinAlt <= 0) lighting.moonIntensity = 0;
-    applyLighting(lights, lighting, sunDir, _moonDir);
+    applyLighting(lights, lighting, _moonDir);
     applyFog(scene, lighting);
-    // 共享地平色查找表：与 Sky 穹顶共用同一张表（含云色混合 + 夜间压暗），按当前太阳方向/大气/
-    // 昼夜/云量写入一次（内部有缓存，参数不变时零成本），远景地面与天空地平处逐位同色，
-    // 晨昏/阴天都不会出现天地硬边。地面与 Sky 着色器直接读这张纹理，故在此统一写入。
-    horizonLut.write(sunDir, ATMOSPHERE[weather.kind], daylightFactor(solar.elevation), weather.cloudCover, weather.kind);
   }
 
   /** 由当前状态推导光照并应用到灯光与雾（廉价，每帧可调用） */
@@ -269,6 +230,7 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     const utc = currentUtcMs();
     const solar = solarPosition(utc, location.lat, location.lon);
     const times = sunTimes(utc, location.lat, location.lon);
+    const precip = mapWeatherToSky(weather, precipOverride);
     return {
       location,
       clock,
@@ -276,26 +238,24 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       solar: { azimuth: solar.azimuth, elevation: solar.elevation },
       sunriseMin: Number.isNaN(times.sunrise) ? NaN : utcToLocalMinutes(times.sunrise, location.tz),
       sunsetMin: Number.isNaN(times.sunset) ? NaN : utcToLocalMinutes(times.sunset, location.tz),
+      precip: { kind: precip.precipType, intensity: precip.precipIntensity },
     };
   }
 
-  // 初始构建一次环境反射与光照；天空状态由 recompute 内的 applySkyState 同步
+  // 初始构建一次光照与天空状态
   recompute();
-  rebuildEnv();
   emitSnapshot(true);
 
   return {
     setLocation(loc) {
       location = loc;
       weatherService.setLocation(loc);
-      forceDirty = true;
       recompute();
       emitSnapshot(true);
     },
     setLive(live) {
       if (live) clock = { live: true, manualMs: clock.manualMs };
       else clock = { live: false, manualMs: Date.now() };
-      forceDirty = true;
       recompute();
       emitSnapshot(true);
     },
@@ -306,7 +266,6 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       const base = Date.UTC(y, m - 1, d, 0, 0, 0, 0);
       const utc = base + minutes * 60000 - location.tz * 3600000;
       clock = { live: false, manualMs: utc };
-      forceDirty = true;
       recompute();
       emitSnapshot(true);
     },
@@ -320,7 +279,6 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       if (!enabled) {
         // 关闭：停止联网，立即切晴天（stale=false），光照仅由太阳/时间决定
         weather = { ...FALLBACK_WEATHER };
-        forceDirty = true;
         recompute();
         emitSnapshot(true);
       }
@@ -328,66 +286,57 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     },
     setShadowEnabled(enabled) {
       shadowEnabled = enabled;
-      forceDirty = true;
+      recompute();
+      emitSnapshot(true);
+    },
+    setWeatherOverride(kind) {
+      precipOverride = kind;
       recompute();
       emitSnapshot(true);
     },
     setFrontAzimuth(deg) {
-      frontAzimuthDeg = ((deg % 360) + 360) % 360;
-      forceDirty = true;
+      frontAzimuthDeg = deg;
       recompute();
       emitSnapshot(true);
     },
     getSnapshot,
-    update(render3D) {
-      // 穹顶与星穹跟随相机平移：天空盒（±450m）、云层（882m）、星点（880m）、月亮（860m）
-      // 都远小于远裁剪面（1000m）。相机 dolly 拉远后，球面在视线中心处到相机的距离会超过
-      // 远裁剪面而整片被裁掉，在天空上留下一块圆形缺口——也就是"拉远后出现的黑色圆球虚影"。
-      // 让穹顶随相机移动，球面到相机的距离恒定，任何缩放级别下都不会被裁切。
-      skyDome.object3D.position.copy(camera.position);
-      starfield.object3D.position.copy(camera.position);
-      // 地面同样跟随相机平移（半边长 3000m > 远裁剪面 1000m），其外缘恒在远裁剪面之外被裁掉，
+    update(_render3D: boolean) {
+      // 地面跟随相机平移（半边长 3000m > 远裁剪面 1000m），其外缘恒在远裁剪面之外被裁掉，
       // 由同色 Sky 下半球补上，不露有限平面的外缘缝；草地贴图按世界坐标锚定，避免随相机滑动。
+      // （metaverse-sky 的天空/云/降水在其内部 update 时自动跟随相机，无需在此搬运。）
       ground.position.x = camera.position.x;
       ground.position.z = camera.position.z;
       if (groundTex) {
         groundTex.offset.set(camera.position.x / GROUND_TILE, camera.position.z / GROUND_TILE);
       }
+      starfield.object3D.position.copy(camera.position);
 
       const utc = currentUtcMs();
       const solar = solarPosition(utc, location.lat, location.lon);
       applyLightingAndFog(utc, solar);
 
-      // 天空/星空每帧廉价更新（星空内部按秒节流）
+      // 天空/星空每帧廉价更新（星空内部按秒节流；metaverse-sky 在内部 update 推进云/降水动画）
       applySkyState(utc, solar, daylightFactor(solar.elevation));
-
-      const sig = weatherSig();
-      const azChanged = Math.abs((solar.azimuth - lastSunAz) / DEG) > REBUILD_AZ_DEG;
-      const elChanged = Math.abs((solar.elevation - lastSunEl) / DEG) > REBUILD_EL_DEG;
-      const weatherChanged = sig !== lastWeatherSig;
-      const need = forceDirty || azChanged || elChanged || weatherChanged;
-      const now = Date.now();
-
-      if (render3D && need && now - lastRebuildMs > REBUILD_MIN_MS) {
-        rebuildEnv();
-        lastRebuildMs = now;
-      } else if (!render3D) {
-        // 2D 模式不重建反射贴图，但标记，回到 3D 立即重建
-        forceDirty = true;
-      }
+      metaSky.update();
 
       emitSnapshot(false);
     },
     dispose() {
       weatherService.dispose();
-      currentEnvMap?.dispose();
-      horizonLut.dispose();
-      scene.remove(ground);
+      if (scene.environment) scene.environment.dispose();
+      scene.environment = null;
       groundLayer.dispose();
-      scene.remove(skyDome.object3D);
-      skyDome.dispose();
+      scene.remove(ground);
       scene.remove(starfield.object3D);
       starfield.dispose();
+      metaSky.dispose();
     },
   };
+}
+
+/** 本地当天 12:00（正午）对应的 UTC 毫秒：默认固定日照基准 */
+function localNoonUtcMs(loc: SiteLocation): number {
+  const d = new Date();
+  const base = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  return base + 720 * 60000 - loc.tz * 3600000;
 }

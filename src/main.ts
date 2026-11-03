@@ -14,6 +14,28 @@ import { createTouchControls } from './view/touchControls';
 import { createEnvPanel } from './ui/envPanel';
 import type { EnvironmentSnapshot, InteractiveObject } from './types';
 
+/** 非阻塞提示：当前浏览器未启用 WebGPU，已回退 WebGL2（功能不受影响） */
+function showWebGpuFallbackNotice(): void {
+  const el = document.createElement('div');
+  el.id = 'env-webgpu-notice';
+  el.textContent = '当前浏览器未启用 WebGPU，已回退到 WebGL2 渲染（功能不受影响）。';
+  el.style.cssText =
+    'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:9999;' +
+    'background:rgba(20,22,28,.9);color:#ddd;padding:6px 12px;border-radius:6px;' +
+    'font:12px/1.4 system-ui,sans-serif;pointer-events:none;';
+  document.body.appendChild(el);
+}
+
+/** 致命错误提示（渲染后端初始化失败） */
+function showFatal(msg: string): void {
+  const el = document.createElement('div');
+  el.style.cssText =
+    'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+    'background:#111;color:#eee;font:14px/1.6 system-ui,sans-serif;text-align:center;padding:24px;';
+  el.textContent = msg;
+  document.body.appendChild(el);
+}
+
 function bootstrap(): void {
   const canvas2D = document.getElementById('floorplan-canvas') as HTMLCanvasElement | null;
   if (!canvas2D) throw new Error('缺少 DOM 元素 #floorplan-canvas');
@@ -154,8 +176,6 @@ function bootstrap(): void {
 
   // ---- 渲染循环 ----
   function animate(): void {
-    requestAnimationFrame(animate);
-
     const mode = view.getMode();
     if (mode === 'tps') {
       ctx.controls.update();
@@ -175,7 +195,18 @@ function bootstrap(): void {
     }
   }
 
-  animate();
+  // WebGPURenderer 在缺少 WebGPU 的设备上会自动回退到 WebGL2 后端；
+  // 初始化是异步的，完成后再启动渲染循环。
+  ctx.renderer
+    .init()
+    .then(() => {
+      if (!('gpu' in navigator)) showWebGpuFallbackNotice();
+      ctx.renderer.setAnimationLoop(animate);
+    })
+    .catch((err) => {
+      console.error('渲染器初始化失败', err);
+      showFatal('渲染初始化失败：请使用支持 WebGPU 或 WebGL2 的现代浏览器。');
+    });
 }
 
 bootstrap();

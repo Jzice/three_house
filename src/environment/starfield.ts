@@ -25,35 +25,6 @@ const GALACTIC_NGP_DEC_DEG = 27.12825;
 const GALACTIC_CENTER_RA_DEG = 266.4051;
 const GALACTIC_CENTER_DEC_DEG = -28.936175;
 
-const STAR_VERTEX = /* glsl */ `
-  attribute float aSize;
-  attribute vec3 aColor;
-  attribute float aAlpha;
-  uniform float uPixelRatio;
-  varying vec3 vColor;
-  varying float vAlpha;
-  void main() {
-    vColor = aColor;
-    vAlpha = aAlpha;
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = aSize * uPixelRatio;
-    gl_Position = projectionMatrix * mvPosition;
-  }
-`;
-
-const STAR_FRAGMENT = /* glsl */ `
-  uniform float uOpacity;
-  varying vec3 vColor;
-  varying float vAlpha;
-  void main() {
-    vec2 p = gl_PointCoord - vec2(0.5);
-    float d = length(p);
-    float a = (1.0 - smoothstep(0.1, 0.5, d)) * vAlpha * uOpacity;
-    if (a < 0.004) discard;
-    gl_FragColor = vec4(vColor, a);
-  }
-`;
-
 interface Rgb {
   r: number;
   g: number;
@@ -222,18 +193,17 @@ function createMilkyWayData(): PointCloudData {
   return { count, cosRa, sinRa, cosDec, sinDec, sizes, colors };
 }
 
-function createPointMaterial(pixelRatio: number, opacity: number): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uOpacity: { value: opacity },
-      uPixelRatio: { value: pixelRatio },
-    },
-    vertexShader: STAR_VERTEX,
-    fragmentShader: STAR_FRAGMENT,
+function createPointMaterial(sizePx: number, opacity: number): THREE.PointsMaterial {
+  return new THREE.PointsMaterial({
+    size: sizePx,
+    sizeAttenuation: false, // 常量像素尺寸（星空点）
+    vertexColors: true,
     transparent: true,
+    opacity,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     depthTest: true,
+    fog: false, // 星点在远处，关闭雾避免被雾色覆盖
   });
 }
 
@@ -241,30 +211,29 @@ interface PointCloud {
   points: THREE.Points;
   geometry: THREE.BufferGeometry;
   positions: Float32Array;
-  alphas: Float32Array;
-  material: THREE.ShaderMaterial;
+  colors: Float32Array;
+  baseColors: Float32Array;
+  material: THREE.PointsMaterial;
 }
 
-function createPointCloud(data: PointCloudData, material: THREE.ShaderMaterial): PointCloud {
+function createPointCloud(data: PointCloudData, material: THREE.PointsMaterial): PointCloud {
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(data.count * 3);
-  const alphas = new Float32Array(data.count);
+  const colors = new Float32Array(data.count * 3);
 
   const posAttr = new THREE.BufferAttribute(positions, 3);
   posAttr.setUsage(THREE.DynamicDrawUsage);
-  const alphaAttr = new THREE.BufferAttribute(alphas, 1);
-  alphaAttr.setUsage(THREE.DynamicDrawUsage);
+  const colorAttr = new THREE.BufferAttribute(colors, 3);
+  colorAttr.setUsage(THREE.DynamicDrawUsage);
 
   geometry.setAttribute('position', posAttr);
-  geometry.setAttribute('aSize', new THREE.BufferAttribute(data.sizes, 1));
-  geometry.setAttribute('aColor', new THREE.BufferAttribute(data.colors, 3));
-  geometry.setAttribute('aAlpha', alphaAttr);
+  geometry.setAttribute('color', colorAttr);
   geometry.setDrawRange(0, data.count);
 
   const points = new THREE.Points(geometry, material);
   points.frustumCulled = false;
   points.renderOrder = -1;
-  return { points, geometry, positions, alphas, material };
+  return { points, geometry, positions, colors, baseColors: data.colors, material };
 }
 
 /** 程序化月面贴图（等距柱状，灰底 + 月海 + 环形山） */
@@ -331,13 +300,13 @@ export function createStarfield(pixelRatio: number): Starfield {
   group.name = 'starfield';
 
   const starData = createStarData();
-  const starMaterial = createPointMaterial(pixelRatio, 0);
+  const starMaterial = createPointMaterial(2.0 * pixelRatio, 0);
   const stars = createPointCloud(starData, starMaterial);
   stars.points.renderOrder = -1;
   group.add(stars.points);
 
   const milkyData = createMilkyWayData();
-  const milkyMaterial = createPointMaterial(pixelRatio, 0);
+  const milkyMaterial = createPointMaterial(1.6 * pixelRatio, 0);
   const milky = createPointCloud(milkyData, milkyMaterial);
   milky.points.renderOrder = -1;
   group.add(milky.points);
@@ -363,7 +332,8 @@ export function createStarfield(pixelRatio: number): Starfield {
   function fillCloud(
     data: PointCloudData,
     positions: Float32Array,
-    alphas: Float32Array,
+    colors: Float32Array,
+    baseColors: Float32Array,
     radius: number,
     o: ReturnType<typeof createStarOrientation>,
   ): void {
@@ -381,7 +351,11 @@ export function createStarfield(pixelRatio: number): Starfield {
       positions[j] = _v.x * radius;
       positions[j + 1] = _v.y * radius;
       positions[j + 2] = _v.z * radius;
-      alphas[i] = horizonFade(sinAlt);
+      // 亮度（含地平线淡出）直接烘焙进顶点色；整体昼夜由 material.opacity 控制
+      const f = horizonFade(sinAlt);
+      colors[j] = baseColors[j] * f;
+      colors[j + 1] = baseColors[j + 1] * f;
+      colors[j + 2] = baseColors[j + 2] * f;
     }
   }
 
@@ -395,13 +369,13 @@ export function createStarfield(pixelRatio: number): Starfield {
 
       const o = createStarOrientation(utcMs, latDeg, lonDeg, frontAzRad);
 
-      fillCloud(starData, stars.positions, stars.alphas, STAR_RADIUS, o);
+      fillCloud(starData, stars.positions, stars.colors, stars.baseColors, STAR_RADIUS, o);
       stars.geometry.attributes.position.needsUpdate = true;
-      stars.geometry.attributes.aAlpha.needsUpdate = true;
+      stars.geometry.attributes.color.needsUpdate = true;
 
-      fillCloud(milkyData, milky.positions, milky.alphas, MILKY_RADIUS, o);
+      fillCloud(milkyData, milky.positions, milky.colors, milky.baseColors, MILKY_RADIUS, o);
       milky.geometry.attributes.position.needsUpdate = true;
-      milky.geometry.attributes.aAlpha.needsUpdate = true;
+      milky.geometry.attributes.color.needsUpdate = true;
 
       const moonSinAlt = writeMoonSceneDir(utcMs, latDeg, lonDeg, frontAzRad, _v);
       moon.position.set(_v.x * MOON_RADIUS, _v.y * MOON_RADIUS, _v.z * MOON_RADIUS);
@@ -410,8 +384,8 @@ export function createStarfield(pixelRatio: number): Starfield {
     setDayFactor(dayFactor) {
       // 太阳接近地平线即基本隐藏星空（比 1-day 更早淡出，避免黄昏时星点发灰）
       const night = clamp01(1 - dayFactor * 1.6);
-      starMaterial.uniforms.uOpacity.value = night;
-      milkyMaterial.uniforms.uOpacity.value = night * 0.3;
+      starMaterial.opacity = night;
+      milkyMaterial.opacity = night * 0.3;
       moonMat.opacity = night;
     },
     dispose() {

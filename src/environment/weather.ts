@@ -7,8 +7,9 @@
  * - 切换地点会取消上一次未完成请求，并用自增序号丢弃过期响应。
  * - 页面隐藏时暂停轮询；可见时立即刷新一次。
  */
-import type { SiteLocation, WeatherSnapshot, WeatherKind } from '../types';
+import type { SiteLocation, WeatherSnapshot, WeatherKind, PrecipKind } from '../types';
 import { WEATHER_REFRESH_MS, WEATHER_TIMEOUT_MS, FALLBACK_WEATHER } from '../config/siteConfig';
+import { ATMOSPHERE } from './skyAtmosphere';
 
 const ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
 const CURRENT_FIELDS =
@@ -183,5 +184,48 @@ export function createWeatherService(opts: WeatherServiceOptions): WeatherServic
       stop();
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
     },
+  };
+}
+
+/**
+ * 天气实况 → 天空视觉映射（驱动 metaverse-sky）。
+ * 当 `override` 非空时强制覆盖降水类型（面板手动演示），给一个合理的默认强度；
+ * 否则由天气分类与降水量推导。
+ */
+export interface SkyWeatherMapping {
+  /** 云量 0..1 */
+  coverage: number;
+  precipType: PrecipKind;
+  /** 降水强度 0..1 */
+  precipIntensity: number;
+  /** 风向（度，自北顺时针） */
+  windDeg: number;
+  /** 相对风速 0..1（驱动降水随风飘移） */
+  windSpeed: number;
+  turbidity: number;
+  rayleigh: number;
+}
+
+export function mapWeatherToSky(w: WeatherSnapshot, override: PrecipKind | null): SkyWeatherMapping {
+  const atm = ATMOSPHERE[w.kind];
+  let precipType: PrecipKind = 'none';
+  if (override) {
+    precipType = override;
+  } else if (w.kind === 'rain' || w.kind === 'drizzle' || w.kind === 'thunder') {
+    precipType = 'rain';
+  } else if (w.kind === 'snow') {
+    precipType = 'snow';
+  }
+  // 降水量（mm）换算为 0..1 强度，封顶 5mm
+  const fromData = clamp(w.precipitation / 5, 0, 1);
+  const precipIntensity = precipType === 'none' ? 0 : Math.max(fromData, override ? 0.7 : 0);
+  return {
+    coverage: clamp(w.cloudCover / 100, 0, 1),
+    precipType,
+    precipIntensity,
+    windDeg: 0,
+    windSpeed: 0.3,
+    turbidity: atm.turbidity,
+    rayleigh: atm.rayleigh,
   };
 }

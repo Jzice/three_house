@@ -451,13 +451,87 @@ export function stairHeightAt(s: StairSurface, x: number, z: number): StairHeigh
   return hit(s.run2);
 }
 
+/** 院外有界地面半边长（米）：远小于大地平面半边长 3000m，避免走出地面出现悬空/黑边 */
+const OUTER_BOUND = 60;
+/** 院外自然地面标高（米），对应大地平面 y=0.08 */
+export const GROUND_Y = 0.08;
+
+/** BoxSpec → 俯视脚印矩形 */
+function footprint(b: BoxSpec): WalkRect {
+  return { x0: b.x - b.w / 2, x1: b.x + b.w / 2, z0: b.z - b.d / 2, z1: b.z + b.d / 2 };
+}
+
+/**
+ * 从矩形 rect 中挖掉矩形 hole（门洞）：hole 需在某一轴向上完全覆盖 rect（墙厚方向），
+ * 沿另一轴把 rect 一分为二（门洞两侧各留一段）。两轴都未完全覆盖则无法挖（返回原矩形）。
+ * 两轴都完全覆盖（hole 比 rect 还大，整段墙都在门洞内）→ 返回空（整段挖除）。
+ */
+function subtractRect(rect: WalkRect, hole: WalkRect): WalkRect[] {
+  const EPS = 1e-6;
+  // 门洞必须真正与该墙体脚印相交（两轴都重叠）才挖：否则（如南门洞 vs 北墙）原样返回，
+  // 避免把不相交的墙沿另一轴拉伸成贯穿整层的巨型方块的致命 bug。
+  const overlapX = hole.x0 < rect.x1 - EPS && hole.x1 > rect.x0 + EPS;
+  const overlapZ = hole.z0 < rect.z1 - EPS && hole.z1 > rect.z0 + EPS;
+  if (!overlapX || !overlapZ) return [rect];
+  const coversX = hole.x0 <= rect.x0 + EPS && hole.x1 >= rect.x1 - EPS;
+  const coversZ = hole.z0 <= rect.z0 + EPS && hole.z1 >= rect.z1 - EPS;
+  if (coversX) {
+    const out: WalkRect[] = [];
+    if (hole.z0 - rect.z0 > EPS) out.push({ x0: rect.x0, x1: rect.x1, z0: rect.z0, z1: hole.z0 });
+    if (rect.z1 - hole.z1 > EPS) out.push({ x0: rect.x0, x1: rect.x1, z0: hole.z1, z1: rect.z1 });
+    return out;
+  }
+  if (coversZ) {
+    const out: WalkRect[] = [];
+    if (hole.x0 - rect.x0 > EPS) out.push({ x0: rect.x0, x1: hole.x0, z0: rect.z0, z1: rect.z1 });
+    if (rect.x1 - hole.x1 > EPS) out.push({ x0: hole.x1, x1: rect.x1, z0: rect.z0, z1: rect.z1 });
+    return out.length ? out : [rect];
+  }
+  return [rect];
+}
+
+/** 门洞俯视脚印：门宽 w 沿墙长向、墙厚 T(+余量) 沿墙厚向 */
+interface FloorDoorDef {
+  x: number;
+  z: number;
+  w: number;
+  rotY: number;
+  id: string;
+  T: number;
+}
+function doorHole(d: FloorDoorDef): WalkRect {
+  const half = d.T / 2 + 0.02; // 墙厚一半 + 余量，确保覆盖墙厚
+  if (Math.abs(d.rotY) < 0.01) {
+    // 墙沿 x（长向），厚度在 z
+    return { x0: d.x - d.w / 2, x1: d.x + d.w / 2, z0: d.z - half, z1: d.z + half };
+  }
+  // 墙沿 z（长向），厚度在 x
+  return { x0: d.x - half, x1: d.x + half, z0: d.z - d.w / 2, z1: d.z + d.w / 2 };
+}
+
+/** 该层所有门（外墙门 + 内门），用于生成门禁缺口（id 对应可交互门 userData.id） */
+function collectFloorDoors(floor: FloorConfig): FloorDoorDef[] {
+  const list: FloorDoorDef[] = [];
+  if (floor.index === 0) {
+    list.push({ x: MAIN_DOOR.x, z: MAIN_DOOR.z, w: 2.4, rotY: 0, id: 'main', T: T_EXT });
+    list.push({ x: BACK_DOOR.x, z: BACK_DOOR.z, w: BACK_DOOR.w, rotY: 0, id: 'back', T: T_EXT });
+  }
+  if (floor.index === 1) {
+    list.push({ x: SLIDING_DOOR.x, z: SLIDING_DOOR.z, w: SLIDING_DOOR.w, rotY: 0, id: 'sliding', T: T_EXT });
+  }
+  for (const d of getInteriorDoors(floor)) {
+    if (d.id) list.push({ x: d.x, z: d.z, w: d.w, rotY: d.rotY, id: d.id, T: T_INT });
+  }
+  return list;
+}
+
 /**
  * 按楼层返回第一人称可行走范围：
  * - **房屋内部**：外墙内皮再内缩 0.08m（与旧的 FPS_LIMIT_X/Z 一致，避免贴墙）；
- * - **门洞通道**：仅 1F 可穿出——南侧入户门（`MAIN_DOOR`，洞口宽 2.4）与北侧后门（`BACK_DOOR`，宽 1.1）；
- *   通道带 id 对应可交互门，门处于关闭状态时不可通行（需先开门）；
- * - **院子**：1F 的前/后/东/西院（房屋四周环绕、不含房屋占位），东北角按斜围墙内侧半平面裁剪；
- *   其余楼层无院子，只能在屋内移动。
+ * - **门洞通道**：1F 入户门/后门、2F 阳台推拉门，通道带 id 对应可交互门，门关闭时不可通行；
+ * - **院子/阳台**：1F 院落，2F/3F 阳台（开门可达）；东北角按斜围墙内侧半平面裁剪；
+ * - **院外有界地面**：1F 可走出院子到外侧地面（围墙仅视觉、不阻挡）；
+ * - **墙体碰撞**：solids 为墙/柱脚印（门洞已挖空），gaps 为门洞缺口（关门阻拦、开门放行）。
  */
 export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   const m = 0.08; // 贴墙内缩
@@ -485,6 +559,16 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
       z0: -D / 2,
       z1: -(INNER_Z - m),
       id: 'back',
+    });
+  }
+  if (floor.index === 1) {
+    // 2F 阳台推拉门：通道自屋内边界（z=4.80）跨过墙厚至室外（z=5.12），与阳台 slab 无缝衔接
+    doors.push({
+      x0: SLIDING_DOOR.x - SLIDING_DOOR.w / 2,
+      x1: SLIDING_DOOR.x + SLIDING_DOOR.w / 2,
+      z0: INNER_Z - m,
+      z1: D / 2,
+      id: 'sliding',
     });
   }
 
@@ -515,10 +599,48 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
     rails.push({ x0: VOID_GUARD.x0, z0: VOID_GUARD.z, x1: VOID_GUARD.x1, z1: VOID_GUARD.z, half: RAIL_HALF });
   }
 
+  // ---- 墙体/承重柱碰撞脚印（门洞挖空）；gaps 为门洞缺口（关门阻拦、开门放行） ----
+  const solids: WalkRect[] = [];
+  for (const b of getExteriorWalls(floor)) solids.push(footprint(b));
+  const sw = getSouthWall(floor);
+  if (sw) solids.push({ x0: -sw.w / 2, x1: sw.w / 2, z0: sw.z - sw.d / 2, z1: sw.z + sw.d / 2 });
+  for (const b of getInteriorWalls(floor)) solids.push(footprint(b));
+  if (floor.stair) for (const b of COLUMNS) solids.push(footprint(b));
+
+  const gaps: (WalkRect & { id: string })[] = [];
+  for (const d of collectFloorDoors(floor)) {
+    const hole = doorHole(d);
+    const next: WalkRect[] = [];
+    for (const s of solids) next.push(...subtractRect(s, hole));
+    solids.length = 0;
+    solids.push(...next);
+    gaps.push({ ...hole, id: d.id });
+  }
+
+  // 阳台可行走矩形（开门可达；栏杆已在 rails 封边，不会坠落）
+  const balconyRect: WalkRect | null = floor.balcony
+    ? (() => {
+        const spec = floor.balcony!;
+        const wallHalfX = W / 2 - T_EXT;
+        const slabX0 = -wallHalfX - spec.sideExtend;
+        const slabX1 = wallHalfX + spec.sideExtend;
+        const zOuter = D / 2 + spec.width;
+        return { x0: slabX0, x1: slabX1, z0: D / 2, z1: zOuter };
+      })()
+    : null;
+
+  // 院外有界地面（仅 1F：可走出院子到外侧地面，围墙仅视觉不阻挡）
+  const outside: WalkRect | undefined =
+    floor.index === 0 ? { x0: -OUTER_BOUND, x1: OUTER_BOUND, z0: -OUTER_BOUND, z1: OUTER_BOUND } : undefined;
+
   const y = floor.yard;
   // 所有楼层均启用正常碰撞（墙/栏杆阻挡）；原 2F/3F 的"完全放开"已取消
   const freeRoam = false;
-  if (!y) return { inside, doors, yard: [], rails, yardTopY: floor.baseY, freeRoam };
+  if (!y) {
+    const yard: WalkRect[] = [];
+    if (balconyRect) yard.push(balconyRect);
+    return { inside, doors, yard, rails, yardTopY: floor.baseY, solids, gaps, outside, freeRoam };
+  }
 
   // 院子边界（与 yard.ts 的铺装/围墙一致）
   const xEast = W / 2 + y.extendEast;
@@ -539,10 +661,11 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
     { x0: W / 2, x1: xe, z0: -D / 2, z1: D / 2 }, // 东院
     { x0: xw, x1: -W / 2, z0: -D / 2, z1: D / 2 }, // 西院
   ];
+  if (balconyRect) yard.push(balconyRect); // 1F 无阳台，通常为 null
   // 东北斜围墙：西北角直角段东端 → 东北端，院内在其西南侧
   const slope = { ax: xWest + rearStraight, az: zNorth, bx: xEast, bz: rearEastZ };
 
-  return { inside, doors, yard, slope, rails, yardTopY: y.paveH };
+  return { inside, doors, yard, slope, rails, yardTopY: y.paveH, solids, gaps, outside, freeRoam };
 }
 
 /** 按楼层返回窗：2F 北墙原后门区一扇；3F 仅正面墙两扇 */
@@ -561,12 +684,12 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
 /** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心） */
 export const INTERIOR_DOORS: InteriorDoorSpec[] = [
   // 卧室1：西墙 x=1.20 门洞（z≈1.2）；朝室内（+x）开，开至 90° 后门扇平行并贴靠北墙
-  { w: 0.9, x: 1.2, y: 0, z: 1.2, rotY: -Math.PI / 2, materialKey: 'wood', openAngle: Math.PI / 2 },
+  { w: 0.9, x: 1.2, y: 0, z: 1.2, rotY: -Math.PI / 2, materialKey: 'wood', openAngle: Math.PI / 2, id: 'door-bed1' },
   // 杂物间：南墙 z=-1.50 门洞（x≈1.8，随纵墙东移；墙沿 x 延展）
-  { w: 0.8, x: 1.8, y: 0, z: -1.5, rotY: 0, materialKey: 'wood' },
+  { w: 0.8, x: 1.8, y: 0, z: -1.5, rotY: 0, materialKey: 'wood', id: 'door-store' },
   // 卫生间：西墙 x=2.50 门洞（靠北段，z∈[-1.15,-0.45]，中心 -0.8；墙沿 z 延展）
   // 铰链在北侧（hingeSide:1），门扇朝室内（+x）开；玻璃门带白色边框
-  { w: 0.7, x: 2.5, y: 0, z: -0.8, rotY: Math.PI / 2, materialKey: 'frostedGlass', hingeSide: 1 },
+  { w: 0.7, x: 2.5, y: 0, z: -0.8, rotY: Math.PI / 2, materialKey: 'frostedGlass', hingeSide: 1, id: 'door-bath' },
 ];
 
 // ==========================================================
@@ -754,9 +877,9 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   if (floor.index === 2) {
     // 门扇高 2.4（参考系）与 DOOR_H 门洞一致；外开上阳台（-90°）
     return [
-      { w: 0.9, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.4, openAngle: -Math.PI / 2 },
+      { w: 0.9, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.4, openAngle: -Math.PI / 2, id: 'front3f' },
       // 墙2（x=1.20）门洞靠南墙（z=-0.02）的木门，默认打开
-      { w: 0.8, x: 1.2, y: 0, z: -0.02, rotY: Math.PI / 2, materialKey: 'wood' },
+      { w: 0.8, x: 1.2, y: 0, z: -0.02, rotY: Math.PI / 2, materialKey: 'wood', id: 'door-3f2' },
     ];
   }
   return INTERIOR_DOORS.map((d) =>

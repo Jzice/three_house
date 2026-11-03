@@ -8,7 +8,7 @@
  * 面板与右上圆形按钮整体由本模块创建并注入 body，沿用现有白底磨砂极简语言。
  */
 import type { Environment } from '../environment/environment';
-import type { EnvironmentSnapshot, SiteLocation, WeatherKind } from '../types';
+import type { EnvironmentSnapshot, SiteLocation, WeatherKind, PrecipKind } from '../types';
 import { BUILTIN_LOCATIONS, DEFAULT_LOCATION, FRONT_AZIMUTH_DEG, makeCustomLocation } from '../config/siteConfig';
 import { WEATHER_TEXT } from '../environment/weather';
 
@@ -175,6 +175,16 @@ export function createEnvPanel(env: Environment): EnvPanel {
         <button id="env-wx-enable" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
       </div>
       <div class="env-row env-row-weather">
+        <span class="env-live-label">降水动画</span>
+        <select id="env-precip-mode" class="env-select env-select-inline">
+          <option value="auto">跟随实况</option>
+          <option value="clear">晴（关）</option>
+          <option value="rain">雨</option>
+          <option value="snow">雪</option>
+          <option value="hail">冰雹</option>
+        </select>
+      </div>
+      <div class="env-row env-row-weather">
         <span id="env-wx-icon" class="env-wx-icon">${WX_ICONS.clear}</span>
         <div class="env-wx-main"><div id="env-temp" class="env-temp">--°</div><div id="env-wx-text" class="env-wx-text">--</div></div>
         <button id="env-refresh" class="env-refresh" title="刷新天气">${REFRESH_ICON}</button>
@@ -183,6 +193,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
         <span class="env-chip">云量 <b id="env-cloud">--</b></span>
         <span class="env-chip">降水 <b id="env-precip">--</b></span>
         <span class="env-chip">能见度 <b id="env-vis">--</b></span>
+        <span class="env-chip">动画 <b id="env-anim">--</b></span>
       </div>
       <div id="env-wx-err" class="env-wx-err" style="display:none">天气获取失败 · 按晴天渲染</div>
       <div class="env-version" id="env-version"></div>
@@ -213,6 +224,8 @@ export function createEnvPanel(env: Environment): EnvPanel {
   const cloudEl = el<HTMLElement>(panel, 'env-cloud');
   const precipEl = el<HTMLElement>(panel, 'env-precip');
   const visEl = el<HTMLElement>(panel, 'env-vis');
+  const animEl = el<HTMLElement>(panel, 'env-anim');
+  const precipModeSel = el<HTMLSelectElement>(panel, 'env-precip-mode');
   const wxErr = el<HTMLDivElement>(panel, 'env-wx-err');
   const versionEl = el<HTMLElement>(panel, 'env-version');
   versionEl.textContent = `v${__APP_VERSION__} · ${__BUILD_DATE__}`;
@@ -435,6 +448,16 @@ export function createEnvPanel(env: Environment): EnvPanel {
     saveSettings();
   });
 
+  // 降水动画覆盖：auto=跟随实况；clear=强制晴天；rain/snow/hail=强制该类型（演示）
+  precipModeSel.addEventListener('change', () => {
+    const v = precipModeSel.value;
+    let kind: PrecipKind | null = null;
+    if (v === 'auto') kind = null;
+    else if (v === 'clear') kind = 'none';
+    else kind = v as PrecipKind;
+    env.setWeatherOverride(kind);
+  });
+
   // 点击面板外部 / Esc 关闭
   document.addEventListener('click', (e) => {
     if (panel.style.display === 'none') return;
@@ -499,6 +522,13 @@ export function createEnvPanel(env: Environment): EnvPanel {
         wxErr.style.display = 'none';
         wxMain.classList.remove('dim');
       }
+
+      // 降水动画状态（不依赖实时天气开关；可手动演示雨/雪）
+      const pk = s.precip.kind;
+      animEl.textContent =
+        pk === 'none'
+          ? '无'
+          : `${pk === 'rain' ? '雨' : pk === 'snow' ? '雪' : '冰雹'} ${Math.round(s.precip.intensity * 100)}%`;
 
       // 刷新旋转：仅在开启时，fetchedAt / stale 变化即停
       if (weatherOn) {

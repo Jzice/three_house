@@ -11,7 +11,7 @@ import type {
   WalkRect,
 } from '../types';
 import type { SceneContext } from '../scene/sceneSetup';
-import { VIEW, FLOORS, W, D, getFpsWalkArea, getStairSurface, stairHeightAt } from '../config/houseConfig';
+import { VIEW, FLOORS, W, D, getFpsWalkArea, getStairSurface, stairHeightAt, GROUND_Y } from '../config/houseConfig';
 
 /** 单层的视角状态：模式 + 上帝/第一人称相机与朝向 */
 export interface ViewState {
@@ -58,6 +58,8 @@ const OPEN_LERP = 0.15;
 const EYE_SMOOTH_TAU = 0.09;
 /** 楼梯面匹配的最大高度差（米）：层间两段楼梯相差约 3m，超过此值视为不在脚下 */
 const STAIR_MATCH_LIMIT = 1.0;
+/** 第一人称玩家半径（米）：墙体碰撞按此缓冲外扩，贴墙可滑动、不可穿入 */
+const PLAYER_R = 0.25;
 
 /** 各层的第一人称可行走范围（房屋内部 + 门洞通道 + 院子） */
 const walkAreas: FpsWalkArea[] = FLOORS.map((f) => getFpsWalkArea(f));
@@ -313,8 +315,9 @@ export function createViewManager(
   }
 
   /**
-   * 第一人称可行走判定：屋内 / 门洞通道 / 院子。
+   * 第一人称可行走判定：屋内 / 门洞通道 / 院子(含阳台) / 院外有界地面，且不被墙/柱/关门阻挡。
    * 门洞通道需对应门处于开启状态才可**进入**；已在门洞内时（门在脚下被关上的情形）仍可自由挪动，避免卡死。
+   * 墙体/承重柱（area.solids）恒阻挡（按玩家半径外扩）；门洞缺口（area.gaps）仅关门时阻挡，开门放行。
    * @param fromInside 本次移动前人是否位于屋内（屋内 → 门洞需开门；门洞/院内 → 门洞可通行）
    */
   function isWalkable(area: FpsWalkArea, x: number, z: number, fromInside: boolean): boolean {
@@ -323,18 +326,27 @@ export function createViewManager(
     for (const r of area.rails) {
       if (pointSegDist2D(x, z, r) < r.half) return false;
     }
-    if (inRect(area.inside, x, z)) return true;
-    for (const d of area.doors) {
-      if (!inRect(d, x, z)) continue;
-      if (d.id && fromInside && !isDoorOpenNow(d.id)) continue; // 门未开 → 不可穿出
-      return true;
+    // 允许区域：屋内 / 门洞通道 / 院子(含阳台) / 院外有界地面
+    const regionOk =
+      inRect(area.inside, x, z) ||
+      area.doors.some((d) => {
+        if (!inRect(d, x, z)) return false;
+        if (d.id && fromInside && !isDoorOpenNow(d.id)) return false; // 门未开 → 不可穿出
+        return true;
+      }) ||
+      area.yard.some((r) => inRect(r, x, z) && (!area.slope || insideSlope(area.slope, x, z))) ||
+      (area.outside != null && inRect(area.outside, x, z));
+    if (!regionOk) return false;
+    // 墙体/承重柱：玩家半径外扩后命中即阻挡（贴墙可滑动、不可穿入）
+    for (const s of area.solids) {
+      if (x >= s.x0 - PLAYER_R && x <= s.x1 + PLAYER_R && z >= s.z0 - PLAYER_R && z <= s.z1 + PLAYER_R) return false;
     }
-    for (const r of area.yard) {
-      if (!inRect(r, x, z)) continue;
-      if (area.slope && !insideSlope(area.slope, x, z)) continue; // 斜围墙以外
-      return true;
+    // 门洞缺口：仅关门时阻挡（开门放行；同时修复"门外可穿关门"的既有 bug）
+    for (const g of area.gaps) {
+      if (isDoorOpenNow(g.id)) continue;
+      if (x >= g.x0 - PLAYER_R && x <= g.x1 + PLAYER_R && z >= g.z0 - PLAYER_R && z <= g.z1 + PLAYER_R) return false;
     }
-    return false;
+    return true;
   }
 
   /** 当前层指定 id 的门是否处于开启状态（未接入查询时视为可通行） */
@@ -371,7 +383,11 @@ export function createViewManager(
       return best;
     }
     if (!inRect(area.inside, x, z)) {
-      return { step: area.yardTopY, cont: area.yardTopY };
+      // 院外有界地面按自然地面标高；院子/阳台按各自 yardTopY（上层阳台 = 楼层 baseY）
+      const onOutside =
+        area.outside != null && inRect(area.outside, x, z) && !area.yard.some((r) => inRect(r, x, z));
+      const gy = onOutside ? GROUND_Y : area.yardTopY;
+      return { step: gy, cont: gy };
     }
     const level = FLOORS[levelFloor].baseY;
     return { step: level, cont: level };

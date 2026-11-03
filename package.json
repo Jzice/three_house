@@ -1,7 +1,7 @@
 {
   "name": "house-3d",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.5.0",
   "type": "module",
   "description": "3D 房屋可视化：TypeScript + Vite 结构化工程，支持编译为单一 HTML 发布",
   "scripts": {
@@ -16,10 +16,11 @@
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",
-    "three": "0.160.0"
+    "metaverse-sky": "^0.2.1",
+    "three": "0.185.0"
   },
   "devDependencies": {
-    "@types/three": "^0.160.0",
+    "@types/three": "^0.185.0",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",
     "vite-plugin-singlefile": "^2.0.2"

@@ -8,7 +8,8 @@
 
 由单文件原型 `house.html` 重构而来，现在是 **TypeScript + Vite** 结构化工程，可编译为**单一 HTML 文件**发布。
 
-- `three` 锁定 **`0.160.0`**（与重构前 CDN 版本一致，保证渲染表现不变）。
+- 渲染底座为 **WebGPURenderer**（来自 `three/webgpu`；`three` 升到 **`0.185.0`**）。原"锁定 `0.160.0` + WebGL"约束已在 2026-11 的"环境层迁 WebGPU + metaverse-sky"迁移中**有意解除**：`WebGPURenderer` 在缺少 WebGPU 的设备上会自动回退 WebGL2，无需为兼容性做分支（首屏会检测并给出降级提示，见 `main.ts`）。视觉表现与重构前保持一致（选型与理由见 `docs/sky-engine-evaluation.md`）。
+- 天空 / 云 / 大气 / 降水（雨/雪/冰雹动画）/ IBL 由 **metaverse-sky**（npm 包，WebGPU/TSL，纯程序化零外部资源，MIT）接管；太阳方位、真实星表、真实月亮方向等地理精确数据仍来自 `solar` / `celestial` / `starCatalog`，仅把该库作为**视觉呈现**层。
 - 本项目由单文件原型 `house.html` 重构而来（原型未纳入仓库，仅作重构参照）。
 
 ## 2. 常用命令
@@ -18,8 +19,8 @@ npm install          # 安装依赖
 npm run dev          # 开发服务器（localhost:5173），本地 node_modules 解析 three，不依赖外网
 npm run typecheck    # TypeScript 严格模式检查
 
-npm run build        # dist/index.html      完全自包含（three/星表/天文库内联，离线可用，~714 KB）
-npm run build:cdn    # dist/index.cdn.html  单文件 + three 走 CDN（~219 KB）
+npm run build        # dist/index.html      完全自包含（three/星表/天文库内联，离线可用，~1121 KB）
+npm run build:cdn    # dist/index.cdn.html  单文件 + three 走 CDN（~247 KB）
 npm run build:all    # 一次同时产出以上两种（发布用这个）
 ```
 
@@ -37,7 +38,7 @@ src/
 ├── scene/                   # sceneSetup · materials · builders · stairs · buildHouse
 ├── view/                    # viewState（三模式状态机）· interaction（键鼠）
 ├── floorplan/floorplan2d.ts # 2D 平面图绘制、标注拖拽、测量
-├── environment/             # 环境层：solar(太阳) · weather(Open-Meteo) · celestial(天文定位) · starCatalog(内置星表) · skyDome(白天 Sky) · skyAtmosphere(大气参数/地平色复算) · starfield(星空/银河/月亮) · sky(中性反射) · ground(大地/雾) · lighting(光照映射) · environment(编排)
+├── environment/             # 环境层：solar(太阳) · weather(Open-Meteo) · celestial(天文定位) · starCatalog(内置星表) · metaSky(metaverse-sky 适配：天空/云/降水/大气/IBL) · skyAtmosphere(大气参数/地平色复算) · starfield(真实星表/银河/月亮 overlay) · ground(大地/雾) · lighting(光照映射) · environment(编排)
 └── ui/
     ├── ui.ts                # 既有按钮绑定与状态同步
     └── envPanel.ts          # 环境面板（地点 / 日照 / 天气，仅 DOM + 回调）
@@ -50,7 +51,7 @@ src/
 - `floorplan` **不得** import `view`：它通过 `getMode()` 回调获知当前模式，重绘动作由 `main.ts` 注入。
 - `ui` **不得** import 任何渲染模块：只做 DOM 与回调，模式切换的具体动作由 `main.ts` 编排。
 - 跨模块的"副作用"（如进入 2D 要重绘）一律通过构造函数回调注入，不要直接 import。
-- **环境层 `src/environment/`**：只依赖 `three` / `astronomy-engine` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `setFrontAzimuth` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
+- **环境层 `src/environment/`**：只依赖 `three` / `astronomy-engine` / `metaverse-sky` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `setFrontAzimuth` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
 
 ## 4. 核心约定
 
@@ -105,14 +106,14 @@ src/
 | 改默认地点 / 城市列表 / 朝向换算 | `src/config/siteConfig.ts` |
 | 改太阳位置算法 / 日出日落 | `src/environment/solar.ts` |
 | 改天气来源 / WMO 映射 / 降级 | `src/environment/weather.ts` |
-| 改白天天空外观（大气散射 / 云 / 地平雾带） | `src/environment/skyDome.ts` |
-| 改大气参数（turbidity/rayleigh/mie）或地平雾色算法 | `src/environment/skyAtmosphere.ts`（须与 three `Sky.js` 同步） |
-| 改夜间星空 / 银河 / 月亮外观 | `src/environment/starfield.ts` |
+| 改白天天空 / 云 / 大气 / 降水（雨/雪/冰雹动画） | `src/environment/metaSky.ts`（封装 metaverse-sky，仅暴露命令式接口） |
+| 改大气参数（turbidity/rayleigh/mie）或地平雾色算法 | `src/environment/skyAtmosphere.ts`（纯 CPU 复算，供 `scene.fog` 雾色与天空同源） |
+| 改夜间星空 / 银河 / 月亮外观（真实星表 overlay） | `src/environment/starfield.ts` |
 | 改星表数据（增删星、换星等阈值） | `src/environment/starCatalog.ts`（构建期生成的数据文件） |
 | 改天文定位（恒星时 / 月亮 / 朝向换算） | `src/environment/celestial.ts` |
 | 改地面 / 雾 | `src/environment/ground.ts` |
 | 改光照强度 / 色温 / 雾浓度映射 | `src/environment/lighting.ts` |
-| 改环境编排（时间 / 地点 / 天气节流、PMREM） | `src/environment/environment.ts` |
+| 改环境编排（时间 / 地点 / 天气 / 降水覆盖、metaverse-sky 驱动） | `src/environment/environment.ts` |
 | 改环境面板 UI（地点 / 日照 / 天气交互） | `src/ui/envPanel.ts` + `src/style.css`（`.env-*`） |
 | 改构建 / 发布方式 | `vite.config.ts` + `scripts/build-all.mjs` |
 
@@ -122,8 +123,8 @@ src/
 - **`INITIAL_DIMENSIONS` 是只读配置**：运行时测量产生的新标注 push 进 `floorplan2d.ts` 的内部副本，不写回配置，刷新即丢失。
 - **CDN 模式的 importmap 顺序**：必须出现在第一个 module script 之前。`vite.config.ts` 里用 `order: 'pre'` + 替换 `<head>`（而非 `</head>`）实现，改动时不要破坏这个顺序。
 - **两次 Vite 构建会互相覆盖**：`build()` 会清空 `outDir`，所以 `scripts/build-all.mjs` 先构建到 `dist/.tmp-<variant>/` 再改名搬运。不要用 `vite build --mode cdn` 直接覆盖 `dist/index.html`。
-- **2D 模式跳过 WebGL 渲染**（`mode !== '2d'` 才 `render`），这是刻意的，不要"修"掉。
-- **穹顶 / 星穹必须跟随相机**（`environment.update()` 里对齐 `camera.position`）：天空盒、云层、星点、月亮的半径（450~882m）都小于相机远裁剪面（1000m），一旦相机 dolly 拉远，球面到相机的距离超过 far 就会被整片裁掉，天空上出现圆形缺口（"黑色圆球虚影"）。新增任何天球类网格时同样要挂在跟随相机的 group 下。
+- **2D 模式跳过渲染**（`mode !== '2d'` 才 `render`），这是刻意的，不要"修"掉。
+- **穹顶 / 星穹必须跟随相机**：metaverse-sky 的天空/云/降水在其内部 `update()` 已自动跟随相机；真实星空 `starfield` 仍由 `environment.update()` 每帧对齐 `camera.position`。一旦相机 dolly 拉远，天球球面到相机的距离超过远裁剪面（1000m）就会被整片裁掉，天空上出现圆形缺口（"黑色圆球虚影"），因此天球网格必须挂在跟随相机的坐标系下（starfield 半径 450~882m < far，跟随相机即可规避）。
 - **构建产物 `dist/` 与 `node_modules/` 已 gitignore**，不要提交，也不要手工编辑产物。
 
 ## 7. 改完之后怎么验证
@@ -152,6 +153,7 @@ Select-String -Path dist/index.cdn.html -Pattern 'importmap'                  # 
 | [docs/data-model.md](docs/data-model.md) | 配置结构详解与扩展示例（含家具） |
 | [docs/build-and-publish.md](docs/build-and-publish.md) | 双模式构建原理与发布方式 |
 | [docs/roadmap.md](docs/roadmap.md) | 后续路线：家具组件化 / 在线编辑 / 2D 增强 / 导出 |
+| [docs/sky-engine-evaluation.md](docs/sky-engine-evaluation.md) | 环境层迁 WebGPU + metaverse-sky 的选型对照（Eanpa vs metaverse-sky）、可行性结论、被打破的约束 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录（改动请同步追加） |
 
 ## 9. 专业领域知识（装修 / 室内设计 / 3D 建模）

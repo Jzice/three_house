@@ -171,10 +171,16 @@ export interface FpsWalkArea {
   yard: WalkRect[];
   /** 栏杆障碍线段（楼梯扶手 / 阳台栏杆 / 楼梯洞口护栏）：缓冲带内不可行走 */
   rails: RailSeg[];
+  /** 恒阻拦的墙/柱俯视脚印矩形（已含墙厚，判定端再外扩玩家半径） */
+  solids: WalkRect[];
+  /** 门洞：关门阻拦、开门放行；id 对应可交互门 userData.id */
+  gaps: (WalkRect & { id: string })[];
   /** 院子东北斜围墙内侧半平面：直线 A→B，院内在其西南侧（叉积 > 0） */
   slope?: { ax: number; az: number; bx: number; bz: number };
   /** 院子铺装顶面标高（出屋后的眼高基准） */
   yardTopY: number;
+  /** 院外有界地面（仅 1F）：允许走出院子到外侧地面，围墙仅视觉不阻挡 */
+  outside?: WalkRect;
   /** 完全放开漫游：跳过所有行走边界判定（含穿墙/悬空），用于上层第一人称自由查看 */
   freeRoam?: boolean;
 }
@@ -218,6 +224,8 @@ export interface InteriorDoorSpec {
    * 门扇一律朝门洞内侧（房间内）开启。
    */
   hingeSide?: 1 | -1;
+  /** 门洞标识：用于第一人称门禁判定（关门两侧都挡、开门放行），对应可交互门 userData.id */
+  id?: string;
 }
 
 /** 阳台配置：挂在南墙外侧的挑台 */
@@ -387,6 +395,9 @@ export type WeatherKind =
   | 'snow'
   | 'thunder';
 
+/** 实时降水动画类型（由 metaverse-sky 渲染：雨 / 雪 / 冰雹；none 即无降水） */
+export type PrecipKind = 'none' | 'rain' | 'snow' | 'hail';
+
 /** 一次天气实况快照（Open-Meteo current 字段，或断网降级值） */
 export interface WeatherSnapshot {
   kind: WeatherKind;
@@ -428,29 +439,6 @@ export interface ClockState {
   manualMs: number;
 }
 
-/** 天空贴图所需绘制参数（由太阳位置 + 天气推导） */
-export interface SkyParams {
-  /** 天气分类（决定天色调色板与云/雾基调） */
-  kind: WeatherKind;
-  /** 太阳高度角（弧度） */
-  elevation: number;
-  /** 太阳方位角（弧度，自正北顺时针） */
-  azimuth: number;
-  /** 云量（0~1） */
-  cloudCover: number;
-  /** 降水量（mm） */
-  precip: number;
-  /** 能见度（km） */
-  visibility: number;
-  /** 是否白昼 */
-  isDay: boolean;
-  /**
-   * 房屋正面（+z 入户门侧）所朝的真实方位角（弧度，自北顺时针）。
-   * 供太阳/月亮盘与高光按该朝向定位（与平行光方向一致）；缺省时回落到 FRONT_AZIMUTH_DEG。
-   */
-  frontAzimuth?: number;
-}
-
 /** 由太阳位置与天气推导出的光照参数（集中调参，applyLighting 仅改属性） */
 export interface LightingParams {
   sunIntensity: number;
@@ -477,6 +465,8 @@ export interface EnvironmentSnapshot {
   sunriseMin: number;
   /** 本地日落（当日，分钟，0~1440） */
   sunsetMin: number;
+  /** 当前降水动画状态（视觉），由天气实况或面板手动覆盖决定 */
+  precip: { kind: PrecipKind; intensity: number };
 }
 
 /** 环境层对外回调接口（由 main.ts 注入渲染动作） */

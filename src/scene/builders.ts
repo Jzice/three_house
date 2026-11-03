@@ -318,6 +318,9 @@ export function createSlidingGlassDoor(
   container.position.set(x, y, z);
   // 2F 前门（阳台推拉门）门套：黑色铝合金
   container.add(createDoorCasing(w, h, T_EXT, materials.blackAluminum));
+  // 门标识：供第一人称门禁判定（关门时该门洞不可穿出）
+  rightPart.userData.id = 'sliding';
+  leftPart.userData.id = 'sliding';
   if (floor) {
     container.position.y = floor.baseY + (y / H) * floor.wallH;
     container.scale.y = floor.wallH / H;
@@ -733,6 +736,8 @@ export function createInteriorDoor(
   const parts: InteractiveObject[] = [markInteractive(hinge, 'door', defaultOpen)];
   // 房门默认打开：初始即处于开启角度，点击可关上
   parts[0].userData.isOpen = true;
+  // 门标识：供第一人称门禁判定（关门时该门洞不可穿出）
+  if (spec.id) parts[0].userData.id = spec.id;
   hinge.rotation.y = defaultOpen;
 
   const container = new THREE.Group();

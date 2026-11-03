@@ -115,17 +115,13 @@ const _dir = new THREE.Vector3();
 export function applyLighting(
   h: LightHandles,
   params: LightingParams,
-  sunDir: { x: number; y: number; z: number },
   moonDir: { x: number; y: number; z: number },
 ): void {
   h.sun.intensity = params.sunIntensity;
   h.sun.color.set(params.sunColor);
   h.sun.castShadow = params.shadowEnabled;
-
-  _dir.set(sunDir.x, sunDir.y, sunDir.z).multiplyScalar(60);
-  h.sun.position.copy(_dir);
-  h.sunTarget.position.set(0, 0, 0);
-  h.sunTarget.updateMatrixWorld();
+  // 太阳主光方向由 environment 经 metaverse-sky.setSunDirection 统一负责（它把 light 移到 dir*220），
+  // 此处不再设置 sun.position，避免两处来源打架。
 
   h.moon.intensity = params.moonIntensity;
   _dir.set(moonDir.x, moonDir.y, moonDir.z).multiplyScalar(60);

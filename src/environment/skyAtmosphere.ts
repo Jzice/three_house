@@ -156,9 +156,6 @@ const _radiance: [number, number, number] = [0, 0, 0];
 let cacheKey = '';
 let cacheHex = 0x000000;
 
-/** 地平色查找表方位分辨率（与下采样取样一致，线性过滤后足够平滑） */
-const HORIZON_LUT_WIDTH = 256;
-
 /**
  * 近地平线天空色（sRGB，0xRRGGBB），含云色混合，供 `scene.fog` 使用。
  *
@@ -227,84 +224,4 @@ export function horizonSkyColorHex(
   return cacheHex;
 }
 
-/**
- * 共享地平色查找表（含云色混合 + 夜间压暗）。
- *
- * 把 Sky 着色器在**地平线（dirY=0）处、按方位逐点**的颜色写入 RGBA8 纹理，供两处渲染共用：
- * - 地面自定义雾（ground.ts）逐方位取雾色——晨昏时地平线色随方位剧烈变化（朝阳侧亮、背阳侧暗），
- *   逐方位取色后，远景地面在每条方位线上都与天空穹顶的地平色完全一致，彻底消除天地接缝；
- * - Sky 穹顶近地平线收敛（skyDome.ts）——把 Preetham 在贴近地平线处向本表颜色收敛，吸收辉光硬带。
- *
- * 云量越高，表中每个方位的色越向云色收敛，保证阴天地平线上下两侧同源（与 `horizonSkyColorHex`
- * 共用的 `cloudOpacityOf` / `cloudByteColor` 一致）。
- *
- * 方位约定（与地面/Sky 着色器一致）：第 i 列对应 θ = -π + (i + 0.5)·2π/N，
- * 视线方向 (cos θ, 0, sin θ)（与世界坐标 x/z 轴一致）。着色器侧 `u = atan(z, x)*0.15915494 + 0.5`。
- * 颜色为 sRGB 编码字节（含 nightScaleOf 夜间压暗），供着色器在输出空间直接混合。
- */
-export interface HorizonLut {
-  readonly texture: THREE.DataTexture;
-  /**
-   * 按太阳方向/大气/昼夜/云量刷新整张表。
-   * @returns 本次是否实际重写（false 表示缓存命中、内容未变，无需重传纹理）
-   */
-  write(
-    sunDir: { x: number; y: number; z: number },
-    atmo: Atmosphere,
-    dayFactor: number,
-    cloudCover: number,
-    kind: WeatherKind,
-  ): boolean;
-  dispose(): void;
-}
 
-export function createHorizonLut(): HorizonLut {
-  const data = new Uint8Array(HORIZON_LUT_WIDTH * 4);
-  const tex = new THREE.DataTexture(data, HORIZON_LUT_WIDTH, 1, THREE.RGBAFormat);
-  tex.wrapS = THREE.RepeatWrapping; // 方位 ±π 环绕（u=1 与 u=0 是同一方向）
-  tex.minFilter = THREE.LinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-
-  let cacheKey = '';
-
-  function write(
-    sunDir: { x: number; y: number; z: number },
-    atmo: Atmosphere,
-    dayFactor: number,
-    cloudCover: number,
-    kind: WeatherKind,
-  ): boolean {
-    const slen = Math.hypot(sunDir.x, sunDir.y, sunDir.z) || 1;
-    const nsx = sunDir.x / slen;
-    const nsy = sunDir.y / slen;
-    const nsz = sunDir.z / slen;
-    const count = data.length >> 2;
-    const key = `${nsx.toFixed(4)}|${nsy.toFixed(4)}|${nsz.toFixed(4)}|${atmo.turbidity}|${atmo.rayleigh}|${atmo.mie}|${dayFactor.toFixed(2)}|${cloudCover.toFixed(1)}|${kind}|${count}`;
-    if (key === cacheKey) return false;
-    cacheKey = key;
-
-    const scale = nightScaleOf(dayFactor);
-    const eff = cloudOpacityOf(cloudCover);
-    const [cr, cg, cb] = cloudByteColor(kind, dayFactor);
-    for (let i = 0; i < count; i++) {
-      const theta = -Math.PI + ((i + 0.5) * 2 * Math.PI) / count;
-      skyRadiance(Math.cos(theta), 0, Math.sin(theta), nsx, nsy, nsz, atmo, _radiance);
-      data[i * 4] = Math.round(mixHorizonByte(encodeSrgb(_radiance[0]), cr, eff, scale) * 255);
-      data[i * 4 + 1] = Math.round(mixHorizonByte(encodeSrgb(_radiance[1]), cg, eff, scale) * 255);
-      data[i * 4 + 2] = Math.round(mixHorizonByte(encodeSrgb(_radiance[2]), cb, eff, scale) * 255);
-      data[i * 4 + 3] = 255;
-    }
-    tex.needsUpdate = true;
-    return true;
-  }
-
-  return {
-    texture: tex,
-    write,
-    dispose() {
-      tex.dispose();
-    },
-  };
-}

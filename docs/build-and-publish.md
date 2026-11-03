@@ -6,8 +6,8 @@
 
 | 命令 | mode | three 的处理 | 输出文件 | 产物体积 | 离线可用 |
 | --- | --- | --- | --- | --- | --- |
-| `npm run build` | `production`（默认） | 打包并内联进 HTML | `dist/index.html` | ~574 KB（gzip ~159 KB） | ✅ |
-| `npm run build:cdn` | `cdn` | 保持裸导入，交给 importmap 从 unpkg 拉取 | `dist/index.cdn.html` | ~89 KB（gzip ~31 KB） | ❌ |
+| `npm run build` | `production`（默认） | 打包并内联进 HTML | `dist/index.html` | ~1121 KB（gzip ~342 KB） | ✅ |
+| `npm run build:cdn` | `cdn` | 保持裸导入，交给 importmap 从 unpkg 拉取 | `dist/index.cdn.html` | ~247 KB（gzip ~95 KB） | ❌ |
 | `npm run build:all` | 以上两者 | — | **同时产出上面两个文件** | — | — |
 
 三个命令都会先执行 `tsc --noEmit`，类型错误会直接中断构建。
@@ -67,13 +67,13 @@ transformIndexHtml: {
 
 ```text
 <head>
-  <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js", …}}</script>
+  <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.185.0/build/three.webgpu.js", …}}</script>
   …
   <script type="module">import*as a from"three"; …</script>
 </head>
 ```
 
-importmap 中同时映射了 `three`、`three/examples/jsm/` 与 `three/addons/`，保证 `OrbitControls` 这类 addon 内部的 `import … from 'three'` 也能解析到同一份实例。
+importmap 中把 `three` 与 `three/webgpu` 都指向 `three.webgpu.js`（WebGPU 体系下单实例，避免核心与 webgpu 构建各打包一份导致 `instanceof` 失效），并单独映射 `three/tsl`、`three/examples/jsm/` 与 `three/addons/`，保证 `OrbitControls` 这类 addon 内部的 `import … from 'three'` 也能解析到同一份实例。
 
 ## 3. 本地验证
 
@@ -99,8 +99,8 @@ Select-String -Path dist/index.cdn.html -Pattern 'from"three'
 
 | 模式 | 产物 | 大小 | 外部引用 |
 | --- | --- | --- | --- |
-| 默认 | `dist/index.html` | 约 574 KB | 无 |
-| cdn | `dist/index.cdn.html` | 约 89 KB | importmap → unpkg |
+| 默认 | `dist/index.html` | 约 1121 KB | 无 |
+| cdn | `dist/index.cdn.html` | 约 247 KB | importmap → unpkg |
 
 ## 4. 发布方式
 
@@ -114,7 +114,7 @@ Select-String -Path dist/index.cdn.html -Pattern 'from"three'
 ### 选择建议
 
 - 交付给客户 / 内网演示 / 需要离线 → **自包含模式**（`npm run build`）。
-- 线上页面且用户网络正常 → **CDN 模式**（`npm run build:cdn`），首包从约 714 KB 降到约 219 KB（星表与天文库仍在单文件内，只有 three 走 CDN）；也可把 importmap 指向自己的 CDN 或私有镜像，只需改 `vite.config.ts` 中的 `THREE_VERSION` 与 URL。
+- 线上页面且用户网络正常 → **CDN 模式**（`npm run build:cdn`），首包从约 1121 KB 降到约 247 KB（星表与天文库仍在单文件内，只有 three 走 CDN）；也可把 importmap 指向自己的 CDN 或私有镜像，只需改 `vite.config.ts` 中的 `THREE_VERSION` 与 URL。
 
 ## 5. 开发期说明
 

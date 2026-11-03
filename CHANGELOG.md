@@ -2,6 +2,14 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-11-04
+
+### 新增
+
+- **环境层迁 WebGPU + metaverse-sky**：渲染底座由 `WebGLRenderer` 切换为 `WebGPURenderer`（仍自动回退 WebGL2），`three` 由 `0.160.0` 升至 `0.185.0`；天空 / 云 / 大气 / 降水（雨/雪/冰雹粒子动画）/ IBL 由 **metaverse-sky**（npm，WebGPU/TSL，纯程序化零外部资源，MIT）接管。太阳方位、真实星表、真实月亮方向等地理精确数据仍来自 `solar` / `celestial` / `starCatalog`，库只作为视觉呈现层。环境面板新增「降水动画」选择器（晴/雨/雪/冰雹/跟随实况），可手动覆盖或预览实时天气动画。
+- **第一人称漫游碰撞**：新增墙体 / 承重柱碰撞与关门门禁判定——按玩家半径（0.25m）外扩，贴墙可滑动、不可穿入；门洞仅关门时阻挡、开门放行（修复「门外可穿关门」既有 bug）；院外有界地面按自然地面标高衔接。
+- **文档**：新增 `docs/sky-engine-evaluation.md`，沉淀 Eanpa-Sky 与 metaverse-sky 的选型对照、可行性结论与被打破的 AGENTS.md 约束。
+
 ## [0.4.3] - 2026-11-03
 
 ### 修复
