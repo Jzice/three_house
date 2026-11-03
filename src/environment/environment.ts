@@ -37,6 +37,7 @@ import { writeMoonSceneDir } from './celestial';
 import { createGround, applyFog, GROUND_TILE } from './ground';
 import { computeLighting, applyLighting, daylightFactor } from './lighting';
 import { createMetaSky, type MetaSkyHandle } from './metaSky';
+import { CLOUD_DAY_COLOR } from './skyAtmosphere';
 
 const DEG = Math.PI / 180;
 /** 快照（UI 读数）节流间隔 */
@@ -169,7 +170,7 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   /** 把天气实况（+ 手动覆盖）映射并下发到 metaverse-sky（云量/大气/风每帧下发无害，降水受 timing 约束需节流） */
   function applyWeatherToSky(): void {
     const m = mapWeatherToSky(weather, precipOverride);
-    metaSky.setClouds(m.coverage);
+    metaSky.setClouds(m.coverage, undefined, CLOUD_DAY_COLOR[weather.kind]);
     metaSky.setAtmosphere(m.turbidity, m.rayleigh);
     metaSky.setWind(m.windDeg, m.windSpeed);
     const precipSig = `${m.precipType}|${m.precipIntensity.toFixed(3)}`;

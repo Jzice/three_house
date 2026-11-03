@@ -18,7 +18,7 @@ const NIGHT_GROUND = 0x12160f;
 
 /** 各天气的雾基值（近/远，米）；能见度再在 [0.5,1] 倍率上缩放远平面 */
 const FOG_BY_KIND: Record<WeatherKind, { near: number; far: number }> = {
-  clear: { near: 80, far: 500 },
+  clear: { near: 150, far: 900 },
   partly: { near: 70, far: 420 },
   overcast: { near: 50, far: 300 },
   fog: { near: 8, far: 60 },

@@ -1,14 +1,14 @@
 /**
  * 天空大气参数表 + "近地平线天空色"的 CPU 复算（供雾色使用）。
  *
- * 为什么需要复算：远景地面被线性雾 `scene.fog` 溶成纯雾色，而天空在地平线附近由
- * Preetham 大气散射决定。两者若各自取色，交界处必然出现一条与两侧都不一致的带子——
- * 白天是"饱和蓝雾压在过曝白的天空下"，夜间是"未压暗的亮天空"。把 Sky.js 的片元算法
- * 在 CPU 上复算一遍，取**近地平线方位平均色**作为雾色，天空/雾/地面三方即同源，
- * 接缝处逐位同色。
+ * 为什么需要复算：远景地面被线性雾 `scene.fog` 溶成纯雾色，而天空穹顶由 metaverse-sky
+ * 的大气着色器决定（天穹材质已关闭场景雾，见 metaSky.ts）。两者若各自取色，天地交界处
+ * 必然出现一条与两侧都不一致的"漏光带"。把 metaverse-sky 的片元算法在 CPU 上复算一遍，
+ * 取**近地平线方位平均色**作为雾色，天空/雾/地面三方即同源，接缝处颜色一致。
  *
- * 同步要求：下面的常数与运算顺序严格对应 three 0.160.0
- * `examples/jsm/objects/Sky.js` 的 SkyShader；升级 three 时必须重新核对。
+ * 同步要求：下面的常数与运算顺序严格对应 metaverse-sky `index.js` 中
+ * `createAtmosphereSky` 的 TSL 片元实现（单次散射 O'Neil/Hillaire 风格模型，单位 km）；
+ * 升级 metaverse-sky 时必须重新核对该实现。
  * 本模块只取色、不参与渲染，每帧一次（带缓存），计算量可忽略。
  */
 import * as THREE from 'three';
@@ -21,9 +21,9 @@ export interface Atmosphere {
   mie: number;
 }
 
-/** 天气 → 大气参数（与 Sky 着色器的 uniform 一一对应） */
+/** 天气 → 大气参数（turbidity/rayleigh 下发给 metaverse-sky；mie 仅保留字段语义） */
 export const ATMOSPHERE: Record<WeatherKind, Atmosphere> = {
-  clear: { turbidity: 2, rayleigh: 1.4, mie: 0.005 },
+  clear: { turbidity: 2, rayleigh: 2.6, mie: 0.005 },
   partly: { turbidity: 4, rayleigh: 2.0, mie: 0.006 },
   overcast: { turbidity: 9, rayleigh: 3.2, mie: 0.012 },
   fog: { turbidity: 12, rayleigh: 4.5, mie: 0.02 },
@@ -33,110 +33,161 @@ export const ATMOSPHERE: Record<WeatherKind, Atmosphere> = {
   thunder: { turbidity: 12, rayleigh: 3.8, mie: 0.018 },
 };
 
-/** 深夜天空的压暗倍数（`skyDome` 的 uNightScale 下限，输出空间相乘） */
-export const NIGHT_MIN_SCALE = 0.1;
-
-/** 白天云色（按天气）；原内联于 skyDome.ts，上移至此供雾/天空共用，保证同源 */
-export const CLOUD_DAY_COLOR: Record<WeatherKind, number> = {
-  clear: 0xffffff,
-  partly: 0xf4f7fa,
-  overcast: 0xc3c9d0,
-  fog: 0xd2d7dc,
-  drizzle: 0xb4bcc4,
-  rain: 0xa8b0b8,
-  snow: 0xe6ebef,
-  thunder: 0x8f98a3,
-};
-/** 夜间云色（暗蓝灰，避免夜里云层发白发亮） */
-export const CLOUD_NIGHT_COLOR = 0x1a2030;
-
-/** 云有效不透明度：与 skyDome.applyClouds 的 (cloudCover/100)*0.95 一致，上限 0.95 */
-function cloudOpacityOf(cloudCover: number): number {
-  return Math.min(0.95, (Math.max(0, Math.min(100, cloudCover)) / 100) * 0.95);
-}
-
-/** 当前昼夜下的云色（输出空间 sRGB 0..255，先线性插值再编码，与 cloudMat 一致） */
-function cloudByteColor(kind: WeatherKind, dayFactor: number): [number, number, number] {
-  const day = Math.max(0, Math.min(1, dayFactor));
-  const cDay = new THREE.Color(CLOUD_DAY_COLOR[kind]);
-  const cNight = new THREE.Color(CLOUD_NIGHT_COLOR);
-  const c = cDay.lerp(cNight, 1 - day);
-  const ch = (v: number): number => Math.max(0, Math.min(255, Math.round(encodeSrgb(v) * 255)));
-  return [ch(c.r), ch(c.g), ch(c.b)];
-}
-
+// ---- metaverse-sky createAtmosphereSky 模型常数（单位 km，与源码严格一致）----
+const PLANET_R = 6360.0;
+const ATMO_R = 6460.0;
+const CAM_H = 1.8 / 1000; // 1.8m 眼高
+const SCALE_R = 8.0;
+const SCALE_M = 1.2;
+const VIEW_SAMPLES = 12;
+const LIGHT_SAMPLES = 4;
+const BETA_R = [5.802, 13.558, 33.1].map((v) => v * 0.001);
+const BETA_M = 3.996 * 0.001;
 /**
- * 把"纯大气地平色（sRGB 0..1）"与"云色（sRGB 0..255）"按有效不透明度混合后，
- * 乘以夜间压暗倍数、钳到 [0,1]。输出空间混合，与着色器侧雾/LUT 同系。
+ * 运行时本工程只向 metaverse-sky 下发 turbidity/rayleigh（见 metaSky.setAtmosphere），
+ * mieCoefficient / mieDirectionalG 保持库默认值，故此处也用同值，保证与 GPU 渲染一致。
  */
-function mixHorizonByte(atmoSrgb: number, cloudByte: number, eff: number, scale: number): number {
-  const a = atmoSrgb * (1 - eff) + (cloudByte / 255) * eff;
-  return Math.max(0, Math.min(1, a * scale));
-}
-
-// ---- Sky.js SkyShader 常数 ----
-const RAYLEIGH_ZENITH_LENGTH = 8.4e3;
-const MIE_ZENITH_LENGTH = 1.25e3;
-const TOTAL_RAYLEIGH = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5];
-const MIE_CONST = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
-/** 地球阴影截止角（π / 1.95）与陡度 */
-const CUTOFF_ANGLE = 1.6110731556870734;
-const STEEPNESS = 1.5;
-const SUN_ENERGY = 1000;
-const MIE_DIRECTIONAL_G = 0.8;
-/** 着色器里叠加的"夜景底噪"偏移（texColor = (...) * 0.04 + vec3(0.0, 0.0003, 0.00075)） */
-const NIGHT_SKY_TINT = [0, 0.0003, 0.00075];
+const MIE_COEFF = 0.005;
+const MIE_G = 0.8;
 /** 方位采样数：雾为全向，在地平线处按方位平均取色以贴合均匀雾色 */
 const AZIMUTH_SAMPLES = 16;
 
-/** 太阳"天顶角余弦"→ 太阳辐照强度（与着色器的 sunIntensity 一致） */
-function sunIntensity(cosZenith: number): number {
-  const c = Math.max(-1, Math.min(1, cosZenith));
-  return SUN_ENERGY * Math.max(0, 1 - Math.exp(-((CUTOFF_ANGLE - Math.acos(c)) / STEEPNESS)));
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = clamp01((x - e0) / (e1 - e0));
+  return t * t * (3 - 2 * t);
 }
 
 /**
- * 复算 Sky(Preetham) 在给定视线方向上的**线性**辐射色，写入 out（与片元着色器一致，不含日面）。
- * 视线方向 (vx,vy,vz) 与太阳方向 (sx,sy,sz) 均为单位向量；两者点积即相位角余弦，
- * 因此可精确表达任意真实太阳方位（不再把太阳固定到 +z，避免近地平线色偏离真实值）。
+ * 复算 metaverse-sky 在给定视线方向上的**线性**天空色，写入 out（与片元着色器一致，不含云层）。
+ * 视线方向 (vx,vy,vz) 与太阳方向 (sx,sy,sz) 均为单位向量；sunY 为太阳方向 y 分量。
  */
-function skyRadiance(
+function skyLinear(
   vx: number,
   vy: number,
   vz: number,
   sx: number,
   sy: number,
   sz: number,
-  atmo: Atmosphere,
+  turbidity: number,
+  rayleigh: number,
   out: [number, number, number],
 ): void {
-  const zenithAngle = Math.acos(Math.max(0, vy));
-  const inverse =
-    1 / (Math.cos(zenithAngle) + 0.15 * Math.pow(93.885 - (zenithAngle * 180) / Math.PI, -1.253));
-  const sR = RAYLEIGH_ZENITH_LENGTH * inverse;
-  const sM = MIE_ZENITH_LENGTH * inverse;
+  const sunY = sy;
+  const day = smoothstep(-0.1, 0.18, sunY);
+  const twilight =
+    (1 - smoothstep(0.05, 0.45, Math.max(sunY, 0))) * smoothstep(-0.22, 0.08, sunY);
 
-  const vSunE = sunIntensity(sy);
-  // 本项目 sunPosition 传入的是单位向量，exp(y / 450000) ≈ 1，故 vSunfade ≈ 1（与着色器一致）
-  const vSunfade = 1 - Math.max(0, Math.min(1, 1 - Math.exp(sy / 450000)));
+  const originY = PLANET_R + CAM_H;
+  const cOuter = originY * originY - ATMO_R * ATMO_R;
+  const cGround = originY * originY - PLANET_R * PLANET_R;
 
-  const mieScale = 0.434 * (0.2 * atmo.turbidity * 1e-17);
-  const cosTheta = vx * sx + vy * sy + vz * sz;
-  const rPhase = 0.05968310365946075 * (1 + Math.pow(cosTheta * 0.5 + 0.5, 2));
-  const g = MIE_DIRECTIONAL_G;
-  const hgPhase = (0.07957747154594767 * (1 - g * g)) / Math.pow(1 - 2 * g * cosTheta + g * g, 1.5);
-  const mixK = Math.max(0, Math.min(1, Math.pow(1 - sy, 5)));
+  // 视线与大气层的交点距离
+  const b = originY * vy;
+  const hOuter = Math.max(b * b - cOuter, 0);
+  let tMax = -b + Math.sqrt(hOuter);
+  // 视线与地面的交点距离（射向地面的短线段，供下半球收敛）
+  const hGround = Math.max(b * b - cGround, 0);
+  const tGround = -b - Math.sqrt(hGround);
+  if (hGround > 0 && tGround > 0) tMax = Math.min(tMax, tGround);
 
-  for (let i = 0; i < 3; i++) {
-    const betaR = TOTAL_RAYLEIGH[i] * (atmo.rayleigh - (1 - vSunfade));
-    const betaM = MIE_CONST[i] * mieScale * atmo.mie;
-    const Fex = Math.exp(-(betaR * sR + betaM * sM));
-    const base = (betaR * rPhase + betaM * hgPhase) / (betaR + betaM);
-    const lin = Math.pow(vSunE * base * (1 - Fex), 1.5);
-    const lin2 = lin * (1 + (Math.pow(vSunE * base * Fex, 0.5) - 1) * mixK);
-    // 夜景底噪 0.1 * Fex（不含日面，避免把太阳盘算进平均色）
-    const tex = (lin2 + 0.1 * Fex) * 0.04 + NIGHT_SKY_TINT[i];
-    out[i] = Math.pow(tex, 1 / (1.2 + 1.2 * vSunfade));
+  const betaR0 = BETA_R[0] * rayleigh;
+  const betaR1 = BETA_R[1] * rayleigh;
+  const betaR2 = BETA_R[2] * rayleigh;
+  const betaR = [betaR0, betaR1, betaR2];
+  const betaM = BETA_M * (MIE_COEFF * 180) * Math.max(0.25, Math.min(2.5, turbidity / 8));
+
+  const segment = tMax / VIEW_SAMPLES;
+  let odR = 0;
+  let odM = 0;
+  const sumR: [number, number, number] = [0, 0, 0];
+  const sumM: [number, number, number] = [0, 0, 0];
+  let t = 0;
+
+  for (let i = 0; i < VIEW_SAMPLES; i++) {
+    const st = t + segment * 0.5;
+    const px = vx * st;
+    const py = originY + vy * st;
+    const pz = vz * st;
+    const height = Math.max(Math.hypot(px, py, pz) - PLANET_R, 0);
+    const dR = Math.exp(-height / SCALE_R);
+    const dM = Math.exp(-height / SCALE_M);
+    odR += dR * segment;
+    odM += dM * segment;
+
+    // 沿太阳方向的采光光学深度
+    const bl = px * sx + py * sy + pz * sz;
+    const cl = px * px + py * py + pz * pz - ATMO_R * ATMO_R;
+    const hl = Math.max(bl * bl - cl, 0);
+    const ll = (-bl + Math.sqrt(hl)) / LIGHT_SAMPLES;
+    let ldr = 0;
+    let ldm = 0;
+    let lt = 0;
+    for (let j = 0; j < LIGHT_SAMPLES; j++) {
+      const mid = lt + ll * 0.5;
+      const lpx = px + sx * mid;
+      const lpy = py + sy * mid;
+      const lpz = pz + sz * mid;
+      const lh = Math.max(Math.hypot(lpx, lpy, lpz) - PLANET_R, 0);
+      ldr += Math.exp(-lh / SCALE_R) * ll;
+      ldm += Math.exp(-lh / SCALE_M) * ll;
+      lt += ll;
+    }
+
+    for (let k = 0; k < 3; k++) {
+      const att = Math.exp(-(betaR[k] * (odR + ldr) + betaM * (odM + ldm)));
+      sumR[k] += att * dR * segment;
+      sumM[k] += att * dM * segment;
+    }
+    t += segment;
+  }
+
+  const mu = vx * sx + vy * sy + vz * sz;
+  const mu2 = mu * mu;
+  const phaseR = ((3 / (16 * Math.PI)) * (1 + mu2));
+  const g = Math.max(0, Math.min(0.95, MIE_G));
+  const g2 = g * g;
+  const phaseM =
+    ((3 / (8 * Math.PI)) * (1 - g2) * (1 + mu2)) / (2 + g2) /
+    Math.pow(1 + g2 - 2 * g * mu, 1.5);
+
+  const sunIntensity = mix(8, 18, day) * smoothstep(-0.18, 0.05, sunY);
+  const horizon = clamp01(vy * 0.5 + 0.5);
+  // 多散射启发的环境抬升（防止背阳侧天空发黑）
+  const ambLift = Math.pow(horizon, 0.35) * (0.15 + day * 0.35);
+  const amb = [
+    mix(0.02, 0.1 * rayleigh * 0.35, day) * ambLift,
+    mix(0.035, 0.24 * rayleigh * 0.35, day) * ambLift,
+    mix(0.075, 0.55 * rayleigh * 0.35, day) * ambLift,
+  ];
+
+  // 暮色暖消光与紧凑日面/辉光
+  const sunDot = Math.max(mu, 0);
+  const sunDisc = Math.pow(sunDot, 3500) * day * 3;
+  const glowPow = mix(20, 6, clamp01(turbidity / 12));
+  const sunGlow = Math.pow(sunDot, glowPow) * smoothstep(-0.08, 0.35, sunY) * 0.18;
+  const warm = [1.0, mix(0.38, 0.92, day), mix(0.16, 0.72, day)];
+  const twiT = mix(0.9, 0.22, horizon);
+  const twiG = mix(0.28, 0.16, horizon);
+  const twiB = mix(0.18, 0.42, horizon);
+  const nightPow = Math.pow(horizon, 0.7);
+  const night = [
+    mix(0.008, 0.025, nightPow),
+    mix(0.014, 0.04, nightPow),
+    mix(0.035, 0.09, nightPow),
+  ];
+  const dayMix = smoothstep(-0.18, 0.02, sunY);
+
+  for (let k = 0; k < 3; k++) {
+    let scatter =
+      (sumR[k] * betaR[k] * phaseR + sumM[k] * betaM * phaseM) * sunIntensity + amb[k];
+    scatter += warm[k] * (sunDisc + sunGlow);
+    scatter = mix(scatter, scatter + [twiT, twiG, twiB][k] * 0.22, twilight);
+    let col = mix(night[k], scatter, dayMix);
+    col = 1 - Math.exp(-1.15 * col);
+    out[k] = Math.max(0, Math.min(8, col));
   }
 }
 
@@ -146,10 +197,57 @@ function encodeSrgb(v: number): number {
   return x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
 }
 
-/** 昼夜因子 0=夜 1=昼 → 天空压暗倍数（与 skyDome 的 uNightScale 完全一致） */
-export function nightScaleOf(dayFactor: number): number {
-  const night = 1 - Math.max(0, Math.min(1, dayFactor));
-  return 1 - (1 - NIGHT_MIN_SCALE) * night;
+/**
+ * 白天云色（按天气）；供雾/天空共用，保证同源。
+ * 数值对齐 metaverse-sky 云层的实际输出：其 uColor≈浅灰白(0xf0f4fa)、阴影色浅蓝灰、
+ * darkness 默认 0，阴雨天渲染出来也是浅灰而非深灰——旧自研云层的深灰调色板会让
+ * 雾色/裙板明显偏暗，与天空形成"分层"。
+ */
+export const CLOUD_DAY_COLOR: Record<WeatherKind, number> = {
+  clear: 0xffffff,
+  partly: 0xf0f4f9,
+  overcast: 0xdde3ea,
+  fog: 0xd9dee4,
+  drizzle: 0xd3dae1,
+  rain: 0xc9d2da,
+  snow: 0xe9eef3,
+  thunder: 0xbcc6d0,
+};
+/** 夜间云色（暗蓝灰，避免夜里云层发白发亮） */
+export const CLOUD_NIGHT_COLOR = 0x1a2030;
+
+/**
+ * 地平线霾色：metaverse-sky 的穹顶着色器只受太阳位置驱动、没有天气模式，单次散射在
+ * 视线贴地平线时红端留存最多，结果无论太阳多高、天气如何，近地平线永远压着一条偏暖的
+ * 霞色带（参数扫描证明调 turbidity/rayleigh 只会变紫或整体发灰，无法还原）。
+ * 真实天空的近地平线是灰白的，故用霾色把低仰角天空向中性收敛。
+ */
+export const HAZE_DAY_COLOR = 0xd5e6ff;
+export const HAZE_NIGHT_COLOR = 0x141a26;
+/** 地平线处霾的不透明度：metaSky 的霾墙与 CPU 雾色共用同一常数，保证天地同色 */
+export const HAZE_ALPHA = 0.9;
+
+/** 云有效不透明度：与 metaSky.setClouds 默认 opacity 0.95 一致，上限 0.95 */
+function cloudOpacityOf(cloudCover: number): number {
+  return Math.min(0.95, (Math.max(0, Math.min(100, cloudCover)) / 100) * 0.95);
+}
+
+/** 当前昼夜下的云色（输出空间 sRGB 0..255，先线性插值再编码，与云材质一致） */
+function cloudByteColor(kind: WeatherKind, dayFactor: number): [number, number, number] {
+  const day = clamp01(dayFactor);
+  const cDay = new THREE.Color(CLOUD_DAY_COLOR[kind]);
+  const cNight = new THREE.Color(CLOUD_NIGHT_COLOR);
+  const c = cDay.lerp(cNight, 1 - day);
+  const ch = (v: number): number => Math.max(0, Math.min(255, Math.round(encodeSrgb(v) * 255)));
+  return [ch(c.r), ch(c.g), ch(c.b)];
+}
+
+/**
+ * 把"纯大气地平色（sRGB 0..1）"与"云色（sRGB 0..255）"按有效不透明度混合后，钳到 [0,1]。
+ * 夜间压暗已内含于大气模型（day 因子），不再额外乘夜间倍数。
+ */
+function mixHorizonByte(atmoSrgb: number, cloudByte: number, eff: number): number {
+  return Math.max(0, Math.min(1, atmoSrgb * (1 - eff) + (cloudByte / 255) * eff));
 }
 
 const _radiance: [number, number, number] = [0, 0, 0];
@@ -159,21 +257,13 @@ let cacheHex = 0x000000;
 /**
  * 近地平线天空色（sRGB，0xRRGGBB），含云色混合，供 `scene.fog` 使用。
  *
- * 用例：作为 `scene.fog` 的雾色，使远景地面与 Sky 着色器在地平线处渲染的**同一**颜色
- * （着色器在 `dirY<0` 处把天顶角钳为 90°，下半球即为统一地平色），两侧逐位同色，
- * 昼夜晴雾都不会出现"天空与地面之间的亮带/暗缝"。
- *
- * 关键：使用与 GPU 着色器一致的**真实太阳方向**（`toSceneDirection` 输出，已归一化），
- * 而非之前固定 +z 的近似——近地平线色对太阳方位高度敏感（晨昏一侧偏亮/偏暖），固定 +z
- * 会让雾色偏离真实地平色，形成随俯仰移动的硬边。
- *
  * 在 `dirY=0`（地平线）处沿方位平均取色：雾为全向，取平均贴合均匀雾色；并复用
- * `nightScaleOf`、`encodeSrgb` 与云色混合，与着色器输出空间完全一致。
- * 云量越高，雾色越向云色收敛——阴天地平线上下两侧同源（见 `createHorizonLut`）。
+ * `encodeSrgb` 与云色混合，与 metaverse-sky 的输出空间一致。云量越高，雾色越向云色收敛
+ * ——阴天地平线上下两侧同源。
  *
- * @param sunDir 真实太阳方向（已归一化的场景单位向量，与 `Sky` 的 sunPosition 一致）
+ * @param sunDir 真实太阳方向（已归一化的场景单位向量，与天穹的 sunPosition 一致）
  * @param atmo 当前天气的大气参数
- * @param dayFactor 昼夜因子（0=夜 1=昼），用于复现天空的夜间压暗
+ * @param dayFactor 昼夜因子（0=夜 1=昼），用于云色昼夜插值
  * @param cloudCover 云量（0~100），决定雾色向云色混合的比例
  * @param kind 天气类型，决定云色
  */
@@ -194,7 +284,7 @@ export function horizonSkyColorHex(
   const nsz = sz / slen;
 
   // 时间连续推进时太阳移动极慢，按方向 0.0005 精度 + 0.01 昼夜/云量精度缓存即可
-  const key = `${nsx.toFixed(4)}|${nsy.toFixed(4)}|${nsz.toFixed(4)}|${atmo.turbidity}|${atmo.rayleigh}|${atmo.mie}|${dayFactor.toFixed(2)}|${cloudCover.toFixed(1)}|${kind}`;
+  const key = `${nsx.toFixed(4)}|${nsy.toFixed(4)}|${nsz.toFixed(4)}|${atmo.turbidity}|${atmo.rayleigh}|${dayFactor.toFixed(2)}|${cloudCover.toFixed(1)}|${kind}`;
   if (key === cacheKey) return cacheHex;
   cacheKey = key;
 
@@ -204,7 +294,7 @@ export function horizonSkyColorHex(
   for (let i = 0; i < AZIMUTH_SAMPLES; i++) {
     const az = (i / AZIMUTH_SAMPLES) * Math.PI * 2;
     // 地平线处视线方向：dirY=0，方位绕一圈
-    skyRadiance(Math.cos(az), 0, Math.sin(az), nsx, nsy, nsz, atmo, _radiance);
+    skyLinear(Math.cos(az), 0, Math.sin(az), nsx, nsy, nsz, atmo.turbidity, atmo.rayleigh, _radiance);
     r += _radiance[0];
     g += _radiance[1];
     b += _radiance[2];
@@ -213,15 +303,20 @@ export function horizonSkyColorHex(
   g /= AZIMUTH_SAMPLES;
   b /= AZIMUTH_SAMPLES;
 
-  // 天空的夜间压暗发生在输出（sRGB）空间，雾色同样要在编码后相乘才能完全对齐；
-  // 云色用相同的有效不透明度混入，使阴天地平线雾色与"被云主导的天空"同源。
-  const scale = nightScaleOf(dayFactor);
-  const eff = cloudOpacityOf(cloudCover);
+  // 与 metaSky 的霾墙做同样的地平线净化（GPU 侧按仰角渐变，地平线处恰为 HAZE_ALPHA），
+  // 保证雾色与天空在地平线处仍然严格同色。
+  const day = clamp01(dayFactor);
+  const haze = new THREE.Color(HAZE_DAY_COLOR).lerp(new THREE.Color(HAZE_NIGHT_COLOR), 1 - day);
+  r = mix(r, haze.r, HAZE_ALPHA);
+  g = mix(g, haze.g, HAZE_ALPHA);
+  b = mix(b, haze.b, HAZE_ALPHA);
+
+  // 云色混入权重：云量大时地平线应读作"云底"（与 metaSky 的阴天灰罩同源，两者
+  // 一起把满云天空压成均匀灰）；云量低时权重趋近 0，保持大气地平本色。
+  const eff = cloudOpacityOf(cloudCover) * 0.9;
   const [cr, cg, cb] = cloudByteColor(kind, dayFactor);
   const to255 = (v: number, c: number): number =>
-    Math.max(0, Math.min(255, Math.round(mixHorizonByte(encodeSrgb(v), c, eff, scale) * 255)));
+    Math.max(0, Math.min(255, Math.round(mixHorizonByte(encodeSrgb(v), c, eff) * 255)));
   cacheHex = (to255(r, cr) << 16) | (to255(g, cg) << 8) | to255(b, cb);
   return cacheHex;
 }
-
-
