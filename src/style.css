@@ -238,6 +238,12 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
 .env-chip b { color: #2C3238; }
 .env-wx-err { color: #C33B32; font-size: 11px; margin-top: 6px; }
 
+.env-version {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, 0.08);
+  text-align: center; font-size: 11px; color: #9AA1A9; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 1023px) { #env-panel { width: 280px; } }
 @media (max-width: 640px) {
     #env-toggle { top: 10px; right: 10px; width: 36px; height: 36px; }

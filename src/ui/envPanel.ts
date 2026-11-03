@@ -185,6 +185,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
         <span class="env-chip">能见度 <b id="env-vis">--</b></span>
       </div>
       <div id="env-wx-err" class="env-wx-err" style="display:none">天气获取失败 · 按晴天渲染</div>
+      <div class="env-version" id="env-version"></div>
     </div>
   `;
   document.body.appendChild(panel);
@@ -213,6 +214,8 @@ export function createEnvPanel(env: Environment): EnvPanel {
   const precipEl = el<HTMLElement>(panel, 'env-precip');
   const visEl = el<HTMLElement>(panel, 'env-vis');
   const wxErr = el<HTMLDivElement>(panel, 'env-wx-err');
+  const versionEl = el<HTMLElement>(panel, 'env-version');
+  versionEl.textContent = `v${__APP_VERSION__} · ${__BUILD_DATE__}`;
 
   // ---- 初始值 ----
   citySel.value = DEFAULT_LOCATION.id;
