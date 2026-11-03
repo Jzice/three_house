@@ -7,45 +7,28 @@
  *   实体黑色球罩：球罩有真实几何边缘，边缘落在地平线附近时会在屏幕上留出一圈
  *   未压暗的亮天空，形成横贯画面的亮带（夜间尤其明显）。着色器内压暗只作用于天空
  *   像素，房屋/地面天然不受影响，且没有可被看见的边界。
- * - **地平雾色带**：给 Sky 片元着色器补一段混合——地平线及以下取雾色
- *   （`uHorizonColor`），向上约 6° 平滑过渡回大气散射色。注入点在
- *   `#include <colorspace_fragment>` 之后、且 `uHorizonColor` 按输出色彩空间传值，
- *   与材质雾（three 在 colorspace 之后叠雾、fogColor 亦按输出空间传入）**同空间同取值**，
- *   因此远处被雾吞没的地面与天空在交界处逐位同色，不再有亮带或暗缝。
+ * - **天球自然覆盖下半球（不再染白眼平线）**：Sky 着色器在 `direction.y<0` 处把天顶角
+ *   钳为 90°，下半球本就渲染为统一地平色，与上方天空在眼平线处天然连续。因此**不再**用
+ *   人工"地平雾色带"把下半球染成雾色——那样会把眼平线染成一道随俯仰移动的亮带。
+ *   地平线处的衔接改由"雾色 = 着色器下半球地平色"保证：远景地面被 `scene.fog` 溶成
+ *   `skyAtmosphere.horizonSkyColorHex`（按真实太阳方向在地平线处取色），与着色器下半球
+ *   逐位同色，故地面边缘与天空平滑相接，无亮带/暗缝（见 `skyAtmosphere` / `lighting`）。
  * - 云层用 Canvas 程序化生成的等距柱状贴图（不引入外部图片），按云量调不透明度、
  *   按天气/昼夜调颜色；绘制顺序在星空之后，可自然遮挡星点。
  */
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import type { WeatherKind, WeatherSnapshot } from '../types';
+import type { WeatherSnapshot } from '../types';
 import { SKY_RADIUS } from './skyConstants';
-import { ATMOSPHERE, NIGHT_MIN_SCALE } from './skyAtmosphere';
-
-/** 白天云色（按天气） */
-const CLOUD_DAY_COLOR: Record<WeatherKind, number> = {
-  clear: 0xffffff,
-  partly: 0xf4f7fa,
-  overcast: 0xc3c9d0,
-  fog: 0xd2d7dc,
-  drizzle: 0xb4bcc4,
-  rain: 0xa8b0b8,
-  snow: 0xe6ebef,
-  thunder: 0x8f98a3,
-};
-
-/** 夜间云色（暗蓝灰，避免夜里云层发白发亮） */
-const CLOUD_NIGHT_COLOR = 0x1a2030;
+import {
+  ATMOSPHERE,
+  NIGHT_MIN_SCALE,
+  CLOUD_DAY_COLOR,
+  CLOUD_NIGHT_COLOR,
+  type HorizonLut,
+} from './skyAtmosphere';
 
 /** 深夜天空的压暗倍数见 skyAtmosphere.NIGHT_MIN_SCALE（雾色复算需与其保持一致） */
-
-/**
- * 地平雾色带的上下边界（单位为 `direction.y`，即视线仰角的正弦，0 = 地平线）：
- * 低于 LOW 处完全是雾色，高于 HIGH（≈6.3°）处完全是大气散射色，中间平滑过渡。
- * 带宽要明显大于"地面平面边缘与真实地平线之间的角度缺口"（相机 20m 高时约 1.9°），
- * 否则缺口内仍会露出与远处地面不同色的天空。
- */
-const HORIZON_MIX_LOW = -0.012;
-const HORIZON_MIX_HIGH = 0.11;
 
 export interface SkyDome {
   readonly object3D: THREE.Object3D;
@@ -55,8 +38,6 @@ export interface SkyDome {
   setWeather(weather: WeatherSnapshot, dayFactor: number): void;
   /** 刷新昼夜（0=夜 1=昼） */
   setDayFactor(dayFactor: number): void;
-  /** 地平雾色（通常取雾色）：地平线及以下取此色，向上约 6° 过渡回大气色，消除接缝 */
-  setHorizonColor(hex: number): void;
   dispose(): void;
 }
 
@@ -121,8 +102,6 @@ function createCloudTexture(): THREE.CanvasTexture {
 }
 
 interface SkyPatchUniforms {
-  /** 地平雾色（输出色彩空间，sRGB 分量；与材质雾的 fogColor 同空间） */
-  uHorizonColor: { value: THREE.Vector3 };
   /** 夜间压暗倍数：1=白昼，NIGHT_MIN_SCALE=深夜（输出空间相乘） */
   uNightScale: { value: number };
 }
@@ -133,15 +112,25 @@ interface SkyPatchUniforms {
  * 1. `gl_FragColor.rgb *= uNightScale;` —— 夜间压暗。放在 `colorspace_fragment` 之后，
  *    与原来"黑色 0.9 不透明球罩"的输出空间混合等价；但不再有几何边缘，不会在地平线
  *    附近留出一圈未压暗的亮天空。
- * 2. 地平雾色带 —— 地平线及以下取雾色，向上按 HORIZON_MIX_LOW/HIGH 平滑过渡回大气色。
- *    同样在 `colorspace_fragment` 之后、用输出空间的雾色分量混合，与材质雾完全同色，
- *    消除"地面尽头 vs 天空下半球"的接缝。
+ * 2. **近地平线收敛**：Preetham 在 `dirY` 略大于 0 的天空亮度随光学深度陡增（高 turbidity
+ *    天气尤甚），形成地平线上方的辉光硬带。把贴近地平线（`|dir.y| < uHorizonWidth`）的
+ *    输出向共享 `uHorizonLut`（含云色混合 + 夜间压暗、与地面雾同源）收敛，地平线处精确
+ *    同色、向上平滑过渡到真实天空，辉光带被吸收为干净接缝。
+ *
+ * 注：原"人工地平雾色带"（uHorizonColor）已移除——Sky 着色器本就在 `direction.y<0`
+ * 处钳为统一地平色，下半球与上方天空天然连续；地平线衔接改由 `skyAtmosphere`
+ * 的同源雾色保证（见本文件顶部说明）。
  */
-function patchSkyShader(material: THREE.ShaderMaterial): SkyPatchUniforms {
+function patchSkyShader(material: THREE.ShaderMaterial, lut: HorizonLut): SkyPatchUniforms {
   const source = material.fragmentShader;
   const withUniforms = source.replace(
     'uniform float mieDirectionalG;',
-    ['uniform float mieDirectionalG;', 'uniform vec3 uHorizonColor;', 'uniform float uNightScale;'].join('\n'),
+    [
+      'uniform float mieDirectionalG;',
+      'uniform float uNightScale;',
+      'uniform sampler2D uHorizonLut;',
+      'uniform float uHorizonWidth;',
+    ].join('\n'),
   );
   if (withUniforms === source) {
     throw new Error('Sky 着色器补丁未命中（uniform 声明）：three 版本可能已变更，本工程锁定 0.160.0');
@@ -151,9 +140,12 @@ function patchSkyShader(material: THREE.ShaderMaterial): SkyPatchUniforms {
     [
       '#include <colorspace_fragment>',
       'gl_FragColor.rgb *= uNightScale;',
-      // horizonMix: 0 = 地平线及以下（取雾色）→ 1 = 仰角 ≥ HIGH（取大气散射色）
-      `float horizonMix = smoothstep( ${HORIZON_MIX_LOW.toFixed(4)}, ${HORIZON_MIX_HIGH.toFixed(4)}, direction.y );`,
-      'gl_FragColor.rgb = mix( uHorizonColor, gl_FragColor.rgb, horizonMix );',
+      '// 近地平线收敛：把 Preetham 输出向共享地平 LUT 收敛，吸收辉光硬带，天地同色',
+      'vec3 sdir = normalize( vWorldPosition - cameraPosition );',
+      'float su = atan( sdir.z, sdir.x ) * 0.15915494 + 0.5;',
+      'vec3 horizonCol = texture2D( uHorizonLut, vec2( su, 0.5 ) ).rgb;',
+      'float hb = 1.0 - smoothstep( 0.0, uHorizonWidth, abs( sdir.y ) );',
+      'gl_FragColor.rgb = mix( gl_FragColor.rgb, horizonCol, hb );',
     ].join('\n\t\t\t'),
   );
   if (withHaze === withUniforms) {
@@ -161,15 +153,15 @@ function patchSkyShader(material: THREE.ShaderMaterial): SkyPatchUniforms {
   }
   material.fragmentShader = withHaze;
 
-  const uHorizonColor = { value: new THREE.Vector3(0, 0, 0) };
   const uNightScale = { value: 1 };
-  material.uniforms.uHorizonColor = uHorizonColor;
   material.uniforms.uNightScale = uNightScale;
+  material.uniforms.uHorizonLut = { value: lut.texture };
+  material.uniforms.uHorizonWidth = { value: 0.05 };
   material.needsUpdate = true;
-  return { uHorizonColor, uNightScale };
+  return { uNightScale };
 }
 
-export function createSkyDome(): SkyDome {
+export function createSkyDome(lut: HorizonLut): SkyDome {
   const group = new THREE.Group();
   group.name = 'skyDome';
 
@@ -183,9 +175,9 @@ export function createSkyDome(): SkyDome {
   uniforms.rayleigh.value = ATMOSPHERE.clear.rayleigh;
   uniforms.mieCoefficient.value = ATMOSPHERE.clear.mie;
   uniforms.mieDirectionalG.value = 0.8;
-  // ---- 片元着色器补丁：夜间压暗 + 地平雾色带 ----
-  // three 锁定 0.160.0，Sky 的片元着色器原文稳定；为防止升级后静默失效，两处替换都做命中校验。
-  const { uHorizonColor, uNightScale } = patchSkyShader(sky.material);
+  // ---- 片元着色器补丁：夜间压暗 + 近地平线收敛（共享地平 LUT） ----
+  // three 锁定 0.160.0，Sky 的片元着色器原文稳定；为防止升级后静默失效，替换做命中校验。
+  const { uNightScale } = patchSkyShader(sky.material, lut);
   group.add(sky);
 
   // ---- 云层（绘制在星空之后，可遮挡星点） ----
@@ -199,6 +191,28 @@ export function createSkyDome(): SkyDome {
     fog: false, // 云层在 882m 处，关闭雾否则纹理被雾色吞掉
     side: THREE.BackSide,
   });
+  // 云层地平线淡出补丁：云球随相机、局部坐标即视线方向（半径已归一化）。
+  // 令 dir.y ≤ 0 的云完全不绘制，避免云涂到"真地平线以下被远裁剪切出的缺口区"，
+  // 该区域改由 Sky 下半球（共享地平色）补上，与下方地面雾色一致。three 0.160 锁定、命中校验。
+  cloudMat.onBeforeCompile = (shader): void => {
+    const vPatched = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCloudDir;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCloudDir = normalize( position );');
+    if (vPatched === shader.vertexShader) {
+      throw new Error('云层着色器补丁未命中（顶点）：three 版本可能已变更，本工程锁定 0.160.0');
+    }
+    const fPatched = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCloudDir;')
+      .replace(
+        '#include <dithering_fragment>',
+        '#include <dithering_fragment>\nfloat cloudFade = smoothstep( -0.01, 0.02, vCloudDir.y );\ngl_FragColor.a *= cloudFade;',
+      );
+    if (fPatched === shader.fragmentShader) {
+      throw new Error('云层着色器补丁未命中（片元）：three 版本可能已变更，本工程锁定 0.160.0');
+    }
+    shader.vertexShader = vPatched;
+    shader.fragmentShader = fPatched;
+  };
   const clouds = new THREE.Mesh(new THREE.SphereGeometry(SKY_RADIUS * 0.98, 48, 24), cloudMat);
   clouds.renderOrder = 1;
   clouds.frustumCulled = false;
@@ -240,11 +254,6 @@ export function createSkyDome(): SkyDome {
       // 输出空间乘算，等价原来黑色球罩的 0.9 不透明度；white→NIGHT_MIN_SCALE 线性插值
       uNightScale.value = 1 - (1 - NIGHT_MIN_SCALE) * night;
       applyClouds();
-    },
-    setHorizonColor(hex) {
-      // 直接取 sRGB 分量：材质雾的 fogColor 由 three 按输出色彩空间传入，
-      // 这里保持同一空间，天空与地面在接缝处才能逐位同色。
-      uHorizonColor.value.set(((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255);
     },
     dispose() {
       group.remove(sky);

@@ -34,8 +34,9 @@ import { createNeutralEnvMap } from './sky';
 import { createSkyDome, type SkyDome } from './skyDome';
 import { createStarfield, type Starfield } from './starfield';
 import { writeMoonSceneDir } from './celestial';
-import { createGround, applyFog } from './ground';
+import { createGround, applyFog, GROUND_TILE } from './ground';
 import { computeLighting, applyLighting, daylightFactor } from './lighting';
+import { ATMOSPHERE, createHorizonLut } from './skyAtmosphere';
 
 const DEG = Math.PI / 180;
 /** 本地当天 12:00（正午）对应的 UTC 毫秒：默认固定日照基准 */
@@ -120,13 +121,20 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
 
   let lastEmitMs = 0;
 
-  // 大地平面（仅新增一个 mesh，不改变院子铺装）
-  const ground = createGround();
+  // 共享地平色查找表（含云色混合 + 夜间压暗）：地面逐方位雾与 Sky 穹顶近地平线收敛共用，
+  // 保证天地两侧逐位同色；每帧只写一次（带缓存）。创建后先交给地面与天空，再在 applyLightingAndFog 写入。
+  const horizonLut = createHorizonLut();
+
+  // 大地平面（仅新增一个 mesh，不改变院子铺装）；雾色为逐方位地平色查找表
+  const groundLayer = createGround(horizonLut);
+  const ground = groundLayer.mesh;
   scene.add(ground);
+  // 草地贴图（按世界坐标锚定，每帧随地面跟随相机时同步偏移，避免纹理滑动）
+  const groundTex = (ground.material as THREE.MeshStandardMaterial).map ?? null;
 
   // 3D 天空穹顶：白天 three Sky 大气散射 + 夜间真实星空/银河/月亮。
   // 全部为场景内对象（非 scene.background 贴图），素材程序化生成 / 星表内置，离线可用。
-  const skyDome: SkyDome = createSkyDome();
+  const skyDome: SkyDome = createSkyDome(horizonLut);
   scene.add(skyDome.object3D);
   const starfield: Starfield = createStarfield(renderer.getPixelRatio());
   scene.add(starfield.object3D);
@@ -228,17 +236,18 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
 
   /** 推导光照并应用：太阳主光 + 由 astronomy-engine 定位的真实月亮方向（月亮在地平线下时关闭月光） */
   function applyLightingAndFog(utc: number, solar: SolarPosition): void {
-    const lighting = computeLighting(solar, weather);
-    lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
     const frontAz = frontAzimuthDeg * DEG;
     const sunDir = toSceneDirection(solar, frontAz);
+    const lighting = computeLighting(solar, weather, sunDir);
+    lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
     const moonSinAlt = writeMoonSceneDir(utc, location.lat, location.lon, frontAz, _moonDir);
     if (moonSinAlt <= 0) lighting.moonIntensity = 0;
     applyLighting(lights, lighting, sunDir, _moonDir);
     applyFog(scene, lighting);
-    // 地平雾色与雾色同源：远处地面、雾、地平线以下的穹顶三者同色，
-    // 天空再向上约 6° 平滑过渡回大气色，消除地平线处的亮带/暗缝（昼夜通用）
-    skyDome.setHorizonColor(lighting.fogColor);
+    // 共享地平色查找表：与 Sky 穹顶共用同一张表（含云色混合 + 夜间压暗），按当前太阳方向/大气/
+    // 昼夜/云量写入一次（内部有缓存，参数不变时零成本），远景地面与天空地平处逐位同色，
+    // 晨昏/阴天都不会出现天地硬边。地面与 Sky 着色器直接读这张纹理，故在此统一写入。
+    horizonLut.write(sunDir, ATMOSPHERE[weather.kind], daylightFactor(solar.elevation), weather.cloudCover, weather.kind);
   }
 
   /** 由当前状态推导光照并应用到灯光与雾（廉价，每帧可调用） */
@@ -337,6 +346,13 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       // 让穹顶随相机移动，球面到相机的距离恒定，任何缩放级别下都不会被裁切。
       skyDome.object3D.position.copy(camera.position);
       starfield.object3D.position.copy(camera.position);
+      // 地面同样跟随相机平移（半边长 3000m > 远裁剪面 1000m），其外缘恒在远裁剪面之外被裁掉，
+      // 由同色 Sky 下半球补上，不露有限平面的外缘缝；草地贴图按世界坐标锚定，避免随相机滑动。
+      ground.position.x = camera.position.x;
+      ground.position.z = camera.position.z;
+      if (groundTex) {
+        groundTex.offset.set(camera.position.x / GROUND_TILE, camera.position.z / GROUND_TILE);
+      }
 
       const utc = currentUtcMs();
       const solar = solarPosition(utc, location.lat, location.lon);
@@ -365,7 +381,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     dispose() {
       weatherService.dispose();
       currentEnvMap?.dispose();
+      horizonLut.dispose();
       scene.remove(ground);
+      groundLayer.dispose();
       scene.remove(skyDome.object3D);
       skyDome.dispose();
       scene.remove(starfield.object3D);

@@ -56,7 +56,11 @@ function sunColorByElevation(elevDeg: number, cloud: number): number {
 }
 
 /** 由太阳位置与天气推导光照参数 */
-export function computeLighting(solar: SolarPosition, weather: WeatherSnapshot): LightingParams {
+export function computeLighting(
+  solar: SolarPosition,
+  weather: WeatherSnapshot,
+  sunDir: { x: number; y: number; z: number },
+): LightingParams {
   const elevDeg = (solar.elevation * 180) / Math.PI;
   const c = weather.cloudCover / 100;
   const precip = Math.min(weather.precipitation / 5, 1);
@@ -67,10 +71,10 @@ export function computeLighting(solar: SolarPosition, weather: WeatherSnapshot):
     elevDeg <= 0 ? 0 : 1.1 * Math.pow(sinEl, 0.5) * (1 - 0.8 * Math.pow(c, 1.1)) * (1 - 0.5 * precip);
   const sunColor = sunColorByElevation(elevDeg, c);
 
-  // 雾色 = 天空在地平线附近的方位平均色（CPU 复算 Preetham，含夜间压暗）。
-  // 远景地面被雾溶成此色、天空也向它过渡，因此接缝两侧逐位同色：
-  // 白天不会出现"蓝雾压在过曝白天空下"的横带，夜间也不会出现未压暗的亮带。
-  const fogColor = horizonSkyColorHex(solar.elevation, ATMOSPHERE[weather.kind], dayFactor);
+  // 雾色 = 天空在地平线处的方位平均色（CPU 复算 Preetham，使用真实太阳方向，含夜间压暗）。
+  // 远景地面被雾溶成此色，而 Sky 着色器下半球（dirY<0 被钳为均匀地平色）正是同一色，
+  // 因此接缝两侧逐位同色：白天不会出现"蓝雾压在过曝白天空下"的横带，夜间也不会出现未压暗的亮带。
+  const fogColor = horizonSkyColorHex(sunDir, ATMOSPHERE[weather.kind], dayFactor, weather.cloudCover, weather.kind);
   // 半球光地面色改为中性日光（暖灰），避免室内被草地绿染色
   const groundColor = new THREE.Color(0xc4bfb4).lerp(new THREE.Color(NIGHT_GROUND), 1 - dayFactor);
 
