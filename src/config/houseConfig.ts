@@ -887,9 +887,9 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   if (floor.index === 0) return INTERIOR_DOORS;
   if (floor.index === 3) return []; // 屋顶层无门
   if (floor.index === 2) {
-    // 门扇高 2.4（参考系）与 DOOR_H 门洞一致；外开上阳台（-90°）
+    // 门扇高 2.8（参考系=实际 2.0m）与门洞一致；铰链在东、朝阳台（+z）外开（+90°）
     return [
-      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.8, openAngle: -Math.PI / 2, hingeSide: 1, id: 'front3f' },
+      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.8, openAngle: Math.PI / 2, hingeSide: 1, id: 'front3f' },
       // 墙2（x=1.20）门洞靠南墙（z=-0.02）的木门，默认打开
       { w: 0.9, x: 1.2, y: 0, z: -0.07, rotY: Math.PI / 2, materialKey: 'wood', hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2' },
     ];
