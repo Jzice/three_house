@@ -48,10 +48,11 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     cursor: default;
 }
 
-/* 第一人称模式：2D 图纸以小地图形式常驻右下角，随楼层自动切换、可隐藏、半透明 */
+/* 第一人称模式：2D 图纸以小地图形式常驻右下角，随楼层自动切换、可隐藏、整体半透明 */
 #floorplan-canvas.minimap {
     top: auto; left: auto; right: 15px; bottom: 50px;  /* 尺寸由 JS 按视口响应式设置 */
-    background-color: rgba(244, 246, 248, 0.45);  /* 仅背景半透明，墙线/标注保持清晰 */
+    background-color: rgba(244, 246, 248, 0.45);
+    opacity: 0.6;  /* 整块（背景/房间色块/墙线/文字/角色标记）一起变淡，透出更多 3D 画面 */
     border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     pointer-events: none; /* 不遮挡第一人称的门窗点击 */

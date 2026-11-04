@@ -89,6 +89,17 @@ export const TILE_SIZE = 0.8;
  */
 export const SLAB_T = 0.2;
 
+/**
+ * 墙顶让缝（米）：所有"到顶"墙构件（外墙 / 内墙 / 门头墙 / 承重柱 / 南墙带洞墙）的顶面
+ * 比上层完成面低 2mm，埋入上层楼板（或屋面板）体积内。
+ *
+ * 原因：墙顶原本 = floor.baseY + floor.wallH，恰好等于上层楼板顶面（= 上层 baseY），
+ * 两片面精确共面 → 深度缓冲 z-fighting，墙脚印会以墙色随机渗出到 2F/3F 楼板上
+ * （表现为"隐现下层围墙的影子"）。让缝后墙顶被板体遮住，仅外立面留一道发丝级分隔缝。
+ * 与南墙 `d: T_EXT + 0.002`、门洞下沿留 1mm 的既有让缝写法一致。
+ */
+export const WALL_TOP_GUARD = 0.002;
+
 /** 内墙门洞下的矮墙/门头高度基准 */
 const HEAD_BASE = 2.1;
 const SILL_TOP = 2.7;
@@ -315,7 +326,8 @@ export function getSouthWall(floor: FloorConfig): HoledWallSpec | null {
     z: 5.0,
     d: T_EXT + 0.002, // 比东西外墙厚 2mm，避免与外墙端面共面
     w: W, // 整宽，含两个墙角块
-    h: floor.wallH,
+    // 顶面让缝 2mm：与 remapBox 的到顶构件一致，避免与上层楼板/阳台板顶面共面闪烁
+    h: floor.wallH - WALL_TOP_GUARD,
     holes,
   };
 }

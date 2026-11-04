@@ -34,10 +34,12 @@ export function createSceneContext(): SceneContext {
   document.body.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  // 上帝视角(tps)下放宽限制，便于抬头/平视拉远看天空（太阳/云/星空）。
+  // 上帝视角(tps)：极角可从正上方俯视(0)一路拖到几乎正对天顶(179°)，
+  // 留 1° 余量避免极角=180° 时方位角退化（万向锁）；保留俯视取景（minPolarAngle 用默认 0）。
+  // 相机可降到地面以下：单面大地从下方背面剔除不可见，天穹/星穹/裙板跟随相机且半径 900<far，
+  // 不会裁出黑洞；视线是否被房屋遮挡由用户配合平移/缩放自行调整。
   // 仅 tps 模式 controls.enabled=true，fps/2d 不受影响。
-  // 允许相机降至与房屋同高（房屋落入画面下方、上方露出天空），保留俯视取景（min=0）。
-  controls.maxPolarAngle = Math.PI / 2;
+  controls.maxPolarAngle = Math.PI - THREE.MathUtils.degToRad(1);
   // 缩放距离：近距避免穿入房屋，远距小于 far(1000) 以保证天穹(半径≤882m)不被远裁剪面裁出圆洞。
   controls.minDistance = 4;
   controls.maxDistance = 800;

@@ -90,6 +90,11 @@ function bootstrap(): void {
   const floorplan = createFloorplan2D(canvas2D, {
     getMode: () => view.getMode(),
     getFloor: () => FLOORS[view.getUiFloor()],
+    // 小地图角色定位：相机 x/z 与朝向由编排处注入，floorplan 不反向依赖 view
+    getPlayer: () =>
+      view.getMode() === 'fps'
+        ? { x: ctx.camera.position.x, z: ctx.camera.position.z, yaw: view.getState().fpsYaw }
+        : null,
     onMeasuringChange: (active) => ui.setMeasuring(active),
   });
 
@@ -158,6 +163,33 @@ function bootstrap(): void {
     ui.setMinimap(view.getMinimapVisible());
   }
 
+  // 小地图实时定位：角色位置/朝向变化且距上次重绘 ≥40ms 才整图重绘（≤25fps）
+  const MINIMAP_REDRAW_MS = 40;
+  let lastMinimapX = 0;
+  let lastMinimapZ = 0;
+  let lastMinimapYaw = 0;
+  let hasMinimapPose = false;
+  let lastMinimapTime = 0;
+
+  function syncMinimapPlayer(): void {
+    if (view.getMode() !== 'fps' || !view.getMinimapVisible()) return;
+    const p = ctx.camera.position;
+    const yaw = view.getState().fpsYaw;
+    const changed =
+      !hasMinimapPose ||
+      Math.abs(p.x - lastMinimapX) > 0.01 ||
+      Math.abs(p.z - lastMinimapZ) > 0.01 ||
+      Math.abs(yaw - lastMinimapYaw) > 0.01;
+    const now = performance.now();
+    if (!changed || now - lastMinimapTime < MINIMAP_REDRAW_MS) return;
+    lastMinimapX = p.x;
+    lastMinimapZ = p.z;
+    lastMinimapYaw = yaw;
+    hasMinimapPose = true;
+    lastMinimapTime = now;
+    floorplan.draw();
+  }
+
   // ---- 初始状态 ----
   view.setActiveFloor(0);
   view.setMode('tps');
@@ -183,6 +215,7 @@ function bootstrap(): void {
       view.saveTpsView();
     } else if (mode === 'fps') {
       view.updateFpsMovement(keys, touch.isTouch ? touch.getMove() : null);
+      syncMinimapPlayer();
     }
 
     // 环境层：实时推进时间与天气，按太阳/天气驱动光照。

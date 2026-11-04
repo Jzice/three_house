@@ -60,6 +60,17 @@ const EYE_SMOOTH_TAU = 0.09;
 const STAIR_MATCH_LIMIT = 1.0;
 /** 第一人称玩家半径（米）：墙体碰撞按此缓冲外扩，贴墙可滑动、不可穿入 */
 const PLAYER_R = 0.25;
+/** 小地图显隐的本地存储键（仅存用户改动的 UI 状态） */
+const MINIMAP_STORAGE_KEY = 'house-minimap-visible';
+
+/** 读取持久化的小地图显隐；首次使用 / 存储不可用时默认关闭 */
+function loadMinimapVisible(): boolean {
+  try {
+    return localStorage.getItem(MINIMAP_STORAGE_KEY) === '1';
+  } catch {
+    return false; // 隐私模式：静默降级为默认关闭
+  }
+}
 
 /** 各层的第一人称可行走范围（房屋内部 + 门洞通道 + 院子） */
 const walkAreas: FpsWalkArea[] = FLOORS.map((f) => getFpsWalkArea(f));
@@ -185,8 +196,8 @@ export function createViewManager(
 ): ViewManager {
   const { camera, controls, renderer } = ctx;
   let activeFloor = 0;
-  /** 第一人称小地图是否可见（按钮切换；仅 FPS 模式下实际显示） */
-  let minimapVisible = true;
+  /** 第一人称小地图是否可见（默认关闭，用户开关持久化；仅 FPS 模式下实际显示） */
+  let minimapVisible = loadMinimapVisible();
   /** 第一人称脚下标高（当前所踩踏面/完成面的绝对高度） */
   let groundY = FLOORS[0].baseY;
   /** 第一人称所属楼层（人在哪一层：楼梯半层归属下层楼层；离开楼梯后保持） */
@@ -304,6 +315,11 @@ export function createViewManager(
 
   function setMinimapVisible(visible: boolean): void {
     minimapVisible = visible;
+    try {
+      localStorage.setItem(MINIMAP_STORAGE_KEY, visible ? '1' : '0');
+    } catch {
+      // localStorage 不可用：忽略，保持内存状态即可
+    }
     if (floorStates[activeFloor].mode === 'fps') {
       canvas2D.style.display = visible ? 'block' : 'none';
       canvas2D.classList.toggle('minimap', visible);

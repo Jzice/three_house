@@ -10,11 +10,20 @@ import {
   PLATFORM_FRONT_Z,
 } from '../config/houseConfig';
 
+/** 小地图上的角色位姿：世界坐标 x/z（米）与第一人称朝向角（弧度） */
+export interface PlayerPose {
+  x: number;
+  z: number;
+  yaw: number;
+}
+
 export interface FloorplanCallbacks {
   /** 由外部告知当前视角模式，非 2D 时忽略画布事件 */
   getMode: () => ViewMode;
   /** 由外部告知当前楼层，以绘制对应的户型与楼梯 */
   getFloor: () => FloorConfig;
+  /** 小地图模式下取当前角色位姿；非第一人称返回 null（由 main.ts 注入，避免反向依赖 view） */
+  getPlayer: () => PlayerPose | null;
   /** 测量状态变化时通知 UI 更新按钮与提示 */
   onMeasuringChange?: (active: boolean) => void;
 }
@@ -101,6 +110,38 @@ export function createFloorplan2D(
     const w = Math.min(Math.max(window.innerWidth * 0.34, 180), 340);
     const h = Math.min(Math.max(window.innerHeight * 0.34, 150), 280);
     return { w: Math.round(w), h: Math.round(h) };
+  }
+
+  /**
+   * 小地图上的角色标记：实心圆点 + 朝向三角箭头。
+   * 图纸 +z 向下、-z 向上；yaw=0 时第一人称相机朝 -z，故旋转 -yaw 后三角形指向视线方向。
+   */
+  function drawPlayerMarker(x: number, z: number, yaw: number): void {
+    const px = getX(x);
+    const py = getY(z);
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(-yaw);
+    ctx.fillStyle = '#ea4335';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, -14);
+    ctx.lineTo(6, -2);
+    ctx.lineTo(-6, -2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ea4335';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
 
   function draw(): void {
@@ -321,6 +362,12 @@ export function createFloorplan2D(
     ctx.fillText(floor.name, 16, 16);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    // ---- 第一人称小地图：当前角色位置与朝向（由渲染循环节流重绘） ----
+    if (minimap) {
+      const player = callbacks.getPlayer();
+      if (player) drawPlayerMarker(player.x, player.z, player.yaw);
+    }
 
     if (isMeasuring) drawMeasuringPreview();
   }

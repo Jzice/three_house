@@ -540,8 +540,9 @@ export function createLowerSashWindow(
   return { container, parts };
 }
 
-/** 左右推拉窗：白色塑钢外框 + 中竖梃 + 两扇可推拉玻璃扇（左扇左滑、右扇右滑）。
- *  闭合时两扇于中梃处相接覆盖整窗，开启时各向外侧滑移半个窗宽，完全错开露出洞口。 */
+/** 左右推拉窗：白色塑钢外框 + 中竖梃 + 两扇可推拉玻璃扇（内外双轨、交错推拉）。
+ *  闭合时两扇于中梃处相接覆盖整窗；开启时左扇右滑、右扇左滑至对侧半洞，
+ *  两扇前后叠放、始终留在窗框内，露出半个洞口（与 2F 阳台推拉门一致）。 */
 export function createSlidingWindow(
   spec: WindowSpec,
   materials: MaterialMap,
@@ -553,7 +554,11 @@ export function createSlidingWindow(
   const leafW = halfW - frameT; // 每扇宽
   const leafH = h - 2 * frameT;
   const halfLeaf = leafW / 2;
-  const travel = halfW; // 每扇滑移半个窗宽
+  // 内外双轨：两扇 z 向错开一个扇框深度（0.05m），交错重叠时框料不互穿、不共面闪烁
+  const TRACK_GAP = 0.05;
+  // 外轨略低于窗框外表面（避开与中竖梃共面），内轨再向室内退一个轨道间距
+  const trackOuterZ = FRAME_Z - 0.01;
+  const trackInnerZ = trackOuterZ - TRACK_GAP;
   const pvc = materials.pvc;
 
   const container = new THREE.Group();
@@ -593,18 +598,18 @@ export function createSlidingWindow(
     return leaf;
   };
 
-  // 左扇：闭合居中 -halfLeaf，开启向左滑 travel
+  // 左扇（内轨）：闭合居中 -halfLeaf，开启右滑到右扇背后（+halfLeaf），让出左半洞口
   const leftLeaf = buildLeaf();
-  leftLeaf.position.set(-halfLeaf, 0, FRAME_Z);
+  leftLeaf.position.set(-halfLeaf, 0, trackInnerZ);
   const leftPart = markInteractive(leftLeaf, 'window', 0);
-  leftPart.userData.slideX = { closed: -halfLeaf, open: -halfLeaf - travel };
+  leftPart.userData.slideX = { closed: -halfLeaf, open: halfLeaf };
   container.add(leftLeaf);
 
-  // 右扇：闭合居中 +halfLeaf，开启向右滑 travel
+  // 右扇（外轨）：闭合居中 +halfLeaf，开启左滑到左扇位置（-halfLeaf），让出右半洞口
   const rightLeaf = buildLeaf();
-  rightLeaf.position.set(halfLeaf, 0, FRAME_Z);
+  rightLeaf.position.set(halfLeaf, 0, trackOuterZ);
   const rightPart = markInteractive(rightLeaf, 'window', 0);
-  rightPart.userData.slideX = { closed: halfLeaf, open: halfLeaf + travel };
+  rightPart.userData.slideX = { closed: halfLeaf, open: -halfLeaf };
   container.add(rightLeaf);
 
   container.position.set(x, y, z);

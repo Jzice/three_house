@@ -13,6 +13,7 @@ import {
   MAIN_DOOR,
   SLIDING_DOOR,
   TILE_SIZE,
+  WALL_TOP_GUARD,
   BACK_DOOR,
 } from '../config/houseConfig';
 import {
@@ -43,14 +44,23 @@ export interface HouseResult {
 /**
  * 对 1F 参考坐标系下的 BoxSpec 做竖直重映射：
  * 高度按 wallH/H 缩放，y 按 baseY + (y/H)*wallH 抬升，使同一套户型可复用到任意楼层。
+ *
+ * 「到顶」构件（外墙 / 内墙 / 门头墙 / 承重柱 / 窗上段）顶面额外让缝 WALL_TOP_GUARD：
+ * 其顶面原本恰好等于上层楼板顶面（= 上层 baseY），两片面共面会 z-fighting，
+ * 墙脚印以墙色随机渗出到 2F/3F 楼板上，看起来像下层围墙的影子。
+ * 让缝后墙顶埋入楼板（或屋面板）体积内被遮住，仅外立面留一道发丝级分隔缝。
+ * 窗台、门垛等不到顶的盒子不受影响；楼梯顶步不经此映射，仍与楼板齐平。
  */
 function remapBox(spec: BoxSpec, floor: FloorConfig): BoxSpec {
   const k = floor.wallH / H;
-  return {
-    ...spec,
-    h: spec.h * k,
-    y: floor.baseY + (spec.y / H) * floor.wallH,
-  };
+  const h = spec.h * k;
+  const yCenter = floor.baseY + (spec.y / H) * floor.wallH;
+  const floorTop = floor.baseY + floor.wallH;
+  if (yCenter + h / 2 >= floorTop - 1e-6) {
+    const h2 = h - WALL_TOP_GUARD;
+    return { ...spec, h: h2, y: floorTop - WALL_TOP_GUARD - h2 / 2 };
+  }
+  return { ...spec, h, y: yCenter };
 }
 
 /**
