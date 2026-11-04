@@ -57,13 +57,15 @@ export function createUI(handlers: UIHandlers): UI {
       btnMinimap.classList.remove('active');
       measureTip.style.display = 'none';
 
+      // 显示时移除内联 display，回落到 .btn 的 flex 居中布局；
+      // 若写成 'block' 会覆盖居中布局，使内部 SVG 图标整体偏左（实测 10px）
       if (mode === 'tps') btnTPS.classList.add('active');
       else if (mode === 'fps') {
         btnFPS.classList.add('active');
-        btnMinimap.style.display = 'block';
+        btnMinimap.style.removeProperty('display');
       } else if (mode === '2d') {
         btn2D.classList.add('active');
-        btnAddDim.style.display = 'block';
+        btnAddDim.style.removeProperty('display');
       }
     },
     setActiveFloor(floor) {
