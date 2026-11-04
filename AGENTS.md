@@ -115,7 +115,7 @@ src/
 | 改光照强度 / 色温 / 雾浓度映射 | `src/environment/lighting.ts` |
 | 改环境编排（时间 / 地点 / 天气 / 降水覆盖、metaverse-sky 驱动） | `src/environment/environment.ts` |
 | 改环境面板 UI（地点 / 日照 / 天气交互） | `src/ui/envPanel.ts` + `src/style.css`（`.env-*`） |
-| 改构建 / 发布方式 | `vite.config.ts` + `scripts/build-all.mjs` |
+| 改构建 / 发布方式 | `vite.config.ts` + `scripts/build-all.mjs` + `.github/workflows/`（打 `v*` tag 触发 Release，push main / Release 发布触发 Pages） |
 
 ## 6. 已知陷阱
 

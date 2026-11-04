@@ -108,6 +108,7 @@ Select-String -Path dist/index.cdn.html -Pattern 'from"three'
 
 - **直接分发**：把 `dist/index.html` 发给对方双击打开（自包含模式离线可用）；网络正常时也可发体积更小的 `dist/index.cdn.html`。
 - **静态托管**：整个 `dist/` 目录上传到 Nginx、OSS、GitHub Pages、Vercel 等任意静态服务，两个文件共存不冲突。
+- **GitHub Release 自动发布（带产物附件）**：见 `.github/workflows/release.yml`。推送 `v*` 标签（如 `git tag v0.5.2 && git push origin v0.5.2`）即触发 CI 执行 `npm ci && npm run build:all`，并把 `dist/index.html` 与 `dist/index.cdn.html` 作为附件挂到 Release（自动生成 Release Notes），用户可直接下载单文件双击打开。Release 发布后 `deploy-pages.yml` 会因 `release: published` 再自动部署一次 Pages，两个工作流互不冲突。
 - **GitHub Pages 自动部署**：见 `.github/workflows/deploy-pages.yml`。在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions** 后，推送 `main`（或发布 Release、`workflow_dispatch` 手动触发）即自动 `npm ci && npm run build:all` 并把 `dist/` 部署为站点（根路径提供自包含版 `index.html`）。
 - **嵌入现有页面**：若不想用整页，可把 `<head>` 中的样式与 `<body>` 末尾的 module script 迁移进目标页面（CDN 模式需注意保留 importmap）。
 

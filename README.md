@@ -33,8 +33,8 @@ npm run dev     # 启动开发服务器（默认 http://localhost:5173）
 | --- | --- |
 | `npm run dev` | 启动 Vite 开发服务器，多文件源码 + 热更新 |
 | `npm run typecheck` | 仅执行 TypeScript 严格模式类型检查 |
-| `npm run build` | 产出**完全自包含**的 `dist/index.html`（three/星表/天文库一并内联，离线可用，约 714 KB） |
-| `npm run build:cdn` | 产出**单文件 + three 走 CDN** 的 `dist/index.cdn.html`（约 219 KB） |
+| `npm run build` | 产出**完全自包含**的 `dist/index.html`（three/星表/天文库一并内联，离线可用，约 1125 KB） |
+| `npm run build:cdn` | 产出**单文件 + three 走 CDN** 的 `dist/index.cdn.html`（约 251 KB） |
 | `npm run build:all` | **一次同时产出以上两种产物**（发布时推荐） |
 | `npm run preview` | 预览构建产物 |
 
@@ -50,19 +50,28 @@ npm run build:all
 
 ```text
 dist/
-├── index.html        # 完全自包含，~714 KB，离线可用
-└── index.cdn.html    # three 走 CDN，~219 KB，需联网
+├── index.html        # 完全自包含，~1125 KB，离线可用
+└── index.cdn.html    # three 走 CDN，~251 KB，需联网
 ```
 
 任选其一双击打开或托管到任意静态服务器即可，两者互不依赖。
 
 | 产物 | 体积 | 是否需要联网 | 适用场景 |
 | --- | --- | --- | --- |
-| `index.html` | ~714 KB | 否 | 离线演示、邮件附件、内网交付 |
-| `index.cdn.html` | ~219 KB | 是（拉取 unpkg 上的 three） | 线上页面，减小首包体积 |
+| `index.html` | ~1125 KB | 否 | 离线演示、邮件附件、内网交付 |
+| `index.cdn.html` | ~251 KB | 是（拉取 unpkg 上的 three） | 线上页面，减小首包体积 |
 
 > 单目标构建（`build` / `build:cdn`）只覆盖对应文件，不会删掉另一个产物。
 > 构建原理与两种模式的差异见 [docs/build-and-publish.md](docs/build-and-publish.md)。
+
+### 自动发布（GitHub Release + Pages）
+
+推送 `v*` 标签即触发 `.github/workflows/release.yml`：CI 执行 `npm ci && npm run build:all`，把两个单文件作为附件挂到 Release；Release 发布后既有 `.github/workflows/deploy-pages.yml` 会自动把 `dist/` 部署到 GitHub Pages（首次需在仓库 **Settings → Pages → Source** 选择 **GitHub Actions**）。
+
+```bash
+git tag v0.5.2
+git push origin main && git push origin v0.5.2
+```
 
 ---
 
