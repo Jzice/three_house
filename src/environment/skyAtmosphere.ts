@@ -224,8 +224,29 @@ export const CLOUD_NIGHT_COLOR = 0x1a2030;
  */
 export const HAZE_DAY_COLOR = 0xd5e6ff;
 export const HAZE_NIGHT_COLOR = 0x141a26;
-/** 地平线处霾的不透明度：metaSky 的霾墙与 CPU 雾色共用同一常数，保证天地同色 */
+/**
+ * 地平线处霾的不透明度：metaSky 的霾墙与 CPU 雾色共用同一常数，保证天地同色。
+ * 白天穹顶地平色与霾色接近，此值已足够把低仰角天空向中性收敛并保留少量天空层次；
+ * 晨昏/夜间漏光带的根因在「霾色」而非「不透明度」，由更陡的 {@link hazeDayFactor}
+ * 把霾色在太阳近地平线时收敛到夜间暗色即可消除（见该函数注释），不透明度无需改动。
+ * 曾经试过夜间把不透明度抬到 1.0，但配合放宽的 alphaMap 会把白天天空整体糊住、并压暗
+ * 夜间地平星点，属过度修正，已回退为固定值。
+ */
 export const HAZE_ALPHA = 0.9;
+
+/**
+ * 霾色昼夜因子（驱动霾色/雾色在昼夜间的明暗），比整体 daylightFactor 更陡：
+ * 太阳降到地平线附近（≈−1°）即快速收敛到夜间暗霾色，避免晨昏时段「中亮度霾色/雾色」
+ * 与暗天空、暗地面之间形成亮带（截图 06:33/−1° 漏光带的根因：该时刻穹顶地平色已暗，
+ * 但旧霾色因 dayFactor≈0.38 仍是中亮浅蓝，比周围都亮 → 一条亮带）。
+ * 白天（太阳显著在地平线以上）恢复为日间浅霾色，与白天穹顶协调。GPU
+ * （metaSky 霾墙）与 CPU（horizonSkyColorHex 雾色）共用此函数，杜绝再次分叉。
+ *
+ * @param elevationDeg 太阳高度角（度）
+ */
+export function hazeDayFactor(elevationDeg: number): number {
+  return smoothstep(-1, 6, elevationDeg);
+}
 
 /** 云有效不透明度：与 metaSky.setClouds 默认 opacity 0.95 一致，上限 0.95 */
 function cloudOpacityOf(cloudCover: number): number {
@@ -304,12 +325,15 @@ export function horizonSkyColorHex(
   b /= AZIMUTH_SAMPLES;
 
   // 与 metaSky 的霾墙做同样的地平线净化（GPU 侧按仰角渐变，地平线处恰为 HAZE_ALPHA），
-  // 保证雾色与天空在地平线处仍然严格同色。
-  const day = clamp01(dayFactor);
-  const haze = new THREE.Color(HAZE_DAY_COLOR).lerp(new THREE.Color(HAZE_NIGHT_COLOR), 1 - day);
-  r = mix(r, haze.r, HAZE_ALPHA);
-  g = mix(g, haze.g, HAZE_ALPHA);
-  b = mix(b, haze.b, HAZE_ALPHA);
+  // 保证雾色与天空在地平线处仍然严格同色。霾「颜色」用更陡的 hazeDayFactor
+  // （太阳近地平线即收敛到夜间暗色，避免晨昏亮带）；不透明度保持固定 HAZE_ALPHA。
+  const elevDeg = (Math.asin(nsy) * 180) / Math.PI;
+  const hazeDay = hazeDayFactor(elevDeg);
+  const haze = new THREE.Color(HAZE_DAY_COLOR).lerp(new THREE.Color(HAZE_NIGHT_COLOR), 1 - hazeDay);
+  const hazeA = HAZE_ALPHA;
+  r = mix(r, haze.r, hazeA);
+  g = mix(g, haze.g, hazeA);
+  b = mix(b, haze.b, hazeA);
 
   // 云色混入权重：云量大时地平线应读作"云底"（与 metaSky 的阴天灰罩同源，两者
   // 一起把满云天空压成均匀灰）；云量低时权重趋近 0，保持大气地平本色。

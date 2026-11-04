@@ -7,3 +7,6 @@ dist
 # 验证产物 / 临时日志
 devlog.txt
 verify2_*.png
+dev.log
+dev.err
+.playwright-cli/

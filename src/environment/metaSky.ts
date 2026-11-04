@@ -19,7 +19,8 @@ import { MetaverseSky } from 'metaverse-sky';
 import * as THREE from 'three';
 import type { DirectionalLight } from 'three';
 import type { PrecipKind } from '../types';
-import { CLOUD_NIGHT_COLOR, HAZE_ALPHA, HAZE_DAY_COLOR, HAZE_NIGHT_COLOR } from './skyAtmosphere';
+import { CLOUD_NIGHT_COLOR, HAZE_ALPHA, HAZE_DAY_COLOR, HAZE_NIGHT_COLOR, hazeDayFactor } from './skyAtmosphere';
+import { daylightFactor } from './lighting';
 import { SKY_RADIUS } from './skyConstants';
 
 export interface MetaSkyHandle {
@@ -214,12 +215,21 @@ export function createMetaSky(opts: {
   const _veilNightColor = new THREE.Color(CLOUD_NIGHT_COLOR);
 
   const applyVeil = (): void => {
-    // 云量 50% 以下几乎不罩；满云时最强
+    // 与 CPU 雾色（skyAtmosphere）共用同一昼夜因子，避免两侧霾色/不透明度分叉产生色差。
+    // sunY 是太阳方向单位向量的 y 分量，asin 即太阳高度角，与 lighting.daylightFactor 入参一致。
+    const elev = Math.asin(THREE.MathUtils.clamp(sunY, -1, 1));
+    const elevDeg = (elev * 180) / Math.PI;
+    const day = daylightFactor(elev);
+    // 云量 50% 以下几乎不罩；满云时最强（灰罩颜色用整体 day，夜间转暗）
     veilMat.opacity = THREE.MathUtils.smoothstep(cloudCoverage, 0.5, 1) * 0.85;
-    const day = THREE.MathUtils.smoothstep(sunY, -0.06, 0.25);
     veilMat.color.copy(veilDayColor).lerp(_veilNightColor, 1 - day);
-    hazeMat.color.copy(hazeDayColor).lerp(_hazeNightColor, 1 - day);
+    // 霾墙颜色用更陡的 hazeDayFactor：太阳近地平线即收敛到夜间暗色，消除晨昏亮带
+    const hazeDay = hazeDayFactor(elevDeg);
+    hazeMat.color.copy(hazeDayColor).lerp(_hazeNightColor, 1 - hazeDay);
+    // 霾墙不透明度保持构造时的固定 HAZE_ALPHA（白天已足够；晨昏靠霾色收敛解决，无需再抬）
   };
+  // 初始化一次，使霾墙初始不透明度/颜色与当前太阳位置一致（否则首帧沿用构造时的 0.9 固定值）
+  applyVeil();
 
   let lastT = performance.now();
   const _sunDir = new THREE.Vector3();
