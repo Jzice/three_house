@@ -3,3 +3,7 @@ dist
 *.local
 .DS_Store
 .codebuddy/
+
+# 验证产物 / 临时日志
+devlog.txt
+verify2_*.png

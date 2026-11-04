@@ -12,12 +12,15 @@
  *   环境反射贴图（scene.environment）由环境层另行提供中性 equirect 贴图。
  * - 降水 `setPrecipitation({type, intensity})` 在 type!=='none' 时按 intensity 渐显粒子，
  *   随风响应，2.4s 缓动切换。
+ * - **天穹不写深度**（`depthWrite=false`）且属于 opaque pass，必须设 `renderOrder=-1`
+ *   排在所有不透明物体之前，否则会把远景雾色地面盖成下半球饱和蓝（见 createMetaSky 注释）。
  */
 import { MetaverseSky } from 'metaverse-sky';
 import * as THREE from 'three';
 import type { DirectionalLight } from 'three';
 import type { PrecipKind } from '../types';
 import { CLOUD_NIGHT_COLOR, HAZE_ALPHA, HAZE_DAY_COLOR, HAZE_NIGHT_COLOR } from './skyAtmosphere';
+import { SKY_RADIUS } from './skyConstants';
 
 export interface MetaSkyHandle {
   /** 由 solar.toSceneDirection 注入的太阳方向（已按"正面朝西"换算） */
@@ -44,8 +47,9 @@ export interface MetaSkyHandle {
 
 /**
  * 地平线裙板的透明渐变贴图（程序化 Canvas，符合单文件约束）。
- * alphaMap 取灰度：圆柱顶部（视平线上方）透明，向下 ~12m（900m 半径处约 0.76°）内
- * 渐变为不透明，其余全部不透明——顶边柔化天地过渡，底边完整遮挡天穹下半球。
+ * alphaMap 取灰度：圆柱顶部透明，向下 12m（900m 半径处约 0.76°）渐变为不透明，
+ * 其余全部不透明。渐变区由 SKIRT_TOP_OFFSET 完全放在**视平线以上**，只用于柔化顶边；
+ * 视平线以下恒为 alpha=1，是遮挡天穹下半球的硬兜底，不依赖纹理翻转方向。
  * 注意 CanvasTexture flipY 默认 true：画布顶部行对应 uv.y=1，即圆柱顶部。
  */
 function createSkirtAlphaTexture(): THREE.CanvasTexture {
@@ -104,10 +108,14 @@ function createHazeAlphaTexture(): THREE.CanvasTexture {
 }
 
 /** 裙板几何常数：半径须浅于相机远裁剪面（1000m），高度足够在最高相机位遮住下半球 */
-const SKIRT_RADIUS = 900;
+const SKIRT_RADIUS = SKY_RADIUS;
 const SKIRT_HEIGHT = 1200;
-/** 裙板顶边高于相机的高度（m）：略盖过视平线，保证地平线以下没有天穹下半球漏出 */
-const SKIRT_TOP_OFFSET = 6;
+/**
+ * 裙板顶边高于相机的高度（m）：等于 alphaMap 的 12m 渐变长度，使渐变恰好在视平线处
+ * 结束——视平线以下 100% 不透明，视平线以上 0~0.76° 保留柔化过渡。旧值 6 会让渐变
+ * 跨过视平线（±0.38°），低机位平视时半透明区正好压在天地接缝上。
+ */
+const SKIRT_TOP_OFFSET = 12;
 /** 霾墙几何：与裙板同半径；底边在相机下方 120m、高 600m（视平线位于 1/5 高度处） */
 const HAZE_HEIGHT = 600;
 const HAZE_BOTTOM_OFFSET = -120;
@@ -128,11 +136,19 @@ export function createMetaSky(opts: {
   // （连头顶都发白）。天空颜色由大气散射决定，必须排除在场景雾之外；
   // 天地衔接（地平线不出现漏光带）由 skyAtmosphere 的同源 CPU 雾色复算保证。
   sky.sky.material.fog = false;
+  // 天穹必须最先绘制。库把穹顶建成 depthWrite=false 的 opaque 大球，若与 ground 同为
+  // renderOrder=0，opaque pass 的稳定排序可能把天穹排在地面之后：天穹下半球（dirY<0 走
+  // 短路径散射，输出饱和蓝）会覆盖远处已雾化成雾色的地面，却因不写深度而不留痕迹；
+  // 而 900m 的裙板/霾墙比该处地面更远，被地面深度测试剔除，完全兜不住——低机位平视时
+  // 天地交界便留下一条 1px 级的深蓝细线（阴天灰罩把上半天空压白后尤其明显）。
+  // 提到所有不透明物体之前绘制，地面随后把这 1px 重新覆盖成雾色，天地逐位同色。
+  sky.sky.renderOrder = -1;
 
   // 地平线裙板：天穹下半球（dirY<0）走"短线段散射"路径，渲染成饱和蓝色；而地面
   // 6000×6000 在 1000m 远裁剪面处被裁掉，两条线之间会露出一条蓝带。用一圈雾色圆筒
-  // （900m < far）把下半球天穹挡住：底边没入地下、与雾色地面同色无缝，顶边略高于
-  // 视平线并做透明渐变；颜色每帧同步 scene.fog，与地面雾色严格一致。
+  // （SKY_RADIUS < far）把下半球天穹挡住：底边没入地下、与雾色地面同色无缝；渐变区
+  // 全部位于视平线以上，视平线以下完全不透明，作为地面远裁切缝的硬兜底；
+  // 颜色每帧同步 scene.fog，与地面雾色严格一致。
   const skirtMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
@@ -146,7 +162,7 @@ export function createMetaSky(opts: {
     skirtMat,
   );
   skirt.frustumCulled = false;
-  skirt.renderOrder = 1; // 天穹(0)之后、云/降水(2)之前：只遮挡下半球天穹，不盖住云层
+  skirt.renderOrder = 1; // 天穹(-1)之后、云/降水(2)之前：只遮挡下半球天穹，不盖住云层
   opts.scene.add(skirt);
 
   // 阴天灰罩：metaverse-sky 的穹顶着色器只受"太阳位置"驱动、没有天气模式，太阳尚在
@@ -209,6 +225,21 @@ export function createMetaSky(opts: {
   const _sunDir = new THREE.Vector3();
   const _camPos = new THREE.Vector3();
 
+  // 开发期视觉回归钩子：供 playwright 固定机位、逐层开关天空覆盖物做截图对照。
+  // 生产构建中 import.meta.env.DEV 为 false，整段被静态剔除，不进入单文件产物。
+  if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true) {
+    (window as unknown as { __skyDebug?: unknown }).__skyDebug = {
+      camera: opts.camera,
+      scene: opts.scene,
+      skirt,
+      veil,
+      haze,
+      skirtMat,
+      veilMat,
+      hazeMat,
+    };
+  }
+
   return {
     setSunDirection(dir) {
       _sunDir.set(dir.x, dir.y, dir.z);
@@ -242,7 +273,7 @@ export function createMetaSky(opts: {
       const dt = Math.min((now - lastT) / 1000, 0.1);
       lastT = now;
       sky.update(dt);
-      // 裙板跟随相机（仅水平面），顶边保持在视平线上方；颜色同步场景雾
+      // 裙板跟随相机（顶边 = 视平线 + 12m，渐变恰在视平线处结束）；颜色同步场景雾
       opts.camera.getWorldPosition(_camPos);
       skirt.position.set(_camPos.x, _camPos.y + SKIRT_TOP_OFFSET - SKIRT_HEIGHT / 2, _camPos.z);
       const fog = opts.scene.fog as THREE.Fog | null;

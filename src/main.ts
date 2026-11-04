@@ -211,7 +211,7 @@ function bootstrap(): void {
     const mode = view.getMode();
     if (mode === 'tps') {
       ctx.controls.update();
-      // 持续记录当前层的上帝视角，切层后恢复该层上次视图（不重置到初始位置）
+      // 持续记录当前上帝视角到全局视角状态（切层时相机保持不动、整栋居中，仅切换可见楼层）
       view.saveTpsView();
     } else if (mode === 'fps') {
       view.updateFpsMovement(keys, touch.isTouch ? touch.getMove() : null);

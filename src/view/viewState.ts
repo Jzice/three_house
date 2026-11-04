@@ -13,7 +13,7 @@ import type {
 import type { SceneContext } from '../scene/sceneSetup';
 import { VIEW, FLOORS, W, D, getFpsWalkArea, getStairSurface, stairHeightAt, GROUND_Y } from '../config/houseConfig';
 
-/** 单层的视角状态：模式 + 上帝/第一人称相机与朝向 */
+/** 全局视角状态（所有楼层共用同一套）：模式 + 上帝/第一人称相机与朝向 */
 export interface ViewState {
   mode: ViewMode;
   tpsPos: THREE.Vector3;
@@ -29,18 +29,18 @@ export interface ViewManager {
   /** 当前活动楼层序号 */
   readonly activeFloor: number;
   setMode(mode: ViewMode): void;
-  /** 切换活动楼层（保持当前模式，恢复该层记忆的相机） */
+  /** 切换活动楼层（保持当前模式，全局视角按楼层完成面高差竖直平移，方位/朝向/水平位置延续） */
   setActiveFloor(floor: number): void;
   /** 第一人称小地图显隐（仅在该模式下实际生效；非 FPS 时仅记忆状态） */
   setMinimapVisible(visible: boolean): void;
   /** 当前小地图是否可见 */
   getMinimapVisible(): boolean;
   updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void;
-  /** 记录当前上帝视角相机（每层独立保存，切层/切模式后可恢复） */
+  /** 记录当前上帝视角相机到全局视角状态（切层时仅按楼层高差平移，不重置构图） */
   saveTpsView(): void;
   /** 当前活动楼层的模式 */
   getMode(): ViewMode;
-  /** 当前活动楼层的视角状态 */
+  /** 当前视角状态（全局单例，代表当前活动层） */
   getState(): ViewState;
   /** 当前 UI 指示楼层（按钮 / 小地图所用：按完成面判定"已到达楼层"，与可见层解耦） */
   getUiFloor(): number;
@@ -129,9 +129,15 @@ function visibleMassTop(index: number): number {
  * - 目标点取体量竖向中心 → 建筑落在屏幕正中；
  * - 机位沿固定水平方位 + 固定俯角，体量更高时自动后拉，保证整栋入画。
  */
-function computeTpsFrame(index: number): { pos: THREE.Vector3; target: THREE.Vector3 } {
-  const top = visibleMassTop(index);
-  const targetY = top / 2; // 体量竖向中心 → 屏幕中心
+/**
+ * 上帝视角初始机位：把【整栋建筑】框入画面中心（而非某一层）。
+ * 目标点取整栋竖向中心，机位沿固定水平方位 + 固定俯角，距离自动后拉以容纳四层。
+ * 之后任意楼层切换都不再平移相机/注视点，整栋始终居中，不随层数升高而上下漂移。
+ */
+function computeBuildingFrame(): { pos: THREE.Vector3; target: THREE.Vector3 } {
+  const buildingTop = visibleMassTop(FLOORS.length - 1); // 屋顶顶标高（含女儿墙）
+  const targetY = buildingTop / 2; // 整栋竖向中心 → 屏幕中心
+  const top = buildingTop;
   const [dx, dz] = VIEW.tpsPos;
   const d0 = Math.hypot(dx, dz); // 水平距离基准
   const hx = dx / d0;
@@ -142,7 +148,7 @@ function computeTpsFrame(index: number): { pos: THREE.Vector3; target: THREE.Vec
   const th = THREE.MathUtils.degToRad(VIEW.tpsAngle);
   const tau = Math.tan(THREE.MathUtils.degToRad(VIEW.fov) / 2);
   const m = VIEW.tpsMargin;
-  const half = top / 2; // 体量竖向半高
+  const half = top / 2; // 整栋竖向半高
   // 竖向入画：近端底角不得超出画面
   const needV = (m / tau) * (b * Math.sin(th) + half * Math.cos(th)) + b * Math.cos(th) - half * Math.sin(th);
   // 横向入画：按最小宽高比保守求解
@@ -158,10 +164,15 @@ function computeTpsFrame(index: number): { pos: THREE.Vector3; target: THREE.Vec
   };
 }
 
-/** 生成某层的初始视角状态（上帝视角机位按可见整体体量自适应） */
-function createFloorState(index: number): ViewState {
-  const f = FLOORS[index];
-  const { pos, target } = computeTpsFrame(index);
+/**
+ * 全局唯一的视角状态（取消「每层一套相机」）：所有楼层共享同一套上帝/第一人称相机。
+ * 楼层切换时上帝视角相机保持不动（整栋建筑居中），第一人称仅眼高随完成面升降；
+ * 方位、俯角、缩放、朝向与水平位置延续，画面不跳变。
+ * 首屏机位把整栋建筑框入中心（computeBuildingFrame 仅用于生成初始构图，切层时不再重跑）。
+ */
+function createState(): ViewState {
+  const f = FLOORS[0];
+  const { pos, target } = computeBuildingFrame();
   return {
     mode: 'tps',
     tpsPos: pos,
@@ -170,13 +181,14 @@ function createFloorState(index: number): ViewState {
     fpsYaw: 0,
     fpsPitch: 0,
     addFpsForward: (amount: number) => {
-      // 仅第一人称下累加；本方法挂在由 getState() 返回的活动层 state 上，mode 即当前模式
-      if (floorStates[index] && floorStates[index].mode === 'fps') fpsMoveImpulse += amount;
+      // 仅第一人称下累加
+      if (state.mode === 'fps') fpsMoveImpulse += amount;
     },
   };
 }
 
-const floorStates: ViewState[] = FLOORS.map((_, i) => createFloorState(i));
+/** 全局视角单例（代表当前活动楼层）；所有楼层共用，切层不再平移相机，整栋始终居中 */
+const state: ViewState = createState();
 
 /**
  * 视角管理器：负责三种模式下的相机、控制器与画布可见性切换，
@@ -217,32 +229,31 @@ export function createViewManager(
    * 天花板（= 上层楼板底面的替身）仅在该层「上方楼层被隐藏」时显示，避免与上层真实楼板重复渲染/闪烁。
    */
   function applyVisibility(): void {
-    const mode = floorStates[activeFloor].mode;
-    const N = floorStates.length;
+    const mode = state.mode;
+    const N = FLOORS.length;
     // 各层主组可见性：上帝视角显示活动层及其以下；第一人称全显示
-    const mainVisible = floorStates.map((_, i) =>
+    const mainVisible = FLOORS.map((_, i) =>
       mode === '2d' ? false : mode === 'fps' ? true : i <= activeFloor,
     );
     // 天花板替身：仅第一人称且“上层（i+1）不可见”时显示（上层可见时其楼板自身即天花板）
-    const ceilingVisible = floorStates.map(
+    const ceilingVisible = FLOORS.map(
       (_, i) => mode === 'fps' && i < N - 1 && !mainVisible[i + 1],
     );
-    floorStates.forEach((_, i) => {
+    FLOORS.forEach((_, i) => {
       setFloorVisible(i, mainVisible[i], ceilingVisible[i]);
     });
   }
 
   function setMode(mode: ViewMode): void {
-    const st = floorStates[activeFloor];
-    st.mode = mode;
+    state.mode = mode;
 
     if (mode === 'tps') {
       controls.enabled = true;
       canvas2D.style.display = 'none';
       canvas2D.classList.remove('minimap');
       renderer.domElement.style.display = 'block';
-      camera.position.copy(st.tpsPos);
-      controls.target.copy(st.tpsTarget);
+      camera.position.copy(state.tpsPos);
+      controls.target.copy(state.tpsTarget);
       controls.update();
     } else if (mode === 'fps') {
       controls.enabled = false;
@@ -250,11 +261,10 @@ export function createViewManager(
       canvas2D.style.display = minimapVisible ? 'block' : 'none';
       canvas2D.classList.toggle('minimap', minimapVisible);
       renderer.domElement.style.display = 'block';
-      // 进入第一人称重置为标准视野，触摸板捏合缩放从默认 FOV 起算
+      // 进入第一人称重置为标准视野（触摸板捏合缩放从默认 FOV 起算）；眼高对齐当前活动层完成面
       camera.fov = VIEW.fov;
       camera.updateProjectionMatrix();
-      camera.position.copy(st.fpsPos);
-      // 脚下标高按当前位置重算（可能正站在楼梯上），眼高随之对齐，并重置平滑计时
+      camera.position.set(VIEW.fpsPos[0], FLOORS[activeFloor].baseY + FPS_EYE_Y, VIEW.fpsPos[2]);
       levelFloor = activeFloor;
       uiFloor = activeFloor;
       groundY = resolveGround(
@@ -265,10 +275,12 @@ export function createViewManager(
       ).step;
       camera.position.y = groundY + FPS_EYE_Y;
       lastMoveTime = performance.now();
-      st.fpsYaw = 0;
-      st.fpsPitch = 0;
+      // 保持既有行为：进入第一人称朝向复位
+      state.fpsYaw = 0;
+      state.fpsPitch = 0;
       tmpEuler.set(0, 0, 0, 'YXZ');
       camera.quaternion.setFromEuler(tmpEuler);
+      state.fpsPos.copy(camera.position);
     } else {
       controls.enabled = false;
       canvas2D.style.display = 'block';
@@ -279,35 +291,42 @@ export function createViewManager(
     applyVisibility();
   }
 
-  /** 切换活动楼层：保持当前视角模式（相机状态仍按层记忆），恢复该层对应相机 */
+  /**
+   * 切换活动楼层：保持当前视角模式；上帝视角相机/注视点完全不动（整栋建筑居中，不随层数升降而漂移），
+   * 仅切换可见楼层；第一人称保留水平位置与朝向，仅眼高随完成面升降（落点不合法则回退默认出生点）。
+   * 方位、俯角、缩放、朝向与水平位置均延续，画面不跳变。
+   */
   function setActiveFloor(floor: number): void {
     if (floor === activeFloor) return;
-    const mode = floorStates[activeFloor].mode;
+    if (floor < 0 || floor >= FLOORS.length) return; // 越界早退
     activeFloor = floor;
     uiFloor = floor;
-    const st = floorStates[activeFloor];
-    st.mode = mode;
+    const mode = state.mode;
 
     if (mode === 'tps') {
-      camera.position.copy(st.tpsPos);
-      controls.target.copy(st.tpsTarget);
+      // 相机与注视点保持不变：整栋建筑始终居中，切层只改变可见楼层集合
+      camera.position.copy(state.tpsPos);
+      controls.target.copy(state.tpsTarget);
       controls.update();
     } else if (mode === 'fps') {
-      camera.position.copy(st.fpsPos);
-      // 脚下标高按当前位置重算（可能正站在楼梯上），眼高随之对齐
-      levelFloor = activeFloor;
-      groundY = resolveGround(
-        walkAreas[activeFloor],
-        camera.position.x,
-        camera.position.z,
-        FLOORS[activeFloor].baseY,
-      ).step;
+      // 保留水平位置与朝向，仅眼高随楼层完成面升降
+      let px = camera.position.x;
+      let pz = camera.position.z;
+      // 落点不合法（墙内 / 栏杆内 / 悬空）则回退到该层默认出生点
+      if (!isWalkable(walkAreas[floor], px, pz, inRect(walkAreas[floor].inside, px, pz))) {
+        px = VIEW.fpsPos[0];
+        pz = VIEW.fpsPos[2];
+      }
+      camera.position.x = px;
+      camera.position.z = pz;
+      levelFloor = floor;
+      groundY = resolveGround(walkAreas[floor], px, pz, FLOORS[floor].baseY).step;
       camera.position.y = groundY + FPS_EYE_Y;
       lastMoveTime = performance.now();
-      st.fpsYaw = 0;
-      st.fpsPitch = 0;
-      tmpEuler.set(0, 0, 0, 'YXZ');
+      // 朝向沿用（不归零）：按保存的 yaw/pitch 重建相机四元数
+      tmpEuler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
       camera.quaternion.setFromEuler(tmpEuler);
+      state.fpsPos.copy(camera.position);
     }
     // 2D 模式无需相机，平面图由外部在切层后重绘
     applyVisibility();
@@ -320,7 +339,7 @@ export function createViewManager(
     } catch {
       // localStorage 不可用：忽略，保持内存状态即可
     }
-    if (floorStates[activeFloor].mode === 'fps') {
+    if (state.mode === 'fps') {
       canvas2D.style.display = visible ? 'block' : 'none';
       canvas2D.classList.toggle('minimap', visible);
     }
@@ -438,16 +457,16 @@ export function createViewManager(
     return floorForHeight(foot);
   }
 
-  /** 自动切层（上下楼）：保持相机位置与朝向，仅切换活动层并通知外部同步 UI */
+  /**
+   * 自动切层（上下楼）：脚下物理位移连续，相机位置与朝向保持不动；
+   * 走楼梯属第一人称连续运动，不平移上帝视角存储（保证整栋建筑始终居中），并通知外部同步 UI。
+   */
   function autoSwitchFloor(floor: number): void {
     if (floor === activeFloor) return;
-    const prev = floorStates[activeFloor];
     activeFloor = floor;
     levelFloor = floor;
-    const st = floorStates[floor];
-    st.mode = prev.mode;
-    // 新层的位置即当前位置；旧层位置保持"上次真正待在旧层时"的记录（此刻人已在楼梯/新层上）
-    st.fpsPos.copy(camera.position);
+    // 走楼梯时相机位置即连续物理位置，直接记入存储
+    state.fpsPos.copy(camera.position);
     applyVisibility();
   }
 
@@ -516,16 +535,15 @@ export function createViewManager(
       if (onAutoFloor) onAutoFloor(ui);
     }
 
-    // 记录本层第一人称位置（切模式/切层后可恢复原处）
-    floorStates[activeFloor].fpsPos.copy(camera.position);
+    // 记录当前第一人称位置到全局视角状态（切层/切模式后从该处连续过渡）
+    state.fpsPos.copy(camera.position);
   }
 
-  /** 记录当前上帝视角相机（每层独立保存，切层/切模式后可恢复） */
+  /** 记录当前上帝视角相机到全局视角状态（切层时仅按楼层高差平移，不重置构图） */
   function saveTpsView(): void {
-    const st = floorStates[activeFloor];
-    if (st.mode !== 'tps') return;
-    st.tpsPos.copy(camera.position);
-    st.tpsTarget.copy(controls.target);
+    if (state.mode !== 'tps') return;
+    state.tpsPos.copy(camera.position);
+    state.tpsTarget.copy(controls.target);
   }
 
   return {
@@ -538,8 +556,8 @@ export function createViewManager(
     getMinimapVisible,
     updateFpsMovement,
     saveTpsView,
-    getMode: () => floorStates[activeFloor].mode,
-    getState: () => floorStates[activeFloor],
+    getMode: () => state.mode,
+    getState: () => state,
     getUiFloor: () => uiFloor,
   };
 }

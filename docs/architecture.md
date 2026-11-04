@@ -106,6 +106,20 @@ stateDiagram-v2
     2D: 显示「+ 添加标注」
 ```
 
+### 楼层切换与视角连贯
+
+视角状态为**全局单例**（`viewState.ts` 的 `state`，含 `tpsPos/tpsTarget/fpsPos/fpsYaw/fpsPitch/mode`），四层共用同一套上帝/第一人称相机——不再逐层独立记忆。切换楼层（`setActiveFloor`）不恢复旧视图，也不平移相机，整栋建筑始终以同一取景居中：
+
+- **上帝视角**：相机与注视点（`tpsPos`/`tpsTarget`）完全不动，整栋建筑始终居中，切层只改变可见楼层集合（`applyVisibility`），不再做楼层高差平移——避免「轨道中心随楼层升高、整栋在画面中下沉」的问题；方位角/俯角/距离与用户手动平移全部保留。
+- **第一人称**：保留 `(x, z)` 与 `yaw/pitch`，仅眼高随 `resolveGround(walkAreas[to], …)` 完成面升降；若该水平落点在新层不可行走（`isWalkable` 判否），回退到默认出生点 `VIEW.fpsPos` 的水平坐标 + 新层眼高。朝向沿用、不归零（与模式切换区分）。
+- **2D**：无 3D 相机。
+
+首屏机位由 `computeBuildingFrame()` 生成，把**整栋建筑**框入画面中心（注视点取整栋竖向中心、距离自动后拉容纳四层），替代原先按单层层高自适应的 `computeTpsFrame`，因此初始即整栋居中、各层都在视野内。
+
+走楼梯的**自动切层**（`autoSwitchFloor`，脚下为连续物理位移）不移动活动相机、也不平移上帝视角存储，仅把 `state.fpsPos` 记为相机真实位置，保证整栋建筑始终居中。
+
+模式切换（`setMode`）维持既有行为：进入第一人称仍把 `yaw/pitch` 归零、眼高对齐当前活动层；切回上帝视角恢复离开前的 `tpsPos/tpsTarget`（始终为整栋居中的取景）。`saveTpsView()` 每帧把当前轨道相机回存全局状态。
+
 各模式下的渲染差异：
 
 | 模式 | OrbitControls | WebGL 画布 | 2D 画布 | 每帧动作 |

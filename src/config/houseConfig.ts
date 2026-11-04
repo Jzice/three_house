@@ -686,11 +686,11 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
   if (floor.index === 3) return []; // 屋顶层无窗
   if (floor.index === 2) {
     return [
-      { w: 1.2, h: 1.2, x: -2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
-      { w: 1.2, h: 1.2, x: 2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
+      { w: 1.2, h: 1.82, x: -2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
+      { w: 1.2, h: 1.82, x: 2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
     ];
   }
-  return [...WINDOWS, { w: 1.1, h: 1.4, x: -2.67, y: 1.2, z: -5.0, rotY: Math.PI }];
+  return [...WINDOWS, { w: 1.1, h: 1.4, x: -2.67, y: 1.0, z: -5.0, rotY: Math.PI }];
 }
 
 /** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心） */
@@ -810,13 +810,13 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
       // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
       box(0.97, H, T_EXT, -4.135, H / 2, 0.5), // 左角
       box(0.3, H, T_EXT, -3.5, H / 2, 0.5), // 左角—西窗 填充
-      box(1.2, 1.2, T_EXT, -2.75, 0.6, 0.5), // 西窗窗台（高 1.2、宽 1.2）
-      box(1.2, 1.1, T_EXT, -2.75, 2.95, 0.5), // 西窗上段（高 1.1、宽 1.2）
-      box(1.7, H, T_EXT, -1.3, H / 2, 0.5), // 西窗—门 填充
-      header(0.9, T_EXT, 0, 0.5, DOOR_H), // 门头（门洞 x∈[-0.45,0.45]）
-      box(1.7, H, T_EXT, 1.3, H / 2, 0.5), // 门—东窗 填充
-      box(1.2, 1.2, T_EXT, 2.75, 0.6, 0.5), // 东窗窗台（高 1.2、宽 1.2）
-      box(1.2, 1.1, T_EXT, 2.75, 2.95, 0.5), // 东窗上段（高 1.1、宽 1.2）
+      box(1.2, 0.89, T_EXT, -2.75, 0.445, 0.5), // 西窗窗台（高 0.89、宽 1.2）
+      box(1.2, 0.79, T_EXT, -2.75, 3.105, 0.5), // 西窗上段（高 0.79、宽 1.2）
+      box(1.55, H, T_EXT, -1.375, H / 2, 0.5), // 西窗—门 填充
+      header(1.2, T_EXT, 0, 0.5, 2.8), // 门头（门洞 x∈[-0.6,0.6]，高 2.8 实际 2.0m）
+      box(1.55, H, T_EXT, 1.375, H / 2, 0.5), // 门—东窗 填充
+      box(1.2, 0.89, T_EXT, 2.75, 0.445, 0.5), // 东窗窗台（高 0.89、宽 1.2）
+      box(1.2, 0.79, T_EXT, 2.75, 3.105, 0.5), // 东窗上段（高 0.79、宽 1.2）
       box(0.3, H, T_EXT, 3.5, H / 2, 0.5), // 东窗—右角 填充
       box(0.97, H, T_EXT, 4.135, H / 2, 0.5), // 右角
     ];
@@ -836,12 +836,12 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
     }
     // 北墙后门区（1F 为门洞，门楣由 EXTERIOR_WALLS 提供）：2F 作为窗上段（宽 1.1）
     if (Math.abs(w.x + 2.67) < 1e-6 && Math.abs(w.z + 5.0) < 1e-6 && w.h < H) {
-      return box(1.1, 1.6, T_EXT, -2.67, 2.7, -5.0);
+      return box(1.1, 1.8, T_EXT, -2.67, 2.6, -5.0);
     }
     return w;
   }).concat(
     // 2F 后门区下口窗台（门洞下沿，宽 1.1），与 2F 窗配合
-    floor.index === 1 ? [box(1.1, 0.5, T_EXT, -2.67, 0.25, -5.0)] : [],
+    floor.index === 1 ? [box(1.1, 0.3, T_EXT, -2.67, 0.15, -5.0)] : [],
   );
 }
 
@@ -857,8 +857,8 @@ export function getInteriorWalls(floor: FloorConfig): BoxSpec[] {
     // 墙2 x=1.00（与 1F/2F 纵墙对齐），北墙 → 正面墙整通，z=-2.25 处留 0.8m 门洞
     return paint([
       box(T_INT, H, 3.60, -2.00, H / 2, -3.08), // 墙1 z∈[-4.88,-1.28]
-      box(T_INT, H, 4.46, 1.20, H / 2, -2.65), // 墙2北段 z∈[-4.88,-0.42]（x=1.20，与下方纵墙对齐）
-      box(T_INT, H - HEAD_BASE, 0.8, 1.20, HEAD_BASE + (H - HEAD_BASE) / 2, -0.02), // 墙2门头 z∈[-0.42,0.38]（厚沿 x、长沿 z）
+      box(T_INT, H, 4.36, 1.20, H / 2, -2.70), // 墙2北段 z∈[-4.88,-0.52]（x=1.20，与下方纵墙对齐）
+      box(T_INT, H - HEAD_BASE, 0.9, 1.20, HEAD_BASE + (H - HEAD_BASE) / 2, -0.07), // 墙2门头 z∈[-0.52,0.38]（厚沿 x、长沿 z）
     ]);
   }
   return paint(
@@ -889,9 +889,9 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   if (floor.index === 2) {
     // 门扇高 2.4（参考系）与 DOOR_H 门洞一致；外开上阳台（-90°）
     return [
-      { w: 0.9, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.4, openAngle: -Math.PI / 2, id: 'front3f' },
+      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.8, openAngle: -Math.PI / 2, hingeSide: 1, id: 'front3f' },
       // 墙2（x=1.20）门洞靠南墙（z=-0.02）的木门，默认打开
-      { w: 0.8, x: 1.2, y: 0, z: -0.02, rotY: Math.PI / 2, materialKey: 'wood', id: 'door-3f2' },
+      { w: 0.9, x: 1.2, y: 0, z: -0.07, rotY: Math.PI / 2, materialKey: 'wood', hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2' },
     ];
   }
   return INTERIOR_DOORS.map((d) =>
@@ -997,15 +997,15 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
       { w: 0.97, d: T_EXT, x: -4.135, z: 0.5 }, // 正面墙西北角
       { w: 0.3, d: T_EXT, x: -3.5, z: 0.5 }, // 角—西窗 填充
       { w: 1.2, d: T_EXT, x: -2.75, z: 0.5, color: '#88ccff' }, // 西窗 1.2m
-      { w: 1.7, d: T_EXT, x: -1.3, z: 0.5 }, // 西窗—门 填充
-      { w: 0.9, d: T_EXT, x: 0, z: 0.5, color: '#555' }, // 门洞
-      { w: 1.7, d: T_EXT, x: 1.3, z: 0.5 }, // 门—东窗 填充
+      { w: 1.55, d: T_EXT, x: -1.375, z: 0.5 }, // 西窗—门 填充
+      { w: 1.2, d: T_EXT, x: 0, z: 0.5, color: '#555' }, // 门洞
+      { w: 1.55, d: T_EXT, x: 1.375, z: 0.5 }, // 门—东窗 填充
       { w: 1.2, d: T_EXT, x: 2.75, z: 0.5, color: '#88ccff' }, // 东窗 1.2m
       { w: 0.3, d: T_EXT, x: 3.5, z: 0.5 }, // 东窗—角 填充
       { w: 0.97, d: T_EXT, x: 4.135, z: 0.5 }, // 正面墙东北角
       { w: T_INT, d: 3.60, x: -2.00, z: -3.08 }, // 墙1（楼梯边，北墙→梯口）
-      { w: T_INT, d: 4.46, x: 1.20, z: -2.65 }, // 墙2北段
-      { w: T_INT, d: 0.8, x: 1.20, z: -0.02, color: '#555' }, // 墙2门洞（靠南墙）
+      { w: T_INT, d: 4.36, x: 1.20, z: -2.70 }, // 墙2北段
+      { w: T_INT, d: 0.9, x: 1.20, z: -0.07, color: '#555' }, // 墙2门洞（靠南墙）
     ];
   }
   // 2F 入户门洞 2.4 → 2.2（两折玻璃推拉门，居中于滑门 x=-0.2）
@@ -1074,7 +1074,7 @@ const DIMS_3F: Dimension[] = [
   { id: 102, x1: -4.62, z1: -5.12, x2: -4.62, z2: 0.62, offset: 1.2, text: '5.74m' },
   { id: 103, x1: -4.40, z1: -4.90, x2: -2.12, z2: -4.90, offset: -0.6, text: '2.28m' },
   { id: 104, x1: -3.35, z1: 0.5, x2: -2.15, z2: 0.5, offset: 0.7, text: '1.2m' },
-  { id: 105, x1: -0.45, z1: 0.5, x2: 0.45, z2: 0.5, offset: 0.7, text: '0.9m' },
+  { id: 105, x1: -0.6, z1: 0.5, x2: 0.6, z2: 0.5, offset: 0.7, text: '1.2m' },
   { id: 106, x1: 2.15, z1: 0.5, x2: 3.35, z2: 0.5, offset: 0.7, text: '1.2m' },
 ];
 
