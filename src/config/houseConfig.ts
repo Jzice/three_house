@@ -686,8 +686,8 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
   if (floor.index === 3) return []; // 屋顶层无窗
   if (floor.index === 2) {
     return [
-      { w: 1.2, h: 1.82, x: -2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
-      { w: 1.2, h: 1.82, x: 2.75, y: 1.8, z: 0.5, rotY: 0, style: 'sliding' },
+      { w: 1.2, h: 1.3, x: -2.75, y: 1.286, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
+      { w: 1.2, h: 1.3, x: 2.75, y: 1.286, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
     ];
   }
   return [...WINDOWS, { w: 1.1, h: 1.4, x: -2.67, y: 1.0, z: -5.0, rotY: Math.PI }];
@@ -810,13 +810,13 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
       // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
       box(0.97, H, T_EXT, -4.135, H / 2, 0.5), // 左角
       box(0.3, H, T_EXT, -3.5, H / 2, 0.5), // 左角—西窗 填充
-      box(1.2, 0.89, T_EXT, -2.75, 0.445, 0.5), // 西窗窗台（高 0.89、宽 1.2）
-      box(1.2, 0.79, T_EXT, -2.75, 3.105, 0.5), // 西窗上段（高 0.79、宽 1.2）
+      { ...box(1.2, 0.636, T_EXT, -2.75, 0.318, 0.5), absolute: true }, // 西窗窗台（高 0.636、宽 1.2，绝对）
+      { ...box(1.2, 0.564, T_EXT, -2.75, 2.218, 0.5), absolute: true }, // 西窗上段（高 0.564，绝对）
       box(1.55, H, T_EXT, -1.375, H / 2, 0.5), // 西窗—门 填充
-      header(1.2, T_EXT, 0, 0.5, 2.8), // 门头（门洞 x∈[-0.6,0.6]，高 2.8 实际 2.0m）
+      { ...box(1.2, 0.4, T_EXT, 0, 2.3, 0.5), absolute: true }, // 阳台门门头（门洞高 2.1m，绝对）
       box(1.55, H, T_EXT, 1.375, H / 2, 0.5), // 门—东窗 填充
-      box(1.2, 0.89, T_EXT, 2.75, 0.445, 0.5), // 东窗窗台（高 0.89、宽 1.2）
-      box(1.2, 0.79, T_EXT, 2.75, 3.105, 0.5), // 东窗上段（高 0.79、宽 1.2）
+      { ...box(1.2, 0.636, T_EXT, 2.75, 0.318, 0.5), absolute: true }, // 东窗窗台（高 0.636、宽 1.2，绝对）
+      { ...box(1.2, 0.564, T_EXT, 2.75, 2.218, 0.5), absolute: true }, // 东窗上段（高 0.564，绝对）
       box(0.3, H, T_EXT, 3.5, H / 2, 0.5), // 东窗—右角 填充
       box(0.97, H, T_EXT, 4.135, H / 2, 0.5), // 右角
     ];
@@ -857,8 +857,8 @@ export function getInteriorWalls(floor: FloorConfig): BoxSpec[] {
     // 墙2 x=1.00（与 1F/2F 纵墙对齐），北墙 → 正面墙整通，z=-2.25 处留 0.8m 门洞
     return paint([
       box(T_INT, H, 3.60, -2.00, H / 2, -3.08), // 墙1 z∈[-4.88,-1.28]
-      box(T_INT, H, 4.36, 1.20, H / 2, -2.70), // 墙2北段 z∈[-4.88,-0.52]（x=1.20，与下方纵墙对齐）
-      box(T_INT, H - HEAD_BASE, 0.9, 1.20, HEAD_BASE + (H - HEAD_BASE) / 2, -0.07), // 墙2门头 z∈[-0.52,0.38]（厚沿 x、长沿 z）
+      box(T_INT, H, 4.06, 1.20, H / 2, -2.85), // 墙2北段 z∈[-4.88,-0.82]（缩短以容纳1.2m门洞）
+      { ...box(T_INT, 0.5, 1.2, 1.20, 2.25, -0.22), absolute: true }, // 墙2门头（门洞高2.0m、宽1.2沿z、北移）
     ]);
   }
   return paint(
@@ -889,9 +889,9 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   if (floor.index === 2) {
     // 门扇高 2.8（参考系=实际 2.0m）与门洞一致；铰链在东、朝阳台（+z）外开（+90°）
     return [
-      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.8, openAngle: Math.PI / 2, hingeSide: 1, id: 'front3f' },
-      // 墙2（x=1.20）门洞靠南墙（z=-0.02）的木门，默认打开
-      { w: 0.9, x: 1.2, y: 0, z: -0.07, rotY: Math.PI / 2, materialKey: 'wood', hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2' },
+      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.1, openAngle: Math.PI / 2, hingeSide: 1, id: 'front3f', absolute: true },
+      // 墙2（x=1.20）门洞靠南墙的木门，宽1.2×高2.0m，北移
+      { w: 1.2, x: 1.2, y: 0, z: -0.22, rotY: Math.PI / 2, materialKey: 'wood', h: 2.0, hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2', absolute: true },
     ];
   }
   return INTERIOR_DOORS.map((d) =>
@@ -1004,8 +1004,8 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
       { w: 0.3, d: T_EXT, x: 3.5, z: 0.5 }, // 东窗—角 填充
       { w: 0.97, d: T_EXT, x: 4.135, z: 0.5 }, // 正面墙东北角
       { w: T_INT, d: 3.60, x: -2.00, z: -3.08 }, // 墙1（楼梯边，北墙→梯口）
-      { w: T_INT, d: 4.36, x: 1.20, z: -2.70 }, // 墙2北段
-      { w: T_INT, d: 0.9, x: 1.20, z: -0.07, color: '#555' }, // 墙2门洞（靠南墙）
+      { w: T_INT, d: 4.06, x: 1.20, z: -2.85 }, // 墙2北段（缩短）
+      { w: T_INT, d: 1.2, x: 1.20, z: -0.22, color: '#555' }, // 墙2门洞（宽1.2、北移）
     ];
   }
   // 2F 入户门洞 2.4 → 2.2（两折玻璃推拉门，居中于滑门 x=-0.2）

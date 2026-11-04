@@ -45,6 +45,8 @@ export interface BoxSpec {
   material: MaterialKey;
   cast?: boolean;
   receive?: boolean;
+  /** 不随层高缩放：y/h 即为相对该层完成面(baseY)的绝对米数，仅做平移 */
+  absolute?: boolean;
 }
 
 /** 整片墙上的一个矩形洞口（窗洞 / 门洞）：cx 为世界 x，y0 为洞口下沿（相对楼层地面） */
@@ -193,6 +195,8 @@ export interface DoorSpec {
   x: number;
   y: number;
   z: number;
+  /** 不随层高缩放：y 为相对完成面的绝对米数 */
+  absolute?: boolean;
 }
 
 /** 两折玻璃推拉门：洞口宽 w，两扇各占一半，活动扇开启时滑至固定扇后方 */
@@ -202,6 +206,8 @@ export interface SlidingDoorSpec {
   x: number;
   y: number;
   z: number;
+  /** 不随层高缩放：y 为相对完成面的绝对米数 */
+  absolute?: boolean;
 }
 
 /** 内门放置：含宽度、朝向与材质（木门 / 磨砂玻璃门） */
@@ -226,6 +232,8 @@ export interface InteriorDoorSpec {
   hingeSide?: 1 | -1;
   /** 门洞标识：用于第一人称门禁判定（关门两侧都挡、开门放行），对应可交互门 userData.id */
   id?: string;
+  /** 不随层高缩放：y/h 为相对完成面的绝对米数 */
+  absolute?: boolean;
 }
 
 /** 阳台配置：挂在南墙外侧的挑台 */
@@ -330,6 +338,8 @@ export interface WindowSpec {
   style?: 'casement' | 'sliding';
   /** 开启构件：左右下方两枚小窗格对开（外开），其余格位固定不动 */
   openSashes?: 'lower-sides';
+  /** 不随层高缩放：y/h 为相对完成面的绝对米数 */
+  absolute?: boolean;
 }
 
 /** 2D 平面图上的一条尺寸标注 */

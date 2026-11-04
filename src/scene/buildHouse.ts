@@ -52,6 +52,17 @@ export interface HouseResult {
  * 窗台、门垛等不到顶的盒子不受影响；楼梯顶步不经此映射，仍与楼板齐平。
  */
 function remapBox(spec: BoxSpec, floor: FloorConfig): BoxSpec {
+  if (spec.absolute) {
+    // 不随层高缩放：spec.y/h 已是相对该层完成面(baseY)的真实米数，仅平移
+    const yCenter = floor.baseY + spec.y;
+    const h = spec.h;
+    const floorTop = floor.baseY + floor.wallH;
+    if (yCenter + h / 2 >= floorTop - 1e-6) {
+      const h2 = h - WALL_TOP_GUARD;
+      return { ...spec, h: h2, y: floorTop - WALL_TOP_GUARD - h2 / 2 };
+    }
+    return { ...spec, y: yCenter };
+  }
   const k = floor.wallH / H;
   const h = spec.h * k;
   const yCenter = floor.baseY + (spec.y / H) * floor.wallH;

@@ -34,17 +34,19 @@ export function createSceneContext(): SceneContext {
   document.body.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  // 上帝视角(tps)：极角可从正上方俯视(0)一路拖到几乎正对天顶(179°)，
-  // 留 1° 余量避免极角=180° 时方位角退化（万向锁）；保留俯视取景（minPolarAngle 用默认 0）。
-  // 相机可降到地面以下：单面大地从下方背面剔除不可见，天穹/星穹/裙板跟随相机且半径 900<far，
-  // 不会裁出黑洞；视线是否被房屋遮挡由用户配合平移/缩放自行调整。
-  // 仅 tps 模式 controls.enabled=true，fps/2d 不受影响。
-  controls.maxPolarAngle = Math.PI - THREE.MathUtils.degToRad(1);
+  // 上帝视角(tps)：相机始终位于注视点水平面以上（极角 ≤ 90°）。注视点取整栋竖向中心
+  // （约 6.9m），故相机最低也停在该高度、绝不会低于地面——单面大地从下方背面剔除导致的
+  // "房屋悬空"问题从根本上消除；仰视 / 贴地取景交给第一人称模式（fps）。minPolarAngle 用默认 0，
+  // 即允许一路俯视到正上方。仅 tps 模式 controls.enabled=true，fps/2d 不受影响。
+  controls.maxPolarAngle = Math.PI / 2;
   // 缩放距离：近距避免穿入房屋，远距小于 far(1000) 以保证天穹(半径≤882m)不被远裁剪面裁出圆洞。
   controls.minDistance = 4;
   controls.maxDistance = 800;
-  // 允许平移：把目标点下移到房屋下方，可将更多天空纳入画面（右键拖拽 / 触摸双指）。
+  // 平移：仅沿世界水平面移动（screenSpacePanning=false），目标点的 y 恒为整栋中心，
+  // 不会被右键拖拽拽到地下（否则即便 maxPolarAngle=90° 相机仍会随之下沉悬空）；
+  // "看更多天空"的意图改用俯仰取景实现，而非把焦点沉到地下。
   controls.enablePan = true;
+  controls.screenSpacePanning = false;
 
   return { scene, camera, renderer, controls };
 }

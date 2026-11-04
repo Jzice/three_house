@@ -308,7 +308,12 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       ground.position.x = camera.position.x;
       ground.position.z = camera.position.z;
       if (groundTex) {
-        groundTex.offset.set(camera.position.x / GROUND_TILE, camera.position.z / GROUND_TILE);
+        // 平面绕 X 轴 -90° 旋转使局部 +Y 映射到世界 -Z，
+        // 故世界 Z 方向对应的纹理 v 偏移需取负，否则旋转方位/拖动时贴图随相机滑动。
+        groundTex.offset.set(
+          camera.position.x / GROUND_TILE,
+          -camera.position.z / GROUND_TILE,
+        );
       }
       starfield.object3D.position.copy(camera.position);
 

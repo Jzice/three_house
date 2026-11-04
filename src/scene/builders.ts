@@ -245,8 +245,8 @@ export function createInteractiveMainDoor(
   container.add(createDoorCasing(doorW, totalH, T_EXT, materials.doorDark));
   container.position.set(spec.x, spec.y, spec.z);
   if (floor) {
-    container.position.y = floor.baseY + (spec.y / H) * floor.wallH;
-    container.scale.y = floor.wallH / H;
+    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (spec.y / H) * floor.wallH;
+    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
   }
 
   return { container, parts };
@@ -322,8 +322,8 @@ export function createSlidingGlassDoor(
   rightPart.userData.id = 'sliding';
   leftPart.userData.id = 'sliding';
   if (floor) {
-    container.position.y = floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = floor.wallH / H;
+    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
   }
 
   return { container, parts: [rightPart, leftPart] };
@@ -415,8 +415,8 @@ export function createInteractiveWindow(
   container.position.set(x, y, z);
   container.rotation.y = rotY;
   if (floor) {
-    container.position.y = floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = floor.wallH / H;
+    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
   }
 
   return { container, parts };
@@ -533,8 +533,8 @@ export function createLowerSashWindow(
   container.position.set(x, y, z);
   container.rotation.y = rotY;
   if (floor) {
-    container.position.y = floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = floor.wallH / H;
+    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
   }
 
   return { container, parts };
@@ -615,8 +615,8 @@ export function createSlidingWindow(
   container.position.set(x, y, z);
   container.rotation.y = rotY;
   if (floor) {
-    container.position.y = floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = floor.wallH / H;
+    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
+    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
   }
 
   return { container, parts: [leftPart, rightPart] };
@@ -752,8 +752,8 @@ export function createInteriorDoor(
   container.position.set(spec.x, spec.y, spec.z);
   container.rotation.y = spec.rotY;
   if (floor) {
-    container.position.y = floor.baseY + (spec.y / H) * floor.wallH;
-    container.scale.y = floor.wallH / H;
+    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (spec.y / H) * floor.wallH;
+    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
   }
 
   return { container, parts };
