@@ -107,6 +107,7 @@ src/
 | 改太阳位置算法 / 日出日落 | `src/environment/solar.ts` |
 | 改天气来源 / WMO 映射 / 降级 | `src/environment/weather.ts` |
 | 改白天天空 / 云 / 大气 / 降水（雨/雪/冰雹动画） | `src/environment/metaSky.ts`（封装 metaverse-sky，仅暴露命令式接口） |
+| 改朝霞 / 晚霞（霞光色、太阳暖光晕、金色时段范围） | `src/environment/metaSky.ts` 的 `dawn` / `sunGlow` 层 + `src/environment/skyAtmosphere.ts` 的 `goldenFactor` / `hazeColorAt`（GPU 与 CPU 雾色共用，改一处即两侧同步） |
 | 改大气参数（turbidity/rayleigh/mie）或地平雾色算法 | `src/environment/skyAtmosphere.ts`（纯 CPU 复算，供 `scene.fog` 雾色与天空同源） |
 | 改夜间星空 / 银河 / 月亮外观（真实星表 overlay） | `src/environment/starfield.ts` |
 | 改星表数据（增删星、换星等阈值） | `src/environment/starCatalog.ts`（构建期生成的数据文件） |

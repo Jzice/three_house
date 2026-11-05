@@ -213,8 +213,16 @@ export const CLOUD_DAY_COLOR: Record<WeatherKind, number> = {
   snow: 0xe9eef3,
   thunder: 0xbcc6d0,
 };
-/** 夜间云色（暗蓝灰，避免夜里云层发白发亮） */
-export const CLOUD_NIGHT_COLOR = 0x1a2030;
+/** 夜间云色（暗蓝灰，避免夜里云层发白发亮）；供灰罩与 CPU 雾色使用 */
+export const CLOUD_NIGHT_COLOR = 0x141b2b;
+/**
+ * 库云材质夜间染色：比 CLOUD_NIGHT_COLOR 亮一档，使暗云仍略亮于近黑夜空。
+ * metaverse-sky 的 autoTint 在夜间会把 uColor 刷成亮灰白（sunY<0 时 day=0、goldenHour=1），
+ * 必须由适配层关闭 autoTint 并显式下发暗色，详见 metaSky.setClouds。
+ */
+export const CLOUD_RENDER_NIGHT_COLOR = 0x3a4a6b;
+/** 库云材质夜间 cloudDarkness（0=白天，配合夜间染色把云压成暗蓝灰） */
+export const CLOUD_RENDER_NIGHT_DARKNESS = 0.6;
 
 /**
  * 地平线霾色：metaverse-sky 的穹顶着色器只受太阳位置驱动、没有天气模式，单次散射在
@@ -223,16 +231,55 @@ export const CLOUD_NIGHT_COLOR = 0x1a2030;
  * 真实天空的近地平线是灰白的，故用霾色把低仰角天空向中性收敛。
  */
 export const HAZE_DAY_COLOR = 0xd5e6ff;
-export const HAZE_NIGHT_COLOR = 0x141a26;
+/** 夜间霾色：近黑蓝，与夜空基调一致；晨昏亮带仍由 hazeDayFactor 的颜色收敛解决 */
+export const HAZE_NIGHT_COLOR = 0x0b1120;
 /**
- * 地平线处霾的不透明度：metaSky 的霾墙与 CPU 雾色共用同一常数，保证天地同色。
- * 白天穹顶地平色与霾色接近，此值已足够把低仰角天空向中性收敛并保留少量天空层次；
- * 晨昏/夜间漏光带的根因在「霾色」而非「不透明度」，由更陡的 {@link hazeDayFactor}
- * 把霾色在太阳近地平线时收敛到夜间暗色即可消除（见该函数注释），不透明度无需改动。
- * 曾经试过夜间把不透明度抬到 1.0，但配合放宽的 alphaMap 会把白天天空整体糊住、并压暗
- * 夜间地平星点，属过度修正，已回退为固定值。
+ * 金色时段（日出 / 日落）霾色：太阳贴近地平线时，近地平线天空本应是暖橘霞色。
+ * 旧实现白天恒定 `HAZE_DAY_COLOR`（浅蓝白）+ 0.9 不透明度，会把 0~30° 低空整片刷白，
+ * 连太阳周围的暖色一起抹平——这是"早上 7° 没有朝霞、太阳发白"的根因。
+ * 金色时段改为暖橘并以 {@link GOLDEN_HAZE_ALPHA} 略降不透明度，让穹顶自身的粉橙散射透出层次。
+ */
+export const HAZE_GOLDEN_COLOR = 0xffa96b;
+/**
+ * 金色时段霾墙不透明度：低于 {@link HAZE_ALPHA} 以保留穹顶散射层次，
+ * 仍需较高覆盖以压住穹顶在 5~20° 固有的青绿偏色。
+ */
+export const GOLDEN_HAZE_ALPHA = 0.72;
+/** 朝霞 / 晚霞辉光层颜色（方位集中在太阳一侧的暖光晕） */
+export const DAWN_GLOW_COLOR = 0xff9d5a;
+/** 朝霞辉光层最大不透明度（金色时段、晴空时） */
+export const DAWN_GLOW_ALPHA = 0.55;
+/**
+ * 朝霞辉光层在视平线处的仰角权重（纹理峰值在 +2° 附近，视平线刻意压低）：
+ * 供 CPU 雾色复算"方位平均朝霞"时使用，保证天地接缝仍近似同色。
+ */
+export const DAWN_HORIZON_WEIGHT = 0.62;
+/** 朝霞辉光层方位权重的方位平均（cos² 型半瓣的圆均值），供 CPU 雾色复算 */
+export const DAWN_AZIMUTH_MEAN = 0.375;
+/**
+ * 地平线处霾的**白天**不透明度：metaSky 的霾墙与 CPU 雾色共用，保证天地同色。
+ * 夜间由 {@link hazeAlphaAt} 平滑降到 HAZE_NIGHT_ALPHA：0.9 的固定值会把 0~30° 低空
+ * 整片刷成中性暗灰，抹掉夜空层次并压暗低仰角星点。白天取值不变，蓝天/晨昏修复零回归。
  */
 export const HAZE_ALPHA = 0.9;
+/** 夜间霾墙不透明度上限（天文夜） */
+export const HAZE_NIGHT_ALPHA = 0.3;
+/** 阴天灰罩不透明度上限：白天 0.85 / 夜间 0.3 */
+export const VEIL_DAY_ALPHA = 0.85;
+export const VEIL_NIGHT_ALPHA = 0.3;
+/**
+ * 夜空基调罩目标色（近黑，夜间需求：压暗到接近纯黑、星空清晰）。
+ * metaverse-sky 的 night 常量硬编码为暗蓝灰（天顶约 #2f3c58），且迁移时删除了自研
+ * uNightScale 夜间压暗；用一层上半球半透明罩把它收敛到该目标色，地平处渐变到 0 以保接缝。
+ */
+export const NIGHT_SKY_COLOR = 0x070b14;
+/** 夜空基调罩在天文夜的基准不透明度（alphaMap 在可见仰角内接近 1） */
+export const NIGHT_DOME_ALPHA = 0.9;
+/**
+ * 罩在视平线处的 alphaMap 取值：不归零，否则低仰角天穹会露出固有亮蓝灰、形成横贯的
+ * 地平亮带。CPU 雾色按 {@link nightDomeHorizonMix} 用同一有效不透明度收敛，天地仍同色。
+ */
+export const NIGHT_DOME_HORIZON_ALPHA = 0.85;
 
 /**
  * 霾色昼夜因子（驱动霾色/雾色在昼夜间的明暗），比整体 daylightFactor 更陡：
@@ -241,11 +288,78 @@ export const HAZE_ALPHA = 0.9;
  * 但旧霾色因 dayFactor≈0.38 仍是中亮浅蓝，比周围都亮 → 一条亮带）。
  * 白天（太阳显著在地平线以上）恢复为日间浅霾色，与白天穹顶协调。GPU
  * （metaSky 霾墙）与 CPU（horizonSkyColorHex 雾色）共用此函数，杜绝再次分叉。
+ * 注意：本函数只驱动「颜色」，不驱动「不透明度」——后者用更晚的 {@link nightFactor}，
+ * 否则 −1° 附近就会提前降低霾墙 alpha，让 0.5.5 修好的晨昏漏光带回归。
  *
  * @param elevationDeg 太阳高度角（度）
  */
 export function hazeDayFactor(elevationDeg: number): number {
   return smoothstep(-1, 6, elevationDeg);
+}
+
+/**
+ * 金色时段因子（0=无霞，1=霞最浓）：太阳从地平线附近升起后迅速增强（1.5° 满强度），
+ * 6°~18° 随高度快速衰减——太阳升高后霞光被厚大气吸收，天空转青蓝。
+ * 刻意在负高度角一侧压低（−2° 才起、−1° 仅 0.2）：日出前的地平亮带历史修复（见 hazeDayFactor）
+ * 依赖"暗天空 + 中亮霾 = 亮带"的教训，负角不做大幅改动；霞光只在太阳真正升起后显现。
+ */
+export function goldenFactor(elevationDeg: number): number {
+  return smoothstep(-2, 1.5, elevationDeg) * (1 - smoothstep(6, 18, elevationDeg));
+}
+
+const _hazeGolden = new THREE.Color(HAZE_GOLDEN_COLOR);
+const _hazeNight = new THREE.Color(HAZE_NIGHT_COLOR);
+const _hazeDay = new THREE.Color(HAZE_DAY_COLOR);
+
+/**
+ * 霾色：昼（浅蓝白）→ 金色时段（暖橘）→ 夜（近黑蓝）。GPU（metaSky 霾墙）与
+ * CPU（{@link horizonSkyColorHex} 雾色）共用，杜绝再次分叉。
+ *
+ * 夜收敛权重取 `max(hazeDayFactor, goldenFactor)`：hazeDayFactor 在 0~6° 尚未饱和，
+ * 单用它会让刚升起时的暖霞被夜蓝污染成脏灰；而金色因子在负角度接近 0，
+ * 因此 −1° 附近的旧行为（收敛到暗色、杜绝亮带）保持不变。
+ */
+export function hazeColorAt(elevationDeg: number, out: THREE.Color): THREE.Color {
+  const golden = goldenFactor(elevationDeg);
+  const day = Math.max(hazeDayFactor(elevationDeg), golden);
+  out.copy(_hazeDay).lerp(_hazeGolden, golden);
+  return out.lerp(_hazeNight, 1 - day);
+}
+
+/**
+ * 朝霞辉光层的有效不透明度（GPU 层 opacity 与 CPU 雾色平均混合共用）。
+ * 云量高时几乎不生效——阴天的霞光被云层遮住，不应在满云天空上叠一层暖罩。
+ */
+export function dawnGlowAlphaAt(elevationDeg: number, cloudCover01: number): number {
+  const clear = 1 - smoothstep(0.45, 0.95, cloudCover01);
+  return DAWN_GLOW_ALPHA * goldenFactor(elevationDeg) * clear;
+}
+
+/**
+ * 天文夜因子：太阳 −6° 起渐增，−18°（天文暮光结束）达 1。
+ * 与 hazeDayFactor 刻意分离：覆盖层的「不透明度」必须等天色真正暗下来才降低。
+ */
+export function nightFactor(elevationDeg: number): number {
+  return 1 - smoothstep(-18, -6, elevationDeg);
+}
+
+/**
+ * 霾墙不透明度：白天 HAZE_ALPHA → 金色时段 GOLDEN_HAZE_ALPHA（留出朝霞层次）
+ * → 深夜 HAZE_NIGHT_ALPHA；GPU 与 CPU 雾色同源。
+ */
+export function hazeAlphaAt(elevationDeg: number): number {
+  const day = mix(HAZE_ALPHA, GOLDEN_HAZE_ALPHA, goldenFactor(elevationDeg));
+  return mix(day, HAZE_NIGHT_ALPHA, nightFactor(elevationDeg));
+}
+
+/** 阴天灰罩不透明度上限：白天 VEIL_DAY_ALPHA → 深夜 VEIL_NIGHT_ALPHA；CPU 云色混入按同比例缩放 */
+export function veilMaxAlphaAt(elevationDeg: number): number {
+  return mix(VEIL_DAY_ALPHA, VEIL_NIGHT_ALPHA, nightFactor(elevationDeg));
+}
+
+/** 视平线处夜空罩的有效不透明度：GPU 渐变 × 基准 alpha，CPU 雾色同步向夜空目标色收敛 */
+export function nightDomeHorizonMix(elevationDeg: number): number {
+  return nightFactor(elevationDeg) * NIGHT_DOME_ALPHA * NIGHT_DOME_HORIZON_ALPHA;
 }
 
 /** 云有效不透明度：与 metaSky.setClouds 默认 opacity 0.95 一致，上限 0.95 */
@@ -272,6 +386,11 @@ function mixHorizonByte(atmoSrgb: number, cloudByte: number, eff: number): numbe
 }
 
 const _radiance: [number, number, number] = [0, 0, 0];
+/** 霾色 / 朝霞色的线性缓存（模块级复用，避免每帧 new） */
+const _hazeColor = new THREE.Color();
+const _dawnColor = new THREE.Color(DAWN_GLOW_COLOR);
+/** 夜空目标色的线性值（模块级复用，避免每帧 new） */
+const NIGHT_SKY_LINEAR = new THREE.Color(NIGHT_SKY_COLOR);
 let cacheKey = '';
 let cacheHex = 0x000000;
 
@@ -324,23 +443,39 @@ export function horizonSkyColorHex(
   g /= AZIMUTH_SAMPLES;
   b /= AZIMUTH_SAMPLES;
 
-  // 与 metaSky 的霾墙做同样的地平线净化（GPU 侧按仰角渐变，地平线处恰为 HAZE_ALPHA），
-  // 保证雾色与天空在地平线处仍然严格同色。霾「颜色」用更陡的 hazeDayFactor
-  // （太阳近地平线即收敛到夜间暗色，避免晨昏亮带）；不透明度保持固定 HAZE_ALPHA。
+  // 与 metaSky 的霾墙做同样的地平线净化（GPU 侧按仰角渐变，地平线处恰为 hazeAlphaAt），
+  // 保证雾色与天空在地平线处仍然严格同色。霾色/不透明度都由 hazeColorAt + hazeAlphaAt
+  // 给出（昼浅蓝白 / 金色时段暖橘 / 夜深暗），GPU 与 CPU 同一个函数、不会分叉。
   const elevDeg = (Math.asin(nsy) * 180) / Math.PI;
-  const hazeDay = hazeDayFactor(elevDeg);
-  const haze = new THREE.Color(HAZE_DAY_COLOR).lerp(new THREE.Color(HAZE_NIGHT_COLOR), 1 - hazeDay);
-  const hazeA = HAZE_ALPHA;
-  r = mix(r, haze.r, hazeA);
-  g = mix(g, haze.g, hazeA);
-  b = mix(b, haze.b, hazeA);
+  const hazeA = hazeAlphaAt(elevDeg);
+  hazeColorAt(elevDeg, _hazeColor);
+  r = mix(r, _hazeColor.r, hazeA);
+  g = mix(g, _hazeColor.g, hazeA);
+  b = mix(b, _hazeColor.b, hazeA);
+
+  // 朝霞辉光层的地平线方位平均贡献（GPU 侧只在太阳方位出现，见 metaSky 的 dawn 层）。
+  // 雾色是全向均匀的，取「方位均值 × 视平线权重」近似，接缝处不会出现突变。
+  const dawnA = dawnGlowAlphaAt(elevDeg, cloudCover / 100) * DAWN_AZIMUTH_MEAN * DAWN_HORIZON_WEIGHT;
+  if (dawnA > 0) {
+    r = mix(r, _dawnColor.r, dawnA);
+    g = mix(g, _dawnColor.g, dawnA);
+    b = mix(b, _dawnColor.b, dawnA);
+  }
 
   // 云色混入权重：云量大时地平线应读作"云底"（与 metaSky 的阴天灰罩同源，两者
   // 一起把满云天空压成均匀灰）；云量低时权重趋近 0，保持大气地平本色。
-  const eff = cloudOpacityOf(cloudCover) * 0.9;
+  // 夜间灰罩上限降到 VEIL_NIGHT_ALPHA，此处按同比例缩放，保证天地接缝仍逐位同色。
+  const eff = cloudOpacityOf(cloudCover) * 0.9 * (veilMaxAlphaAt(elevDeg) / VEIL_DAY_ALPHA);
   const [cr, cg, cb] = cloudByteColor(kind, dayFactor);
-  const to255 = (v: number, c: number): number =>
-    Math.max(0, Math.min(255, Math.round(mixHorizonByte(encodeSrgb(v), c, eff) * 255)));
-  cacheHex = (to255(r, cr) << 16) | (to255(g, cg) << 8) | to255(b, cb);
+  // 夜空基调罩在视平线处同样覆盖（见 metaSky.createNightDomeAlphaTexture），GPU 侧低空
+  // 被压成近黑；CPU 雾色/裙板按同一有效不透明度向 NIGHT_SKY_COLOR 收敛，天地才逐位同色，
+  // 否则低仰角会露出一条亮蓝带。该混合在 sRGB 空间做，与罩的可见效果一致。
+  const nightMix = nightDomeHorizonMix(elevDeg);
+  const nr = encodeSrgb(NIGHT_SKY_LINEAR.r) * 255;
+  const ng = encodeSrgb(NIGHT_SKY_LINEAR.g) * 255;
+  const nb = encodeSrgb(NIGHT_SKY_LINEAR.b) * 255;
+  const to255 = (v: number, c: number, n: number): number =>
+    Math.max(0, Math.min(255, Math.round(mix(mixHorizonByte(encodeSrgb(v), c, eff) * 255, n, nightMix))));
+  cacheHex = (to255(r, cr, nr) << 16) | (to255(g, cg, ng) << 8) | to255(b, cb, nb);
   return cacheHex;
 }

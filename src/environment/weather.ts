@@ -11,7 +11,10 @@ import type { SiteLocation, WeatherSnapshot, WeatherKind, PrecipKind } from '../
 import { WEATHER_REFRESH_MS, WEATHER_TIMEOUT_MS, FALLBACK_WEATHER } from '../config/siteConfig';
 import { ATMOSPHERE } from './skyAtmosphere';
 
-const ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
+// 中国气象局（CMA）模式端点：对中国区域精度优于默认 ICON 全球模式（约 11km），
+// 且仍为免 key + 支持 CORS；字段 schema 与通用 /v1/forecast 完全一致，解析逻辑无需改动。
+// 海外坐标（如非中国城市）CMA 可能缺数据，由本文件既有静默降级机制兜底。
+const ENDPOINT = 'https://api.open-meteo.com/v1/cma';
 const CURRENT_FIELDS =
   'temperature_2m,relative_humidity_2m,precipitation,weather_code,cloud_cover,visibility,wind_speed_10m,is_day';
 

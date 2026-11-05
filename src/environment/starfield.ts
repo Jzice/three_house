@@ -232,7 +232,9 @@ function createPointCloud(data: PointCloudData, material: THREE.PointsMaterial):
 
   const points = new THREE.Points(geometry, material);
   points.frustumCulled = false;
-  points.renderOrder = -1;
+  // 天穹(-1)/裙板(1)/夜空基调罩(1.5)之后、云层(2)之前：星点不被夜空罩压暗，
+  // 但仍被云层正确遮挡；夜间 haze(3)/灰罩(4) 不透明度已调低，星点清晰可见。
+  points.renderOrder = 1.6;
   return { points, geometry, positions, colors, baseColors: data.colors, material };
 }
 
@@ -302,13 +304,13 @@ export function createStarfield(pixelRatio: number): Starfield {
   const starData = createStarData();
   const starMaterial = createPointMaterial(2.0 * pixelRatio, 0);
   const stars = createPointCloud(starData, starMaterial);
-  stars.points.renderOrder = -1;
+  stars.points.renderOrder = 1.6;
   group.add(stars.points);
 
   const milkyData = createMilkyWayData();
   const milkyMaterial = createPointMaterial(1.6 * pixelRatio, 0);
   const milky = createPointCloud(milkyData, milkyMaterial);
-  milky.points.renderOrder = -1;
+  milky.points.renderOrder = 1.6;
   group.add(milky.points);
 
   const moonTex = createMoonTexture();
@@ -322,7 +324,7 @@ export function createStarfield(pixelRatio: number): Starfield {
   });
   const moon = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), moonMat);
   moon.scale.setScalar(MOON_VISUAL_RADIUS);
-  moon.renderOrder = -1;
+  moon.renderOrder = 1.6;
   moon.frustumCulled = false;
   group.add(moon);
 
