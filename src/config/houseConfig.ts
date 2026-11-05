@@ -686,8 +686,8 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
   if (floor.index === 3) return []; // 屋顶层无窗
   if (floor.index === 2) {
     return [
-      { w: 1.2, h: 1.3, x: -2.75, y: 1.286, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
-      { w: 1.2, h: 1.3, x: 2.75, y: 1.286, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
+      { w: 1.2, h: 1.3, x: -2.75, y: 1.45, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
+      { w: 1.2, h: 1.3, x: 2.75, y: 1.45, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
     ];
   }
   return [...WINDOWS, { w: 1.1, h: 1.4, x: -2.67, y: 1.0, z: -5.0, rotY: Math.PI }];
@@ -810,13 +810,13 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
       // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
       box(0.97, H, T_EXT, -4.135, H / 2, 0.5), // 左角
       box(0.3, H, T_EXT, -3.5, H / 2, 0.5), // 左角—西窗 填充
-      { ...box(1.2, 0.636, T_EXT, -2.75, 0.318, 0.5), absolute: true }, // 西窗窗台（高 0.636、宽 1.2，绝对）
-      { ...box(1.2, 0.564, T_EXT, -2.75, 2.218, 0.5), absolute: true }, // 西窗上段（高 0.564，绝对）
+      { ...box(1.2, 0.8, T_EXT, -2.75, 0.4, 0.5), absolute: true }, // 西窗窗台（高 0.8、宽 1.2，绝对，窗底0.8）
+      { ...box(1.2, 0.4, T_EXT, -2.75, 2.3, 0.5), absolute: true }, // 西窗上段（高 0.4，窗顶齐平门顶2.1m，绝对）
       box(1.55, H, T_EXT, -1.375, H / 2, 0.5), // 西窗—门 填充
       { ...box(1.2, 0.4, T_EXT, 0, 2.3, 0.5), absolute: true }, // 阳台门门头（门洞高 2.1m，绝对）
       box(1.55, H, T_EXT, 1.375, H / 2, 0.5), // 门—东窗 填充
-      { ...box(1.2, 0.636, T_EXT, 2.75, 0.318, 0.5), absolute: true }, // 东窗窗台（高 0.636、宽 1.2，绝对）
-      { ...box(1.2, 0.564, T_EXT, 2.75, 2.218, 0.5), absolute: true }, // 东窗上段（高 0.564，绝对）
+      { ...box(1.2, 0.8, T_EXT, 2.75, 0.4, 0.5), absolute: true }, // 东窗窗台（高 0.8、宽 1.2，绝对，窗底0.8）
+      { ...box(1.2, 0.4, T_EXT, 2.75, 2.3, 0.5), absolute: true }, // 东窗上段（高 0.4，窗顶齐平门顶2.1m，绝对）
       box(0.3, H, T_EXT, 3.5, H / 2, 0.5), // 东窗—右角 填充
       box(0.97, H, T_EXT, 4.135, H / 2, 0.5), // 右角
     ];
