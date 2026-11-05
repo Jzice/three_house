@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-11-05
+
+### 修复
+
+- **光源主光与天空太阳方向不统一**：`lights.sun`（真实给房屋打光、投影的主光）的 `position` 仅在 `sceneSetup` 初始化时设为占位值 `(10,20,15)`，之后 `applyLighting` 从不更新其位置，导致照射/阴影方向永远停在该占位值，不随一天中的时间、也不随"房屋正面朝向"变化；而天空里的太阳盘由 `metaSky.setSunDirection` 正确随太阳移动。根因是 metaverse-sky 迁移遗留的脱节，`lighting.ts` 原注释声称"主光方向由 metaverse-sky 负责"实为误导（该函数只移动 `sunRef` 引用灯，碰不到 `lights.sun`）。修复：在 `applyLighting` 接入已按 `solar + frontAz` 换算、归一化的 `sunDir`，将 `lights.sun.position` 设为 `sunDir * 60`（target 停在原点），使主光方向与天空太阳盘同源——阴影方向与天空中太阳位置一致，随日照时间与房屋朝向联动。阴影相机 `±14 / far 80` 在 60m 距离下仍完整覆盖房屋，无需改动。
+
 ## [0.5.6] - 2026-11-05
 
 ### 新增

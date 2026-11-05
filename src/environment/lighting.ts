@@ -15,6 +15,9 @@ import type { SolarPosition } from './solar';
 import { ATMOSPHERE, horizonSkyColorHex } from './skyAtmosphere';
 
 const NIGHT_GROUND = 0x12160f;
+/** 太阳主光放置距离（米）：target 在原点，主光从真实太阳方向射向场景；
+ *  该距离须小于 sceneSetup 阴影相机 far(80)，使房屋落在阴影视锥内。 */
+const SUN_DISTANCE = 60;
 
 /** 各天气的雾基值（近/远，米）；能见度再在 [0.5,1] 倍率上缩放远平面 */
 const FOG_BY_KIND: Record<WeatherKind, { near: number; far: number }> = {
@@ -115,13 +118,18 @@ const _dir = new THREE.Vector3();
 export function applyLighting(
   h: LightHandles,
   params: LightingParams,
+  sunDir: { x: number; y: number; z: number },
   moonDir: { x: number; y: number; z: number },
 ): void {
   h.sun.intensity = params.sunIntensity;
   h.sun.color.set(params.sunColor);
   h.sun.castShadow = params.shadowEnabled;
-  // 太阳主光方向由 environment 经 metaverse-sky.setSunDirection 统一负责（它把 light 移到 dir*220），
-  // 此处不再设置 sun.position，避免两处来源打架。
+  // 太阳主光方向与天空太阳盘同源：target 停在原点，仅把 position 设为 sunDir*SUN_DISTANCE，
+  // 主光即从真实太阳方向射向场景，阴影/采光面随 solar 时间 + 房屋朝向联动。
+  // （metaverse-sky 内部另持一个 intensity 0 的 sunRef 引用灯，两者互不影响。）
+  _dir.set(sunDir.x, sunDir.y, sunDir.z).multiplyScalar(SUN_DISTANCE);
+  h.sun.position.copy(_dir);
+  h.sun.target.updateMatrixWorld();
 
   h.moon.intensity = params.moonIntensity;
   _dir.set(moonDir.x, moonDir.y, moonDir.z).multiplyScalar(60);

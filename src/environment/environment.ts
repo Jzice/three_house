@@ -208,7 +208,7 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
     const moonSinAlt = writeMoonSceneDir(utc, location.lat, location.lon, frontAz, _moonDir);
     if (moonSinAlt <= 0) lighting.moonIntensity = 0;
-    applyLighting(lights, lighting, _moonDir);
+    applyLighting(lights, lighting, sunDir, _moonDir);
     applyFog(scene, lighting);
   }
 
