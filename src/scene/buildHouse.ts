@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { BoxSpec, FloorConfig, InteractiveObject, MaterialKey, MaterialMap } from '../types';
 import {
-  COLUMNS,
   FLOORS,
+  getColumns,
   getExteriorWalls,
   getFloorSlabs,
   getInteriorDoors,
@@ -10,7 +10,6 @@ import {
   getSouthWall,
   getThresholdSegments,
   getWindows,
-  H,
   MAIN_DOOR,
   SLIDING_DOOR,
   TILE_SIZE,
@@ -43,8 +42,8 @@ export interface HouseResult {
 }
 
 /**
- * 对 1F 参考坐标系下的 BoxSpec 做竖直重映射：
- * 高度按 wallH/H 缩放，y 按 baseY + (y/H)*wallH 抬升，使同一套户型可复用到任意楼层。
+ * 把 BoxSpec 的局部竖向坐标（相对本层完成面的绝对米数）平移到世界坐标。
+ * 所有构件的 y/h 都由配置按各层 `floor.wallH` 给出绝对标准尺寸，此处**不再做层间缩放**。
  *
  * 「到顶」构件（外墙 / 内墙 / 门头墙 / 承重柱 / 窗上段）顶面额外让缝 WALL_TOP_GUARD：
  * 其顶面原本恰好等于上层楼板顶面（= 上层 baseY），两片面共面会 z-fighting，
@@ -53,26 +52,13 @@ export interface HouseResult {
  * 窗台、门垛等不到顶的盒子不受影响；楼梯顶步不经此映射，仍与楼板齐平。
  */
 function remapBox(spec: BoxSpec, floor: FloorConfig): BoxSpec {
-  if (spec.absolute) {
-    // 不随层高缩放：spec.y/h 已是相对该层完成面(baseY)的真实米数，仅平移
-    const yCenter = floor.baseY + spec.y;
-    const h = spec.h;
-    const floorTop = floor.baseY + floor.wallH;
-    if (yCenter + h / 2 >= floorTop - 1e-6) {
-      const h2 = h - WALL_TOP_GUARD;
-      return { ...spec, h: h2, y: floorTop - WALL_TOP_GUARD - h2 / 2 };
-    }
-    return { ...spec, y: yCenter };
-  }
-  const k = floor.wallH / H;
-  const h = spec.h * k;
-  const yCenter = floor.baseY + (spec.y / H) * floor.wallH;
+  const yCenter = floor.baseY + spec.y;
   const floorTop = floor.baseY + floor.wallH;
-  if (yCenter + h / 2 >= floorTop - 1e-6) {
-    const h2 = h - WALL_TOP_GUARD;
+  if (yCenter + spec.h / 2 >= floorTop - 1e-6) {
+    const h2 = spec.h - WALL_TOP_GUARD;
     return { ...spec, h: h2, y: floorTop - WALL_TOP_GUARD - h2 / 2 };
   }
-  return { ...spec, h, y: yCenter };
+  return { ...spec, y: yCenter };
 }
 
 /**
@@ -154,7 +140,7 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
   const southWall = getSouthWall(floor);
   if (southWall) root.add(createHoledWall(southWall, floor.baseY, materials));
   addAll(getInteriorWalls(floor));
-  if (floor.stair) addAll(COLUMNS);
+  if (floor.stair) addAll(getColumns(floor));
 
   // 楼板：每块按自身尺寸设置 0.8m 瓷砖重复。
   for (const spec of getFloorSlabs(floor)) {

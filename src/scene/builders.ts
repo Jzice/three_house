@@ -10,7 +10,7 @@ import type {
   SlidingDoorSpec,
   WindowSpec,
 } from '../types';
-import { FRONT_DOOR_H, H, T_EXT, T_INT } from '../config/houseConfig';
+import { DOOR_INNER_H, FRONT_DOOR_H, T_EXT, T_INT } from '../config/houseConfig';
 
 /** 由 BoxSpec 生成一个长方体网格 */
 export function createBox(spec: BoxSpec, materials: MaterialMap): THREE.Mesh {
@@ -244,10 +244,8 @@ export function createInteractiveMainDoor(
   // 前门门套：深灰仿铜（洞口内口包边 + 外沿套线）
   container.add(createDoorCasing(doorW, totalH, T_EXT, materials.doorDark));
   container.position.set(spec.x, spec.y, spec.z);
-  if (floor) {
-    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (spec.y / H) * floor.wallH;
-    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
-  }
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
 
   return { container, parts };
 }
@@ -321,10 +319,8 @@ export function createSlidingGlassDoor(
   // 门标识：供第一人称门禁判定（关门时该门洞不可穿出）
   rightPart.userData.id = 'sliding';
   leftPart.userData.id = 'sliding';
-  if (floor) {
-    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
-  }
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
 
   return { container, parts: [rightPart, leftPart] };
 }
@@ -414,10 +410,8 @@ export function createInteractiveWindow(
   container.add(windowSash);
   container.position.set(x, y, z);
   container.rotation.y = rotY;
-  if (floor) {
-    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
-  }
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
 
   return { container, parts };
 }
@@ -532,10 +526,8 @@ export function createLowerSashWindow(
 
   container.position.set(x, y, z);
   container.rotation.y = rotY;
-  if (floor) {
-    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
-  }
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
 
   return { container, parts };
 }
@@ -614,10 +606,8 @@ export function createSlidingWindow(
 
   container.position.set(x, y, z);
   container.rotation.y = rotY;
-  if (floor) {
-    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (y / H) * floor.wallH;
-    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
-  }
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
 
   return { container, parts: [leftPart, rightPart] };
 }
@@ -714,7 +704,7 @@ export function createInteriorDoor(
   floor?: FloorConfig,
 ): InteractiveBuildResult {
   const w = spec.w;
-  const h = spec.h ?? 2.1;
+  const h = spec.h ?? DOOR_INNER_H;
   const t = 0.045; // 门扇厚度（真实住宅内门约 4~4.5cm）
 
   // 铰链放在门洞一侧立边（hingeSide：-1 负 x 侧 / +1 正 x 侧），门扇朝房间内开启
@@ -751,10 +741,8 @@ export function createInteriorDoor(
   container.add(createDoorCasing(w, h, T_INT, materials[spec.frameMaterial ?? 'wood']));
   container.position.set(spec.x, spec.y, spec.z);
   container.rotation.y = spec.rotY;
-  if (floor) {
-    container.position.y = spec.absolute ? floor.baseY + spec.y : floor.baseY + (spec.y / H) * floor.wallH;
-    container.scale.y = spec.absolute ? 1 : floor.wallH / H;
-  }
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
 
   return { container, parts };
 }

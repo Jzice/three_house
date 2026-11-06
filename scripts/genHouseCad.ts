@@ -14,9 +14,9 @@
  */
 import {
   FLOORS, getExteriorWalls, getInteriorWalls, getFloorSlabs, getSouthWall,
-  getStairSurface, getWindows, getInteriorDoors, COLUMNS,
+  getStairSurface, getWindows, getInteriorDoors, getColumns,
   MAIN_DOOR, SLIDING_DOOR, BACK_DOOR, getThresholdSegments,
-  H, T_EXT, T_INT, SLAB_T, FRONT_DOOR_H, DOOR_INNER_H, W, D,
+  T_EXT, T_INT, SLAB_T, FRONT_DOOR_H, DOOR_INNER_H, W, D,
 } from '../src/config/houseConfig';
 import type { BoxSpec, FloorConfig } from '../src/types';
 import * as fs from 'fs';
@@ -30,10 +30,9 @@ const LAYER_DEFS: [string, number][] = [
 
 const fix = (n: number) => Math.round(n * 1e4) / 1e4;
 
-/** 局部坐标 BoxSpec(以楼层地面为 0) -> 世界坐标，与 buildHouse.remapBox 一致 */
+/** 相对本层完成面的绝对尺寸 BoxSpec -> 世界坐标（只做 baseY 平移，与 buildHouse.remapBox 同源） */
 function remapBox(spec: BoxSpec, floor: FloorConfig): BoxSpec {
-  const k = floor.wallH / H;
-  return { ...spec, h: spec.h * k, y: floor.baseY + (spec.y / H) * floor.wallH };
+  return { ...spec, y: floor.baseY + spec.y };
 }
 
 /**
@@ -65,7 +64,7 @@ for (const f of FLOORS) {
     addBox('WALL', boxPts(r.x, r.y, r.z, r.w, r.h, r.d));
   }
   if (f.stair) {
-    for (const s of COLUMNS) {
+    for (const s of getColumns(f)) {
       const r = remapBox(s, f);
       addBox('COLUMN', boxPts(r.x, r.y, r.z, r.w, r.h, r.d));
     }
@@ -145,8 +144,7 @@ for (const f of FLOORS) {
   addBox('DOOR', boxPts(MAIN_DOOR.x - 0.6, cyM, MAIN_DOOR.z, 1.2, FRONT_DOOR_H, T_EXT));
   addBox('DOOR', boxPts(MAIN_DOOR.x + 0.6, cyM, MAIN_DOOR.z, 1.2, FRONT_DOOR_H, T_EXT));
   const fl1 = FLOORS[1];
-  const k1 = fl1.wallH / H;
-  const hhS = FRONT_DOOR_H * k1;
+  const hhS = FRONT_DOOR_H;
   const cyS = fl1.baseY + hhS / 2;
   addBox('DOOR', boxPts(SLIDING_DOOR.x - SLIDING_DOOR.w / 4, cyS, SLIDING_DOOR.z, SLIDING_DOOR.w / 2, hhS, T_EXT));
   addBox('DOOR', boxPts(SLIDING_DOOR.x + SLIDING_DOOR.w / 4, cyS, SLIDING_DOOR.z, SLIDING_DOOR.w / 2, hhS, T_EXT));
@@ -154,9 +152,8 @@ for (const f of FLOORS) {
   addBox('DOOR', boxPts(BACK_DOOR.x, cyB, BACK_DOOR.z, BACK_DOOR.w, BACK_DOOR.h, T_EXT));
   for (const f of FLOORS) {
     if (f.index === 3) continue;
-    const k = f.wallH / H;
     for (const d of getInteriorDoors(f)) {
-      const doorH = ((d as any).h ?? DOOR_INNER_H) * k;
+      const doorH = (d as any).h ?? DOOR_INNER_H;
       const cy = f.baseY + doorH / 2;
       const rotY = (d as any).rotY ?? 0;
       const ns = Math.abs(rotY) < 0.01 || Math.abs(rotY - Math.PI) < 0.01;
@@ -178,10 +175,9 @@ for (const f of FLOORS) {
 // ---- 窗 ----
 for (const f of FLOORS) {
   if (f.index === 3) continue;
-  const k = f.wallH / H;
   for (const w of getWindows(f)) {
-    const worldY = f.baseY + (w.y / H) * f.wallH;
-    const hh = w.h * k;
+    const worldY = f.baseY + w.y;
+    const hh = w.h;
     const rotY = (w as any).rotY ?? 0;
     const ns = Math.abs(rotY) < 0.01 || Math.abs(rotY - Math.PI) < 0.01;
     if (ns) addBox('WINDOW', boxPts(w.x, worldY, w.z, w.w, hh, T_EXT));

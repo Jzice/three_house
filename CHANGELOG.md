@@ -2,6 +2,30 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.13] - 2026-11-06
+
+### 新增
+
+- **1F 厨房常开洞口补黑色大理石门槛**：`STAIR_EAST_OPENING` 此前只有 3D 墙段 / 2D 缺口 / FPS 挖洞，门洞地面是连续楼板、没有过门石。现在沿用普通房门规格（`blackMarble`、`sillRise=0.004`、`outerRise=0`、`infillGeom=false`、`outerSign=0`、`color=SILL_BLACK`），在 `x=-2.00` 墙心居中铺一条 `0.24m`（`SILL_DEPTH = T_INT`）进深 × `1.1m` 长、抬高 4mm 的黑色大理石收边条。3D 装配、2D 图例、CAD `THRESHOLD` 图层与 FPS 脚下贴地共用 `getThresholdSegments()`，自动同步、不重复建模。
+  - **不改通行与交互**：洞口仍「不装门面、永远可通行」。新增 `collectThresholdDoors()` 只供门槛推导使用，在可交互门之后合成一条 `threshold-only` 的 `FloorDoorDef`（`id='door-kitchen'`，`rotY=π/2` 表示墙沿 z 延展、墙厚在 x）；`getFpsWalkArea()` 继续用原来的 `collectFloorDoors()` 生成门禁 `gaps`，因此既不会多出门扇，也不会让 `isDoorOpenNow()` 因查不到门扇而把洞口误判为关门。样式键为 `0:door-kitchen`，不进入 `INTERIOR_DOORS`。
+
+### 修复
+
+- **CAD 生成脚本与绝对尺寸机制脱节**：上一轮移除 `H` 缩放基准与静态 `COLUMNS` 后，`genHouseCad.ts` 仍 import `COLUMNS` 并用 `k = wallH / H` 缩放墙 / 柱 / 门 / 窗，`npm run gen:cad` 已无法与 3D 同源。现改为 `getColumns(f)` + `remapBox` 只做 `baseY` 平移，门洞 / 窗洞直接用绝对标高与绝对洞高；重新生成 `docs/house.json` / `docs/house.dxf`（`THRESHOLD` 图层由 17 段增至 18 段）。`docs/house.dwg` 是 cadcraft 另存的二进制产物，未随之更新。
+
+## [0.5.12] - 2026-11-06
+
+### 变更
+
+- **全楼层竖向尺寸改为绝对标准尺寸，移除「1F 参考系 + 按层高比例缩放」机制**：此前 `H=3.5` 兼作缩放基准，`remapBox` 用 `k = floor.wallH / H` 压缩墙/柱/门头，南墙洞口按 `k` 缩放，门窗构件由 `builders.ts` 6 处 `scale.y = wallH / H` 缩放，导致 2F（层高 3.0m）的内门洞只剩 1.80m、前门洞 2.229m、窗台 0.771m、窗高 1.543m。本轮把这些尺寸统一为绝对米数：1F/2F 共用标准洞口（内门 `DOOR_INNER_H=2.1`、前门/滑门 `FRONT_DOOR_H=2.6`、窗台 `WINDOW_SILL=0.9`、窗洞 `WINDOW_H=1.8`、窗顶 `WINDOW_TOP=2.7`、1F 后门 `BACK_DOOR_H=2.0`），只有墙身 / 门头 / 窗上墙按各层 `floor.wallH` 推导（`header()` 新增 `wallH` 参数）。`H` 退化为「仅 1F 层高 / `FLOORS.baseY` 累加」；层高保持 3.5 / 3.0 / 2.5，楼体总高、楼梯、相机取景不变。
+  - **墙体按层派生**：静态 `EXTERIOR_WALLS` / `INTERIOR_WALLS` / `COLUMNS` 改为 `exteriorWallSpecs(floor)` / `interiorWallSpecs(floor)` / `getColumns(floor)`，1F/2F 的平面差异（后区合并、杂物间门移位、楼梯间东墙洞口）显式分支，取代原先按尺寸特征 `filter + concat` 补墙的隐式耦合，并清掉南墙相关的死代码 map 分支。3F（半层，wallH=2.5）把缩放结果显式写成绝对数值，视觉保持不变；1F 因 `k=1` 数值完全不变。
+  - **渲染侧**：`remapBox` 简化为「`baseY + spec.y` 平移 + 到顶 2mm 让缝」，`builders.ts` 6 处容器缩放改为一句 `container.position.y = floor.baseY + spec.y`；`box()` 统一注入 `absolute: true`（字段保留为兼容标记，读取方已移除），`types.ts` 注释同步。`getSouthWall()` 的洞口改绝对尺寸，2F 后门区改窗也按标准窗台/窗高构造。
+  - **不受影响**：2D 房间与尺寸标注、`getFpsWalkArea`（俯视 footprint）、`getThresholdSegments` / `THRESHOLD_STYLES`（本就世界坐标）、楼梯与扶手（`stairs.ts` 用 `floor.wallH` 真实层高）、阳台 / 屋顶 / 院子、环境与光照。
+
+### 新增
+
+- **1F 楼梯间东墙通厨房的 `1.1m × 2.0m` 常开洞口**（用户指定，不装门扇）：此前该墙由三段墙盒拼出约 1.06m 的洞口，但 FPS 碰撞按俯视 footprint 把门头墙也当作实心、且洞口未登记门，`isWalkable` 直接拦下，造成「看得见、走不过去」。现在 `STAIR_EAST_OPENING` 统一驱动 3D 墙段（北段 / 门头 / 南段，顺带消除原有 0.26m 全高漏缝）、2D 墙线缺口、`getWalls2D` 的 2F 封墙，以及 `getFpsWalkArea` 的 `subtractRect` 挖洞；洞口**不进入 `gaps`**（无门扇时 `isDoorOpenNow` 会误判为关门），直接从 `solids` 挖穿即永远可通行。2F 该墙显式封死，入口仍走南墙门。
+
 ## [0.5.11] - 2026-11-06
 
 ### 变更

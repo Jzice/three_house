@@ -55,7 +55,10 @@ export interface BoxSpec {
   material: MaterialKey;
   cast?: boolean;
   receive?: boolean;
-  /** 不随层高缩放：y/h 即为相对该层完成面(baseY)的绝对米数，仅做平移 */
+  /**
+   * 兼容标记：所有构件的 y/h 现均为相对本层完成面(baseY)的绝对米数，渲染侧只做平移、不再缩放。
+   * 保留字段仅为兼容既有配置数据，读取方已移除。
+   */
   absolute?: boolean;
 }
 
@@ -207,7 +210,7 @@ export interface FpsWalkArea {
  * 供 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用，避免四处重复建模。
  */
 export interface ThresholdSegment {
-  /** 所属门 id（与可交互门 userData.id、门禁 gaps、2D 图例一致） */
+  /** 所属门 id（2D 图例一致；有门扇的门还对应 userData.id 与门禁 gaps，无门扇常开洞口只作门槛标识） */
   id: string;
   /** 过门石条 / 门洞补地面 */
   kind: 'sill' | 'infill';
@@ -229,7 +232,7 @@ export interface DoorSpec {
   x: number;
   y: number;
   z: number;
-  /** 不随层高缩放：y 为相对完成面的绝对米数 */
+  /** 兼容标记：y 为相对本层完成面的绝对米数；渲染侧不再按层高缩放 */
   absolute?: boolean;
 }
 
@@ -240,7 +243,7 @@ export interface SlidingDoorSpec {
   x: number;
   y: number;
   z: number;
-  /** 不随层高缩放：y 为相对完成面的绝对米数 */
+  /** 兼容标记：y 为相对本层完成面的绝对米数；渲染侧不再按层高缩放 */
   absolute?: boolean;
 }
 
@@ -269,7 +272,7 @@ export interface InteriorDoorSpec {
   hingeSide?: 1 | -1;
   /** 门洞标识：用于第一人称门禁判定（关门两侧都挡、开门放行），对应可交互门 userData.id */
   id?: string;
-  /** 不随层高缩放：y/h 为相对完成面的绝对米数 */
+  /** 兼容标记：y/h 为相对本层完成面的绝对米数；渲染侧不再按层高缩放 */
   absolute?: boolean;
 }
 
@@ -375,7 +378,7 @@ export interface WindowSpec {
   style?: 'casement' | 'sliding';
   /** 开启构件：左右下方两枚小窗格对开（外开），其余格位固定不动 */
   openSashes?: 'lower-sides';
-  /** 不随层高缩放：y/h 为相对完成面的绝对米数 */
+  /** 兼容标记：y/h 为相对本层完成面的绝对米数；渲染侧不再按层高缩放 */
   absolute?: boolean;
 }
 

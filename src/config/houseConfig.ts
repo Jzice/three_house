@@ -25,6 +25,10 @@ import type {
 // ==========================================================
 export const W = 9.24;
 export const D = 10.24;
+/**
+ * 1F 层高（米）。仅用于 `FLOORS` 的 1F 墙高与后续楼层 `baseY` 累加，
+ * **不再作为其它楼层竖向尺寸的缩放基准**：所有构件均按各层 `floor.wallH` 给出绝对米数。
+ */
 export const H = 3.5;
 
 /** 两层楼房：1F 层高 3.5m；2F 在其上方、层高 3.0m（敞顶，后区按定制合并） */
@@ -74,20 +78,24 @@ export const FLOORS: FloorConfig[] = [
 export const T_EXT = 0.24;
 /** 内墙厚度 */
 export const T_INT = 0.24;
-/** 门洞高度 */
+/** 门洞高度基准 */
 export const DOOR_H = 2.4;
-/** 1F/2F 前门门洞与门扇高度（较通用门洞加高 0.2m）；3F 正面装饰门洞仍用 DOOR_H */
+/** 1F/2F 前门门洞与门扇高度（较通用门洞加高 0.2m）；3F 正面门洞另用 2.1m */
 export const FRONT_DOOR_H = DOOR_H + 0.2;
-/** 内门高度（门头下方） */
+/** 内门洞高度（门头下方） */
 export const DOOR_INNER_H = 2.1;
+/** 1F 北墙后门洞高度 */
+export const BACK_DOOR_H = 2.0;
+/** 标准窗台高（1F/2F 通用） */
+export const WINDOW_SILL = 0.9;
+/** 标准窗洞高（1F/2F 通用） */
+export const WINDOW_H = 1.8;
+/** 标准窗洞顶标高 = 窗台高 + 窗洞高 */
+export const WINDOW_TOP = WINDOW_SILL + WINDOW_H;
 /** 地板瓷砖边长（米） */
 export const TILE_SIZE = 0.8;
 
-/**
- * 楼板结构厚度（米）：各层统一 20cm。
- * 楼板顶面 = 本层完成面（floor.baseY），板底 = 完成面 - SLAB_T（向下生长，不占净高以外的体量）。
- * 该值为**绝对值**，不随层高缩放（与墙/门窗的按层缩放规则不同）。
- */
+/** 楼板结构厚度（米）：各层统一 20cm，绝对值，顶面 = 本层完成面 baseY */
 export const SLAB_T = 0.2;
 
 /**
@@ -101,10 +109,11 @@ export const SLAB_T = 0.2;
  */
 export const WALL_TOP_GUARD = 0.002;
 
-/** 内墙门洞下的矮墙/门头高度基准 */
-const HEAD_BASE = 2.1;
-const SILL_TOP = 2.7;
-const WINDOW_HEAD = 2.0;
+/**
+ * 1F 楼梯间东墙（x=-2.00）通厨房的常开洞口：净宽 1.1m × 净高 2.0m，不装门扇。
+ * 3D 墙段、2D 墙线、2F 封墙与第一人称 `solids` 挖洞共用此常量，避免多处漂移。
+ */
+export const STAIR_EAST_OPENING = { x: -2.00, z: -3.30, w: 1.1, h: 2.0 } as const;
 
 // ==========================================================
 // 视角初始状态
@@ -218,18 +227,20 @@ function box(
   z: number,
   material: MaterialKey = 'wall',
 ): BoxSpec {
-  return { w, h, d, x, y, z, material };
+  // y/h 一律为相对本层完成面（floor.baseY）的绝对米数；由 remapBox 统一平移 + 到顶让缝
+  return { w, h, d, x, y, z, material, absolute: true };
 }
 
-/** 门洞上方门头墙：从 baseH 一直到层顶 */
+/** 门洞/窗洞上方的门头墙：自 baseH 一直到本层墙顶 wallH（绝对米数） */
 function header(
   w: number,
   d: number,
   x: number,
   z: number,
   baseH: number,
+  wallH: number,
 ): BoxSpec {
-  return box(w, H - baseH, d, x, baseH + (H - baseH) / 2, z);
+  return box(w, wallH - baseH, d, x, baseH + (wallH - baseH) / 2, z);
 }
 
 // ==========================================================
@@ -279,30 +290,40 @@ export function getFloorSlabs(floor: FloorConfig): BoxSpec[] {
 // ==========================================================
 // 外墙
 // ==========================================================
-export const EXTERIOR_WALLS: BoxSpec[] = [
-  // 东西两道外墙（南端止于 z=4.88：南墙角块交给整片南墙，避免转角两段墙共面/对接）
-  box(T_EXT, H, D - T_EXT, -4.5, H / 2, -T_EXT / 2),
-  box(T_EXT, H, D - T_EXT, 4.5, H / 2, -T_EXT / 2),
+/**
+ * 1F / 2F 外墙（南墙除外，南墙由 `getSouthWall()` 输出整片带洞墙）。
+ * 竖向尺寸一律为绝对米数：到顶墙按本层 `wallH`；窗台 / 窗洞沿用统一标准尺寸；
+ * 窗上墙与后门门楣按 `wallH − 洞口顶` 推导，不随层高缩放。
+ */
+function exteriorWallSpecs(floor: FloorConfig): BoxSpec[] {
+  const wallH = floor.wallH;
+  const headH = wallH - WINDOW_TOP;
+  const headY = WINDOW_TOP + headH / 2;
+  return [
+    // 东西两道外墙（南端止于 z=4.88：南墙角块交给整片南墙，避免转角两段墙共面/对接）
+    box(T_EXT, wallH, D - T_EXT, -4.5, wallH / 2, -T_EXT / 2),
+    box(T_EXT, wallH, D - T_EXT, 4.5, wallH / 2, -T_EXT / 2),
 
-  // ---- 北墙 z = -5.0 ----
-  // 后门区：洞口宽 1.1m（x∈[-3.22,-2.12]），两侧门垛 + 上方门楣，门扇由 buildHouse 单独装配
-  box(1.16, H, T_EXT, -3.80, H / 2, -5.0), // 西侧门垛 x∈[-4.38,-3.22]
-  box(1.1, H - WINDOW_HEAD, T_EXT, -2.67, WINDOW_HEAD + (H - WINDOW_HEAD) / 2, -5.0), // 门楣（门洞上方墙）
-  box(0.72, H, T_EXT, -1.76, H / 2, -5.0), // 东侧门垛 x∈[-2.12,-1.40]
-  // 窗 1：窗台 + 门头
-  box(1.8, 0.9, T_EXT, -0.5, 0.45, -5.0),
-  box(1.8, H - SILL_TOP, T_EXT, -0.5, SILL_TOP + (H - SILL_TOP) / 2, -5.0),
-  box(1.45, H, T_EXT, 1.125, H / 2, -5.0),
-  // 窗 2：窗台 + 门头
-  box(1.8, 0.9, T_EXT, 2.75, 0.45, -5.0),
-  box(1.8, H - SILL_TOP, T_EXT, 2.75, SILL_TOP + (H - SILL_TOP) / 2, -5.0),
-  box(0.73, H, T_EXT, 4.015, H / 2, -5.0),
-
-  // ---- 南墙 z = 5.0 ----
-  // 南墙不在这里用墙盒拼：改为 `getSouthWall()` 输出整片带洞墙（单网格，无内部接缝），
-  // 由 buildHouse 用 extrude 挖洞成型。多段墙盒拼接无论对接还是搭接，都会在接缝处
-  // 露出亚像素裂缝或共面 z-fighting（表现为窗边/门边的竖向"缝隙"）。
-];
+    // ---- 北墙 z = -5.0 ----
+    box(1.16, wallH, T_EXT, -3.80, wallH / 2, -5.0), // 西侧门垛 x∈[-4.38,-3.22]
+    // 后门区（x∈[-3.22,-2.12]）：1F 为净高 BACK_DOOR_H 的门洞 + 门楣；2F 改为标准窗
+    ...(floor.index === 0
+      ? [box(1.1, wallH - BACK_DOOR_H, T_EXT, -2.67, BACK_DOOR_H + (wallH - BACK_DOOR_H) / 2, -5.0)]
+      : [
+          box(1.1, WINDOW_SILL, T_EXT, -2.67, WINDOW_SILL / 2, -5.0),
+          box(1.1, headH, T_EXT, -2.67, headY, -5.0),
+        ]),
+    box(0.72, wallH, T_EXT, -1.76, wallH / 2, -5.0), // 东侧门垛 x∈[-2.12,-1.40]
+    // 窗 1：窗台 + 窗上墙
+    box(1.8, WINDOW_SILL, T_EXT, -0.5, WINDOW_SILL / 2, -5.0),
+    box(1.8, headH, T_EXT, -0.5, headY, -5.0),
+    box(1.45, wallH, T_EXT, 1.125, wallH / 2, -5.0),
+    // 窗 2：窗台 + 窗上墙
+    box(1.8, WINDOW_SILL, T_EXT, 2.75, WINDOW_SILL / 2, -5.0),
+    box(1.8, headH, T_EXT, 2.75, headY, -5.0),
+    box(0.73, wallH, T_EXT, 4.015, wallH / 2, -5.0),
+  ];
+}
 
 /**
  * 南墙（整片带洞墙）：窗洞与门洞由 Shape 挖出，整面墙只有一个网格。
@@ -312,16 +333,15 @@ export const EXTERIOR_WALLS: BoxSpec[] = [
  */
 export function getSouthWall(floor: FloorConfig): HoledWallSpec | null {
   if (floor.index !== 0 && floor.index !== 1) return null;
-  // 竖向按层缩放（与 remapBox / 门窗一致）：2F 层高 3.0m，墙高与洞口都要跟着缩
-  const k = floor.wallH / H;
+  // 洞口一律用绝对标准尺寸（1F/2F 相同），墙高按本层 wallH；不再按层高比例压缩洞口
   const holes: WallHole[] = [
-    { cx: -2.93, y0: 0.9 * k, w: 1.8, h: 1.8 * k }, // 窗 3（西）
-    { cx: 2.75, y0: 0.9 * k, w: 1.8, h: 1.8 * k }, // 窗 4（东）
+    { cx: -2.93, y0: WINDOW_SILL, w: 1.8, h: WINDOW_H }, // 窗 3（西）
+    { cx: 2.75, y0: WINDOW_SILL, w: 1.8, h: WINDOW_H }, // 窗 4（东）
   ];
   if (floor.index === 0) {
-    holes.push({ cx: -0.25, y0: 0.001, w: 2.4, h: FRONT_DOOR_H * k }); // 入户门（下沿留 1mm，避免洞口与外轮廓重合）
+    holes.push({ cx: -0.25, y0: 0.001, w: 2.4, h: FRONT_DOOR_H }); // 入户门（下沿留 1mm，避免洞口与外轮廓重合）
   } else {
-    holes.push({ cx: -0.2, y0: 0.001, w: 2.2, h: FRONT_DOOR_H * k }); // 2F 阳台推拉门（下沿留 1mm）
+    holes.push({ cx: -0.2, y0: 0.001, w: 2.2, h: FRONT_DOOR_H }); // 2F 阳台推拉门（下沿留 1mm）
   }
   return {
     z: 5.0,
@@ -336,57 +356,87 @@ export function getSouthWall(floor: FloorConfig): HoledWallSpec | null {
 // ==========================================================
 // 内墙
 // ==========================================================
-export const INTERIOR_WALLS: BoxSpec[] = [
-  // 楼梯间东墙（含门洞门头）
-  box(T_INT, H, 1.18, -2.00, H / 2, -4.29),
-  box(T_INT, H - HEAD_BASE, 0.8, -2.00, HEAD_BASE + (H - HEAD_BASE) / 2, -3.3),
-  box(T_INT, H, 0.94, -2.00, H / 2, -2.17),
+/**
+ * 1F / 2F 内墙：竖向全部按本层 `wallH` 给绝对米数，门头按 `wallH − DOOR_INNER_H` 推导。
+ * 两层的平面差异（后区合并、杂物间门移位、楼梯间东墙洞口）在此显式分支，
+ * 取代原先「共用一份数组 + 按尺寸特征 filter + concat 补墙」的隐式耦合。
+ */
+function interiorWallSpecs(floor: FloorConfig): BoxSpec[] {
+  const wallH = floor.wallH;
+  const is1F = floor.index === 0;
+  const o = STAIR_EAST_OPENING;
+  const z0 = o.z - o.w / 2; // 洞口北沿 -3.85
+  const z1 = o.z + o.w / 2; // 洞口南沿 -2.75
+  const wallZ0 = BACK_WALL_INNER; // -4.88，楼梯间东墙北端
+  const wallZ1 = -1.70; // 楼梯间东墙南端
+  return [
+    // 楼梯间东墙 x=-2.00：1F 留 1.1m×2.0m 常开洞口（无门扇）；2F 整段封死
+    ...(is1F
+      ? [
+          box(T_INT, wallH, z0 - wallZ0, o.x, wallH / 2, (wallZ0 + z0) / 2),
+          header(T_INT, o.w, o.x, o.z, o.h, wallH),
+          box(T_INT, wallH, wallZ1 - z1, o.x, wallH / 2, (z1 + wallZ1) / 2),
+        ]
+      : [box(T_INT, wallH, wallZ1 - wallZ0, o.x, wallH / 2, (wallZ0 + wallZ1) / 2)]),
 
-  // 纵向隔墙 x = 1.20（原 x=1.00 东移 0.2m；杂物间/后卧、卧室1 西墙）
-  box(T_INT, H, 3.26, 1.20, H / 2, -3.25),
-  box(T_INT, H, 0.37, 1.20, H / 2, 0.565),
-  box(T_INT, H, 3.23, 1.20, H / 2, 3.265),
-  box(T_INT, H - HEAD_BASE, 0.9, 1.20, HEAD_BASE + (H - HEAD_BASE) / 2, 1.2),
+    // 纵向隔墙 x = 1.20（杂物间/后卧、卧室1 西墙）
+    ...(is1F ? [box(T_INT, wallH, 3.26, 1.20, wallH / 2, -3.25)] : []),
+    box(T_INT, wallH, 0.37, 1.20, wallH / 2, 0.565),
+    box(T_INT, wallH, 3.23, 1.20, wallH / 2, 3.265),
+    header(T_INT, 0.9, 1.20, 1.2, DOOR_INNER_H, wallH), // 卧室1 门头
 
-  // 卫生间门（北移后）：北段 + 南段 + 门头
-  box(T_INT, H, 0.23, 2.50, H / 2, -1.265),
-  box(T_INT, H, 0.83, 2.50, H / 2, -0.035),
-  box(T_INT, H - HEAD_BASE, 0.7, 2.50, HEAD_BASE + (H - HEAD_BASE) / 2, -0.8),
+    // 卫生间门（北移后）：北段 + 南段 + 门头
+    box(T_INT, wallH, 0.23, 2.50, wallH / 2, -1.265),
+    box(T_INT, wallH, 0.83, 2.50, wallH / 2, -0.035),
+    header(T_INT, 0.7, 2.50, -0.8, DOOR_INNER_H, wallH),
 
-  // 横向隔墙（杂物间门洞随纵墙东移 0.2m：x∈[1.40,2.20]；z=0.50 横墙西端裁至 x=1.08 与新纵墙齐平）
-  box(3.24, H, T_INT, -0.5, H / 2, -2.76),
-  box(0.32, H, T_INT, 1.24, H / 2, -1.50), // 杂物间南墙西段 x∈[1.08,1.40]（与新纵墙西面齐平，1F 客厅侧无墙头）
-  box(2.18, H, T_INT, 3.29, H / 2, -1.50),
-  box(0.8, H - HEAD_BASE, T_INT, 1.8, HEAD_BASE + (H - HEAD_BASE) / 2, -1.50),
-  box(3.30, H, T_INT, 2.73, H / 2, 0.50),
-];
+    // 横向隔墙（1F 厨房↔餐厅 / 杂物间南墙；2F 后卧南墙）
+    ...(is1F ? [box(3.24, wallH, T_INT, -0.5, wallH / 2, -2.76)] : []),
+    box(0.32, wallH, T_INT, 1.24, wallH / 2, -1.50), // x∈[1.08,1.40]，与新纵墙西面齐平
+    box(2.18, wallH, T_INT, 3.29, wallH / 2, -1.50),
+    ...(is1F
+      ? [header(0.8, T_INT, 1.8, -1.50, DOOR_INNER_H, wallH)] // 杂物间门头 x∈[1.40,2.20]
+      : [
+          box(1.0, wallH, T_INT, 1.7, wallH / 2, -1.50), // 封堵原杂物间门洞 x∈[1.20,2.20]
+          box(2.08, wallH, T_INT, 0.04, wallH / 2, -1.50), // 后卧南墙 x∈[-1.00,1.08]
+          header(0.8, T_INT, -1.4, -1.50, DOOR_INNER_H, wallH), // 新门洞门头 x∈[-1.80,-1.00]
+        ]),
+    box(3.30, wallH, T_INT, 2.73, wallH / 2, 0.50),
+  ];
+}
 
 // ==========================================================
 // 承重柱
 // ==========================================================
-export const COLUMNS: BoxSpec[] = [
-  box(0.4, H, 0.4, -2.00, H / 2, 0.50, 'paint'),
-  box(0.4, H, 0.4, -2.00, H / 2, -1.50, 'paint'),
-];
+/** 承重柱：按本层 wallH 给绝对高度（仅存在于有楼梯的楼层） */
+export function getColumns(floor: FloorConfig): BoxSpec[] {
+  const wallH = floor.wallH;
+  return [
+    box(0.4, wallH, 0.4, -2.00, wallH / 2, 0.50, 'paint'),
+    box(0.4, wallH, 0.4, -2.00, wallH / 2, -1.50, 'paint'),
+  ];
+}
 
 // ==========================================================
 // 可交互门窗
 // ==========================================================
+/** 1F/2F 通用标准窗：窗底 WINDOW_SILL、窗顶 WINDOW_TOP，y 为窗中心（绝对米数） */
+const WINDOW_CENTER_Y = WINDOW_SILL + WINDOW_H / 2; // 1.8
 export const WINDOWS: WindowSpec[] = [
-  { w: 1.8, h: 1.8, x: -0.5, y: 1.8, z: -5.0, rotY: Math.PI, openSashes: 'lower-sides' },
-  { w: 1.8, h: 1.8, x: 2.75, y: 1.8, z: -5.0, rotY: Math.PI, openSashes: 'lower-sides' },
-  { w: 1.8, h: 1.8, x: -2.93, y: 1.8, z: 5.0, rotY: 0, openSashes: 'lower-sides' },
-  { w: 1.8, h: 1.8, x: 2.75, y: 1.8, z: 5.0, rotY: 0, openSashes: 'lower-sides' },
+  { w: 1.8, h: WINDOW_H, x: -0.5, y: WINDOW_CENTER_Y, z: -5.0, rotY: Math.PI, openSashes: 'lower-sides', absolute: true },
+  { w: 1.8, h: WINDOW_H, x: 2.75, y: WINDOW_CENTER_Y, z: -5.0, rotY: Math.PI, openSashes: 'lower-sides', absolute: true },
+  { w: 1.8, h: WINDOW_H, x: -2.93, y: WINDOW_CENTER_Y, z: 5.0, rotY: 0, openSashes: 'lower-sides', absolute: true },
+  { w: 1.8, h: WINDOW_H, x: 2.75, y: WINDOW_CENTER_Y, z: 5.0, rotY: 0, openSashes: 'lower-sides', absolute: true },
 ];
 
 /** 入户双开门（整体西移 0.05m） */
-export const MAIN_DOOR: DoorSpec = { x: -0.25, y: 0, z: 5.0 };
+export const MAIN_DOOR: DoorSpec = { x: -0.25, y: 0, z: 5.0, absolute: true };
 
 /** 2F 两折玻璃推拉门（通阳台）：洞口宽 2.2m */
-export const SLIDING_DOOR: SlidingDoorSpec = { w: 2.2, x: -0.2, y: 0, z: 5.0 };
+export const SLIDING_DOOR: SlidingDoorSpec = { w: 2.2, x: -0.2, y: 0, z: 5.0, absolute: true };
 
-/** 1F 北墙后门：矩形金属单开门，宽 1.1m、高 2.0m（洞口与门套包边用） */
-export const BACK_DOOR = { w: 1.1, h: 2.0, x: -2.67, z: -5.0 };
+/** 1F 北墙后门：矩形金属单开门，宽 1.1m、高 BACK_DOOR_H（洞口与门套包边用） */
+export const BACK_DOOR = { w: 1.1, h: BACK_DOOR_H, x: -2.67, z: -5.0 };
 
 // ==========================================================
 // 第一人称行走范围（房屋内部 + 门洞通道 + 院子）
@@ -538,6 +588,24 @@ function collectFloorDoors(floor: FloorConfig): FloorDoorDef[] {
   return list;
 }
 
+/**
+ * 门槛生成专用的门位集合：在可交互门之外，补 1F 楼梯间东墙的常开洞口。
+ *
+ * 该洞口**不装门扇**，绝不能进 collectFloorDoors()：getFpsWalkArea() 会把它登记为
+ * 门禁 gaps，而 isDoorOpenNow() 查不到对应门扇即返回 false，反而把常开洞口判成「关门」。
+ * 这里单独补一条只供 getThresholdSegments() 消费的记录，使 3D / 2D / CAD / 脚下贴地
+ * 与房门一样有黑色大理石过门石，同时洞口始终从 solids 挖穿、永远可通行。
+ */
+function collectThresholdDoors(floor: FloorConfig): FloorDoorDef[] {
+  const list = collectFloorDoors(floor);
+  if (floor.index === 0) {
+    const o = STAIR_EAST_OPENING;
+    // rotY 非 0 表示墙沿 z（长向）延展、墙厚在 x，与楼梯间东墙一致
+    list.push({ x: o.x, z: o.z, w: o.w, rotY: Math.PI / 2, id: 'door-kitchen', T: T_INT });
+  }
+  return list;
+}
+
 // ==========================================================
 // 门槛 / 过门石（按各门两侧实际地面与干湿情况配置）
 // ==========================================================
@@ -577,13 +645,14 @@ const SILL_METAL = '#707478';
 const SILL_ALUMINUM = '#2a2a2c';
 
 /**
- * 全 11 扇门的逐门做法：
+ * 全 11 扇门 + 1 处常开洞口的逐门做法：
  * - 门槛条一律按门框宽度 SILL_DEPTH(0.24m) 居中铺满整个门洞墙厚；
- * - 房门 5 扇 + 卫生间 2 扇统一黑色大理石 blackMarble；
+ * - 房门 5 扇 + 卫生间 2 扇 + 厨房常开洞口统一黑色大理石 blackMarble；
  * - 其余 4 扇门槛与各自门框同材质：入户 doorDark、后门 metalDoor、
  *   2F 推拉门 blackAluminum、3F 正面门 metalDoor（整扇已统一为灰色金属）；
  * - 3 扇外墙门把内 / 外踏面移到门框两侧各延伸 0.15m，仍用 floor / paving
- *   保留两侧实际地面与 1F 的 0.2m 高差过渡。
+ *   保留两侧实际地面与 1F 的 0.2m 高差过渡；
+ * - `0:door-kitchen` 是无门扇的常开洞口，只生成一条过门石，没有门框 / 门禁。
  */
 export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
   '0:main': {
@@ -607,6 +676,10 @@ export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
   '0:door-bath': {
     sill: 'blackMarble', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
     color: SILL_BLACK, note: '卫生间：干湿分区，黑色大理石门槛抬高 18mm 挡水',
+  },
+  '0:door-kitchen': {
+    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '厨房常开洞口：无门扇、永远可通行；过门石沿用房门黑色大理石，抬高 4mm 收边',
   },
   '1:sliding': {
     sill: 'blackAluminum', inner: 'floor', outer: 'floor',
@@ -641,10 +714,13 @@ export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
  * 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用这一份推导结果。
  * 沿墙厚方向以墙心为 0：门槛条固定占 [-SILL_DEPTH/2, +SILL_DEPTH/2]（与门框等宽）；
  * 外墙门的内 / 外踏面分别再向两侧延伸 TREAD_EXTEND；内门楼板连续，只生成门槛条。
+ *
+ * 门位取 collectThresholdDoors()（含厨房常开洞口），而非 collectFloorDoors()：
+ * 后者只描述「有门扇、需要门禁判定」的门，前者额外补无门扇洞口的过门石。
  */
 export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
   const out: ThresholdSegment[] = [];
-  for (const door of collectFloorDoors(floor)) {
+  for (const door of collectThresholdDoors(floor)) {
     const style = THRESHOLD_STYLES[`${floor.index}:${door.id}`];
     if (!style) continue;
     const alongX = Math.abs(door.rotY) < 0.01; // 墙沿 x 延展 → 墙厚在 z
@@ -766,7 +842,23 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   const sw = getSouthWall(floor);
   if (sw) solids.push({ x0: -sw.w / 2, x1: sw.w / 2, z0: sw.z - sw.d / 2, z1: sw.z + sw.d / 2 });
   for (const b of getInteriorWalls(floor)) solids.push(footprint(b));
-  if (floor.stair) for (const b of COLUMNS) solids.push(footprint(b));
+  if (floor.stair) for (const b of getColumns(floor)) solids.push(footprint(b));
+
+  // 1F 楼梯间东墙的常开洞口（无门扇）：直接从墙体脚印挖穿，不登记门禁 gaps。
+  // 若当作 gaps，isDoorOpenNow 查不到对应门扇会返回 false，反而把洞口判成「关门」挡住。
+  if (floor.index === 0) {
+    const o = STAIR_EAST_OPENING;
+    const hole: WalkRect = {
+      x0: o.x - T_INT / 2 - 0.02,
+      x1: o.x + T_INT / 2 + 0.02,
+      z0: o.z - o.w / 2,
+      z1: o.z + o.w / 2,
+    };
+    const next: WalkRect[] = [];
+    for (const s of solids) next.push(...subtractRect(s, hole));
+    solids.length = 0;
+    solids.push(...next);
+  }
 
   const gaps: (WalkRect & { id: string })[] = [];
   for (const d of collectFloorDoors(floor)) {
@@ -847,18 +939,19 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
       { w: 1.2, h: 1.3, x: 2.75, y: 1.45, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
     ];
   }
-  return [...WINDOWS, { w: 1.1, h: 1.4, x: -2.67, y: 1.0, z: -5.0, rotY: Math.PI }];
+  // 2F 北墙原后门区改标准窗（宽沿用后门洞 1.1m），与同层其余窗同窗台/窗高
+  return [...WINDOWS, { w: 1.1, h: WINDOW_H, x: -2.67, y: WINDOW_CENTER_Y, z: -5.0, rotY: Math.PI, absolute: true }];
 }
 
-/** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心） */
+/** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心；尺寸均为绝对米数） */
 export const INTERIOR_DOORS: InteriorDoorSpec[] = [
   // 卧室1：西墙 x=1.20 门洞（z≈1.2）；朝室内（+x）开，开至 90° 后门扇平行并贴靠北墙
-  { w: 0.9, x: 1.2, y: 0, z: 1.2, rotY: -Math.PI / 2, materialKey: 'wood', openAngle: Math.PI / 2, id: 'door-bed1' },
+  { w: 0.9, x: 1.2, y: 0, z: 1.2, rotY: -Math.PI / 2, materialKey: 'wood', openAngle: Math.PI / 2, id: 'door-bed1', absolute: true },
   // 杂物间：南墙 z=-1.50 门洞（x≈1.8，随纵墙东移；墙沿 x 延展）
-  { w: 0.8, x: 1.8, y: 0, z: -1.5, rotY: 0, materialKey: 'wood', id: 'door-store' },
+  { w: 0.8, x: 1.8, y: 0, z: -1.5, rotY: 0, materialKey: 'wood', id: 'door-store', absolute: true },
   // 卫生间：西墙 x=2.50 门洞（靠北段，z∈[-1.15,-0.45]，中心 -0.8；墙沿 z 延展）
   // 铰链在北侧（hingeSide:1），门扇朝室内（+x）开；玻璃门带白色边框
-  { w: 0.7, x: 2.5, y: 0, z: -0.8, rotY: Math.PI / 2, materialKey: 'frostedGlass', hingeSide: 1, id: 'door-bath' },
+  { w: 0.7, x: 2.5, y: 0, z: -0.8, rotY: Math.PI / 2, materialKey: 'frostedGlass', hingeSide: 1, id: 'door-bath', absolute: true },
 ];
 
 // ==========================================================
@@ -898,8 +991,9 @@ export const WALLS_2D: WallSpec2D[] = [
   { w: 1.8, d: T_EXT, x: 2.75, z: 5.0, color: '#88ccff' },
   { w: 0.76, d: T_EXT, x: 4.03, z: 5.0 },
 
-  { w: T_INT, d: 1.18, x: -2.00, z: -4.29 },
-  { w: T_INT, d: 0.94, x: -2.00, z: -2.17 },
+  // 楼梯间东墙：中间留 1.1m 常开洞口 z∈[-3.85,-2.75]（与 STAIR_EAST_OPENING 同源）
+  { w: T_INT, d: 1.03, x: -2.00, z: -4.365 },
+  { w: T_INT, d: 1.05, x: -2.00, z: -2.225 },
   { w: T_INT, d: 3.26, x: 1.20, z: -3.25 },
   { w: T_INT, d: 0.37, x: 1.20, z: 0.565 },
   { w: T_INT, d: 3.23, x: 1.20, z: 3.265 },
@@ -954,89 +1048,51 @@ export function getStairs2D(floor: FloorConfig) {
   };
 }
 
-/** 按楼层返回外墙：2F 门洞 2.2m；3F 半层（北/东西封闭，正面墙开门+两侧窗） */
+/** 按楼层返回外墙：1F/2F 共用派生墙段（南墙另由 getSouthWall 生成）；3F 半层正面墙开窗门 */
 export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
-  if (floor.index === 0) return EXTERIOR_WALLS;
   if (floor.index === 3) return []; // 屋顶层无外墙
   if (floor.index === 2) {
-    // 3F 半层：前缘对齐 2F 卧室1 北墙线 z=0.5，仅南立面（正面墙）开门窗
+    // 3F 半层：前缘对齐 2F 卧室1 北墙线 z=0.5，仅南立面（正面墙）开门窗。
+    // 竖向一律绝对米数（本层 wallH=2.5）：窗台 0.8、窗顶/门顶 2.1、上段墙 0.4，与改前完全一致。
+    const wallH = floor.wallH;
     return [
-      box(T_EXT, H, 5.5, -4.5, H / 2, -2.37), // 西外墙 z∈[-5.12,0.38]
-      box(T_EXT, H, 5.5, 4.5, H / 2, -2.37), // 东外墙
-      box(8.76, H, T_EXT, 0, H / 2, -5.0), // 北墙（整面封闭）
+      box(T_EXT, wallH, 5.5, -4.5, wallH / 2, -2.37), // 西外墙 z∈[-5.12,0.38]
+      box(T_EXT, wallH, 5.5, 4.5, wallH / 2, -2.37), // 东外墙
+      box(8.76, wallH, T_EXT, 0, wallH / 2, -5.0), // 北墙（整面封闭）
       // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
-      box(0.97, H, T_EXT, -4.135, H / 2, 0.5), // 左角
-      box(0.3, H, T_EXT, -3.5, H / 2, 0.5), // 左角—西窗 填充
-      { ...box(1.2, 0.8, T_EXT, -2.75, 0.4, 0.5), absolute: true }, // 西窗窗台（高 0.8、宽 1.2，绝对，窗底0.8）
-      { ...box(1.2, 0.4, T_EXT, -2.75, 2.3, 0.5), absolute: true }, // 西窗上段（高 0.4，窗顶齐平门顶2.1m，绝对）
-      box(1.55, H, T_EXT, -1.375, H / 2, 0.5), // 西窗—门 填充
-      { ...box(1.2, 0.4, T_EXT, 0, 2.3, 0.5), absolute: true }, // 阳台门门头（门洞高 2.1m，绝对）
-      box(1.55, H, T_EXT, 1.375, H / 2, 0.5), // 门—东窗 填充
-      { ...box(1.2, 0.8, T_EXT, 2.75, 0.4, 0.5), absolute: true }, // 东窗窗台（高 0.8、宽 1.2，绝对，窗底0.8）
-      { ...box(1.2, 0.4, T_EXT, 2.75, 2.3, 0.5), absolute: true }, // 东窗上段（高 0.4，窗顶齐平门顶2.1m，绝对）
-      box(0.3, H, T_EXT, 3.5, H / 2, 0.5), // 东窗—右角 填充
-      box(0.97, H, T_EXT, 4.135, H / 2, 0.5), // 右角
+      box(0.97, wallH, T_EXT, -4.135, wallH / 2, 0.5), // 左角
+      box(0.3, wallH, T_EXT, -3.5, wallH / 2, 0.5), // 左角—西窗 填充
+      box(1.2, 0.8, T_EXT, -2.75, 0.4, 0.5), // 西窗窗台（窗底 0.8）
+      box(1.2, 0.4, T_EXT, -2.75, 2.3, 0.5), // 西窗上段（窗顶齐平门顶 2.1）
+      box(1.55, wallH, T_EXT, -1.375, wallH / 2, 0.5), // 西窗—门 填充
+      box(1.2, 0.4, T_EXT, 0, 2.3, 0.5), // 阳台门门头（门洞高 2.1）
+      box(1.55, wallH, T_EXT, 1.375, wallH / 2, 0.5), // 门—东窗 填充
+      box(1.2, 0.8, T_EXT, 2.75, 0.4, 0.5), // 东窗窗台
+      box(1.2, 0.4, T_EXT, 2.75, 2.3, 0.5), // 东窗上段
+      box(0.3, wallH, T_EXT, 3.5, wallH / 2, 0.5), // 东窗—右角 填充
+      box(0.97, wallH, T_EXT, 4.135, wallH / 2, 0.5), // 右角
     ];
   }
-  return EXTERIOR_WALLS.map((w) => {
-    // 南墙门洞西段：1F 门垛左沿 -2.03 后 x∈[-2.03,-1.45] → 2F 右沿延至 -1.30（滑门洞口）
-    if (Math.abs(w.x + 1.74) < 1e-6 && Math.abs(w.w - 0.58) < 1e-6 && Math.abs(w.z - 5.0) < 1e-6) {
-      return box(0.73, H, T_EXT, -1.665, H / 2, 5.0);
-    }
-    // 南墙门洞东段：1F 门洞东沿 0.95 → 2F 左沿延至 0.90（滑门洞口）
-    if (Math.abs(w.x - 1.375) < 1e-6 && Math.abs(w.w - 0.85) < 1e-6 && Math.abs(w.z - 5.0) < 1e-6) {
-      return box(0.95, H, T_EXT, 1.375, H / 2, 5.0);
-    }
-    // 南墙门头：2F 滑门洞口宽 2.2、居中于滑门 x=-0.2
-    if (Math.abs(w.x + 0.25) < 1e-6 && Math.abs(w.w - 2.4) < 1e-6 && Math.abs(w.z - 5.0) < 1e-6) {
-      return header(2.2, T_EXT, -0.2, 5.0, FRONT_DOOR_H);
-    }
-    // 北墙后门区（1F 为门洞，门楣由 EXTERIOR_WALLS 提供）：2F 作为窗上段（宽 1.1）
-    if (Math.abs(w.x + 2.67) < 1e-6 && Math.abs(w.z + 5.0) < 1e-6 && w.h < H) {
-      return box(1.1, 1.8, T_EXT, -2.67, 2.6, -5.0);
-    }
-    return w;
-  }).concat(
-    // 2F 后门区下口窗台（门洞下沿，宽 1.1），与 2F 窗配合
-    floor.index === 1 ? [box(1.1, 0.3, T_EXT, -2.67, 0.15, -5.0)] : [],
-  );
+  return exteriorWallSpecs(floor);
 }
 
-/** 按楼层返回内墙：2F 合并后卧；3F 半层加两道南北向内墙 */
+/** 按楼层返回内墙：1F/2F 按层显式派生；3F 半层两道南北向内墙 */
 export function getInteriorWalls(floor: FloorConfig): BoxSpec[] {
   // 各层内墙统一为白色乳胶漆（与天花板、承重柱同一材质）
   const paint = (specs: BoxSpec[]): BoxSpec[] => specs.map((s) => ({ ...s, material: 'paint' }));
-  if (floor.index === 0) return paint(INTERIOR_WALLS);
   if (floor.index === 3) return []; // 屋顶层无内墙
   if (floor.index === 2) {
-    // 3F 两道南北向内墙：
-    // 墙1 x=-2.00（贴楼梯空隙东缘，与 2F 楼梯间东墙对齐），北墙 → 梯口 z=-1.28
-    // 墙2 x=1.00（与 1F/2F 纵墙对齐），北墙 → 正面墙整通，z=-2.25 处留 0.8m 门洞
+    // 3F 两道南北向内墙（本层 wallH=2.5，竖向绝对米数，与改前一致）：
+    // 墙1 x=-2.00（贴楼梯空隙东缘），北墙 → 梯口 z=-1.28
+    // 墙2 x=1.20（与 1F/2F 纵墙对齐），z=-0.22 处留 1.2m 门洞（门洞高 2.0）
+    const wallH = floor.wallH;
     return paint([
-      box(T_INT, H, 3.60, -2.00, H / 2, -3.08), // 墙1 z∈[-4.88,-1.28]
-      box(T_INT, H, 4.06, 1.20, H / 2, -2.85), // 墙2北段 z∈[-4.88,-0.82]（缩短以容纳1.2m门洞）
-      { ...box(T_INT, 0.5, 1.2, 1.20, 2.25, -0.22), absolute: true }, // 墙2门头（门洞高2.0m、宽1.2沿z、北移）
+      box(T_INT, wallH, 3.60, -2.00, wallH / 2, -3.08), // 墙1 z∈[-4.88,-1.28]
+      box(T_INT, wallH, 4.06, 1.20, wallH / 2, -2.85), // 墙2北段 z∈[-4.88,-0.82]
+      box(T_INT, 0.5, 1.2, 1.20, 2.25, -0.22), // 墙2门头 y∈[2.0,2.5]
     ]);
   }
-  return paint(
-    INTERIOR_WALLS.filter((w) => {
-      // 去掉厨房/杂物间西墙北段（x=1.20, z=-3.25, d=3.26）：2F 并入后卧
-      if (Math.abs(w.x - 1.2) < 1e-6 && Math.abs(w.z + 3.25) < 1e-6 && Math.abs(w.d - 3.26) < 1e-6) return false;
-      // 去掉旧厨房↔餐厅横向隔墙（z=-2.76, x=-0.5, w=3.24）
-      if (Math.abs(w.z + 2.76) < 1e-6 && Math.abs(w.x + 0.5) < 1e-6) return false;
-      // 封掉楼梯间东墙门洞（x=-2.00, z≈-3.3 的过梁段）：后卧入口改走南墙
-      if (Math.abs(w.x + 2.0) < 1e-6 && Math.abs(w.z + 3.3) < 1e-6 && Math.abs(w.d - 0.8) < 1e-6) return false;
-      // 原杂物间门洞过梁（x=1.8, z=-1.5）：2F 门移至西端，原洞封堵
-      if (Math.abs(w.x - 1.8) < 1e-6 && Math.abs(w.z + 1.5) < 1e-6 && Math.abs(w.w - 0.8) < 1e-6) return false;
-      return true;
-    }).concat([
-      box(T_INT, H, 0.8, -2.00, H / 2, -3.30), // 补全楼梯间东墙（原门洞位置）
-      box(T_INT, H, 0.26, -2.00, H / 2, -2.77), // 补齐该墙 z∈[-2.90,-2.64] 的原始空档
-      box(1.0, H, T_INT, 1.7, H / 2, -1.50), // 封堵原杂物间门洞 x∈[1.20,2.20]
-      box(2.08, H, T_INT, 0.04, H / 2, -1.50), // 后卧南墙 x∈[-1.00,1.08]（西段补至新纵墙西面，保持连续）
-      header(0.8, T_INT, -1.4, -1.50, HEAD_BASE), // 新门洞门头 x∈[-1.80,-1.00]（紧贴 x=-2.00 立柱）
-    ]),
-  );
+  return paint(interiorWallSpecs(floor));
 }
 
 /** 按楼层返回内门：2F 后卧入口贴柱；3F 正面墙装饰门（通阳台，外开） */
@@ -1184,8 +1240,7 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
     if (Math.abs(w.z + 2.76) < 1e-6 && Math.abs(w.x + 0.5) < 1e-6) return false;
     return true;
   }).concat([
-    { w: T_INT, d: 0.8, x: -2.00, z: -3.30 }, // 补全楼梯间东墙（封后卧西侧门洞）
-    { w: T_INT, d: 0.26, x: -2.00, z: -2.77 }, // 补齐该墙原始空档
+    { w: T_INT, d: 1.1, x: -2.00, z: -3.30 }, // 补全楼梯间东墙：封住 1F 的 1.1m 常开洞口 z∈[-3.85,-2.75]
     { w: 2.08, d: T_INT, x: 0.04, z: -1.50 }, // 后卧南墙 x∈[-1.00,1.08]（门洞 x∈[-1.80,-1.00] 靠立柱）
     { w: 1.0, d: T_INT, x: 1.7, z: -1.50 }, // 封堵原杂物间门洞 x∈[1.20,2.20]
   ]);
