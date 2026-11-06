@@ -416,6 +416,41 @@ export interface WallSpec2D {
   color?: string;
 }
 
+/**
+ * 2D 平面图上的门窗洞口符号，由 3D 门窗配置同源推导（`getOpenings2D`）。
+ *
+ * 坐标沿用 3D 容器的局部基：洞口所在墙的 `rotY` 把局部 +x 旋到世界 `(ax, az)`
+ * （沿墙长向）、局部 +z 旋到世界 `(nx, nz)`（法向基准）。这样铰链侧、开启侧
+ * 与 `builders.ts` 里 `hinge.rotation.y` 的结果天然一致，无需再维护一套 2D 约定。
+ */
+export interface Opening2DSpec {
+  /** 与 3D 门 id / 窗序号对应的标识 */
+  id: string;
+  /** 门 / 窗 / 无门扇的常开洞口 */
+  kind: 'door' | 'window' | 'opening';
+  /** 开启方式：单扇平开 / 双扇对开 / 推拉门 / 平开窗 / 推拉窗 / 固定窗 / 无门扇 */
+  motion: 'swing' | 'double' | 'sliding' | 'casement' | 'slidingWindow' | 'fixed' | 'none';
+  /** 洞口中心（米） */
+  x: number;
+  z: number;
+  /** 洞口净宽（沿墙长向，米） */
+  w: number;
+  /** 所在墙厚（沿墙法向，米） */
+  t: number;
+  /** 沿墙长向单位向量：局部 +x 绕 Y 旋转到世界 */
+  ax: number;
+  az: number;
+  /** 法向基准单位向量：局部 +z 绕 Y 旋转到世界 */
+  nx: number;
+  nz: number;
+  /** 单扇平开门的铰链端：-1 = -along 端，+1 = +along 端；其余为 0 */
+  hinge: -1 | 1 | 0;
+  /** 开启侧：+1 = 沿 +n，-1 = 沿 -n */
+  openSign: 1 | -1;
+  /** 线条颜色（沿用 2D 图既有的窗蓝 / 门深灰配色） */
+  color: string;
+}
+
 /** 触屏虚拟摇杆输出：归一化方向向量，范围 [-1,1]，{0,0} 表示静止（无输入） */
 export interface TouchMove {
   x: number;

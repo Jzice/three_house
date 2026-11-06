@@ -1,7 +1,7 @@
-import type { Dimension, FloorConfig, ViewMode } from '../types';
+import type { Dimension, FloorConfig, Opening2DSpec, ViewMode, WallSpec2D } from '../types';
 import {
   getBalcony2D,
-  getDoorArc2D,
+  getOpenings2D,
   getRooms2D,
   getStairs2D,
   getWalls2D,
@@ -41,6 +41,23 @@ const HIT_TOLERANCE = 10;
 const MIN_MEASURE = 0.1;
 /** 新标注的默认法向偏移 */
 const NEW_DIM_OFFSET = 0.5;
+
+/**
+ * 判断某段 2D 墙体是否其实是门窗洞口。
+ *
+ * `WALLS_2D` 历来用带特殊颜色的实心色块（窗蓝 / 门洞深灰）表示洞口，
+ * 这些段与 `getOpenings2D()` 的洞口中心、净宽、墙向一致，绘制时应跳过，
+ * 让下面的房间色块 / 白底露出来，形成 CAD 意义上的「墙体断开留白」。
+ */
+function isOpeningWall(wall: WallSpec2D, openings: Opening2DSpec[]): boolean {
+  const alongX = wall.w > wall.d;
+  const span = alongX ? wall.w : wall.d;
+  return openings.some((o) => {
+    if ((Math.abs(o.ax) > 0.9) !== alongX) return false;
+    if (Math.abs(wall.x - o.x) > 0.06 || Math.abs(wall.z - o.z) > 0.06) return false;
+    return Math.abs(span - o.w) < 0.06;
+  });
+}
 
 /**
  * 2D 交互式平面图：绘制户型、尺寸标注，支持拖拽标注与点击两点测量。
@@ -145,6 +162,109 @@ export function createFloorplan2D(
     ctx.stroke();
   }
 
+  /**
+   * 门窗洞口符号：墙体已在洞口处断开留白，这里补门窗框线、门扇与 1/4 开启弧、
+   * 外开窗虚线三角、推拉扇错位线 + 滑动箭头，以及常开洞口的无门扇虚线。
+   *
+   * u = 沿墙长向偏移（米），v = 沿法向偏移（米）；屏幕 +y 与世界 +z 同向。
+   */
+  function drawOpenings(openings: Opening2DSpec[], minimap: boolean): void {
+    const lw = minimap ? 1 : 1.4;
+    for (const o of openings) {
+      const pt = (u: number, v: number): [number, number] => [
+        getX(o.x + u * o.ax + v * o.nx),
+        getY(o.z + u * o.az + v * o.nz),
+      ];
+      const line = (a: [number, number], b: [number, number]): void => {
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+      };
+      const halfW = o.w / 2;
+      const halfT = o.t / 2;
+
+      ctx.strokeStyle = o.color;
+      ctx.lineWidth = lw;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      // 洞口四边（门窗套）：两端立边 + 内外两条墙皮线
+      line(pt(-halfW, -halfT), pt(-halfW, halfT));
+      line(pt(halfW, -halfT), pt(halfW, halfT));
+      line(pt(-halfW, -halfT), pt(halfW, -halfT));
+      line(pt(-halfW, halfT), pt(halfW, halfT));
+      if (o.kind === 'window') {
+        // 玻璃中线 + 两根竖梃，构成标准窗的四线图例
+        line(pt(-halfW, 0), pt(halfW, 0));
+        for (const u of [-o.w / 6, o.w / 6]) line(pt(u, -halfT), pt(u, halfT));
+      }
+      ctx.stroke();
+
+      if (o.motion === 'casement') {
+        // 外开平开窗：洞口外侧的虚线三角，尖端指向开启侧
+        const s = o.openSign;
+        // 三角高度控制在 0.22×洞宽内，避免探到外侧 ±0.6m 的尺寸标注线上
+        const tip = pt(0, s * (halfT + o.w * 0.22));
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        line(pt(-halfW, s * halfT), tip);
+        line(pt(halfW, s * halfT), tip);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (o.motion === 'sliding' || o.motion === 'slidingWindow') {
+        // 推拉门 / 推拉窗：两扇各占半宽、分处两条轨道，箭头表示相对滑行方向
+        ctx.beginPath();
+        line(pt(-halfW, -halfT / 2), pt(0, -halfT / 2));
+        line(pt(0, halfT / 2), pt(halfW, halfT / 2));
+        ctx.stroke();
+        const arrow = (fromU: number, toU: number, v: number): void => {
+          const [x1, y1] = pt(toU, v);
+          const sign = Math.sign(toU - fromU);
+          const [bx, by] = pt(toU - sign * 0.14, v - 0.07);
+          const [cx2, cy2] = pt(toU - sign * 0.14, v + 0.07);
+          ctx.beginPath();
+          line(pt(fromU, v), [x1, y1]);
+          ctx.moveTo(bx, by);
+          ctx.lineTo(x1, y1);
+          ctx.lineTo(cx2, cy2);
+          ctx.stroke();
+        };
+        arrow(-halfW * 0.7, -halfW * 0.1, -halfT / 2);
+        arrow(halfW * 0.7, halfW * 0.1, halfT / 2);
+      } else if (o.motion === 'swing' || o.motion === 'double') {
+        // 门扇线（自铰链沿开启侧伸出）+ 1/4 圆弧（自关门位置扫到开启位置）
+        const leaves = o.motion === 'double'
+          ? [
+              { h: -halfW, r: halfW, dir: 1 },
+              { h: halfW, r: halfW, dir: -1 },
+            ]
+          : [{ h: o.hinge * halfW, r: o.w, dir: -o.hinge }];
+        ctx.beginPath();
+        for (const leaf of leaves) line(pt(leaf.h, 0), pt(leaf.h, o.openSign * leaf.r));
+        ctx.stroke();
+        ctx.beginPath();
+        const steps = 14;
+        for (const leaf of leaves) {
+          for (let i = 0; i <= steps; i++) {
+            const th = (i / steps) * (Math.PI / 2);
+            const p = pt(
+              leaf.h + leaf.r * Math.cos(th) * leaf.dir,
+              leaf.r * Math.sin(th) * o.openSign,
+            );
+            if (i === 0) ctx.moveTo(p[0], p[1]);
+            else ctx.lineTo(p[0], p[1]);
+          }
+        }
+        ctx.stroke();
+      } else if (o.motion === 'none') {
+        // 常开洞口：只画门套与一条虚线中线，表示无门扇、永远可通行
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        line(pt(-halfW, 0), pt(halfW, 0));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
   function draw(): void {
     // 第一人称模式下按小地图尺寸绘制（右下角常驻、随楼层切换、可隐藏）
     const minimap = callbacks.getMode() === 'fps';
@@ -172,6 +292,7 @@ export function createFloorplan2D(
 
     const rooms = getRooms2D(floor);
     const walls = getWalls2D(floor);
+    const openings = getOpenings2D(floor);
 
     // ---- 院子（铺装 + 围墙线 + 东面院门缺口，后院梯形斜边） ----
     const yard = getYard2D(floor);
@@ -220,8 +341,9 @@ export function createFloorplan2D(
       ctx.setLineDash([]);
     }
 
-    // ---- 墙体 ----
+    // ---- 墙体（门窗洞口跳过实心色块，露出下面的房间色块 / 白底，形成断开留白） ----
     for (const wall of walls) {
+      if (isOpeningWall(wall, openings)) continue;
       ctx.fillStyle = wall.color ?? '#333';
       ctx.fillRect(
         getX(wall.x - wall.w / 2),
@@ -247,20 +369,9 @@ export function createFloorplan2D(
       }
     }
 
-    // ---- 入户门开启弧线（推拉门无弧线） ----
-    const arc = getDoorArc2D(floor);
-    if (arc) {
-      ctx.strokeStyle = arc.color;
-      ctx.beginPath();
-      ctx.arc(
-        getX(arc.x - arc.radius),
-        getY(arc.z),
-        arc.radius * scale,
-        0,
-        Math.PI / 2,
-      );
-      ctx.stroke();
-    }
+    // ---- 门窗洞口符号：框线 / 门扇 / 1/4 开启弧 / 推拉箭头 / 外开窗虚线三角 ----
+    // 画在门槛石之后，避免过门石实色条盖住门框；第一人称小地图同样绘制。
+    drawOpenings(openings, minimap);
 
     // ---- 楼梯投影（无楼梯的楼层跳过） ----
     const stairs = getStairs2D(floor);

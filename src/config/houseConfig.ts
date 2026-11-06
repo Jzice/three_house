@@ -8,6 +8,7 @@ import type {
   HoledWallSpec,
   InteriorDoorSpec,
   MaterialKey,
+  Opening2DSpec,
   RoomSpec,
   SlidingDoorSpec,
   StairHeight,
@@ -1246,9 +1247,106 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
   ]);
 }
 
-/** 按楼层返回入户门开启弧线：2F 为推拉门，无开启弧线 */
+/** 按楼层返回入户门开启弧线：2F 为推拉门，无开启弧线（2D 图现改用 getOpenings2D 统一符号，保留兼容） */
 export function getDoorArc2D(floor: FloorConfig): typeof DOOR_ARC_2D | null {
   return floor.index === 0 ? DOOR_ARC_2D : null;
+}
+
+// ==========================================================
+// 2D 平面图：门窗洞口符号（3D / 2D 同源）
+// ==========================================================
+
+/** 窗蓝（沿用 2D 图例 #88ccff 的深一档）、门深灰与无门扇洞口的灰 */
+const OPENING_WINDOW_COLOR = '#3f8fd0';
+const OPENING_DOOR_COLOR = '#555';
+const OPENING_VOID_COLOR = '#8a8f98';
+
+/** 把 3D 容器的局部 +x / +z 绕 Y 旋到世界 x/z 平面 */
+function openingAxes(rotY: number): Pick<Opening2DSpec, 'ax' | 'az' | 'nx' | 'nz'> {
+  return {
+    ax: Math.cos(rotY),
+    az: -Math.sin(rotY),
+    nx: Math.sin(rotY),
+    nz: Math.cos(rotY),
+  };
+}
+
+function makeOpening(
+  id: string,
+  kind: Opening2DSpec['kind'],
+  motion: Opening2DSpec['motion'],
+  x: number, z: number, w: number, t: number, rotY: number,
+  hinge: -1 | 1 | 0,
+  openSign: 1 | -1,
+  color: string,
+): Opening2DSpec {
+  return { id, kind, motion, x, z, w, t, ...openingAxes(rotY), hinge, openSign, color };
+}
+
+/**
+ * 按楼层返回该层全部门窗洞口，供 2D 平面图绘制「洞口留白 + 门窗框 + 开启方向」。
+ *
+ * 与 3D 共用同一份配置，避免 3D / 2D 两套数据漂移：
+ * - 窗：`getWindows(floor)` 的 `rotY` 决定墙向与室外法向；`openSashes='lower-sides'`
+ *   的下部两扇在 `createLowerSashWindow()` 里一律朝局部 +z（室外）开；`style='sliding'`
+ *   为推拉窗。
+ * - 门：`InteriorDoorSpec` 的 `hingeSide` / `openAngle` / `rotY` 直接换算。门扇绕铰链
+ *   旋转 α 后指向 `hingeSide × sign(α) × 局部 +z`（见 `builders.ts` 的
+ *   `hinge.rotation.y`），故 `openSign` 由此得出，与 3D 实际开向完全一致。
+ * - 无 `InteriorDoorSpec` 的外门（1F 双开入户门 / 后门、2F 推拉门）按 `buildHouse.ts`
+ *   的装配参数显式给出；1F 楼梯间东墙的常开洞口只有门套、没有门扇。
+ */
+export function getOpenings2D(floor: FloorConfig): Opening2DSpec[] {
+  if (floor.index === 3) return []; // 屋顶层只有女儿墙，无门窗
+  const list: Opening2DSpec[] = [];
+
+  getWindows(floor).forEach((win, i) => {
+    const motion: Opening2DSpec['motion'] = win.style === 'sliding'
+      ? 'slidingWindow'
+      : win.openSashes === 'lower-sides' ? 'casement' : 'fixed';
+    list.push(makeOpening(
+      `window-${floor.index}-${i}`, 'window', motion,
+      win.x, win.z, win.w, T_EXT, win.rotY, 0, 1, OPENING_WINDOW_COLOR,
+    ));
+  });
+
+  if (floor.index === 0) {
+    // 入户双开铜门：左右铰链在洞口两端，两扇 openAngle 一正一负但都朝室内(-z)开
+    list.push(makeOpening(
+      'main', 'door', 'double',
+      MAIN_DOOR.x, MAIN_DOOR.z, 2.4, T_EXT, 0, 0, -1, OPENING_DOOR_COLOR,
+    ));
+    // 北墙后门：铰链在东侧，负角朝北向院子(-z)开
+    list.push(makeOpening(
+      'back', 'door', 'swing',
+      BACK_DOOR.x, BACK_DOOR.z, BACK_DOOR.w, T_EXT, 0, 1, -1, OPENING_DOOR_COLOR,
+    ));
+    // 楼梯间东墙通厨房：1.1m 常开洞口，墙沿 z 延展，不装门扇
+    const o = STAIR_EAST_OPENING;
+    list.push(makeOpening(
+      'door-kitchen', 'opening', 'none',
+      o.x, o.z, o.w, T_INT, Math.PI / 2, 0, 1, OPENING_VOID_COLOR,
+    ));
+  }
+  if (floor.index === 1) {
+    // 2F 阳台两折玻璃推拉门
+    list.push(makeOpening(
+      'sliding', 'door', 'sliding',
+      SLIDING_DOOR.x, SLIDING_DOOR.z, SLIDING_DOOR.w, T_EXT, 0, 0, 1, OPENING_DOOR_COLOR,
+    ));
+  }
+
+  // 内门（含 3F 正面门 / 墙2 木门）：开向与 3D 的 hinge.rotation.y 同源
+  for (const d of getInteriorDoors(floor)) {
+    const hinge = (d.hingeSide ?? -1) as -1 | 1;
+    const alpha = d.openAngle ?? (Math.PI / 2) * 0.85;
+    const openSign: 1 | -1 = hinge * Math.sign(alpha) >= 0 ? 1 : -1;
+    list.push(makeOpening(
+      d.id ?? 'door', 'door', 'swing',
+      d.x, d.z, d.w, T_INT, d.rotY, hinge, openSign, OPENING_DOOR_COLOR,
+    ));
+  }
+  return list;
 }
 
 // ==========================================================

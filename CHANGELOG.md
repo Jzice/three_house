@@ -2,6 +2,20 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.14] - 2026-11-06
+
+### 新增
+
+- **2D 平面图补全门窗洞口与开启朝向**：此前 2D 图没有独立门窗图元，洞口靠 `WALLS_2D` 里带特殊颜色的实心墙块（窗蓝 `#88ccff` / 门洞深灰 `#555`）表示，只有 1F 入户门一条固定 0~90° 弧线；内门、后门、3F 门与全部窗都既无框线也无开启符号。现在按施工图语义重画：
+  - `types.ts` 新增 `Opening2DSpec`；`houseConfig.ts` 新增 `getOpenings2D(floor)`，从 `getWindows(floor)` / `getInteriorDoors(floor)` / 外门装配参数 / `STAIR_EAST_OPENING` **同源推导**全层洞口，输出洞口净宽、墙向（3D 容器局部 +x 旋到世界）、法向基准（局部 +z）、铰链侧与开启侧，3D / 2D 不再各维护一套门窗数据。
+  - 开启方向与 3D 实际开合一致：单扇门由 `hingeSide × sign(openAngle)` 换算 `openSign`（对应 `builders.ts` 的 `hinge.rotation.y`）——1F 双开门两扇朝室内、后门朝院子外开、3F 正面门朝阳台外开；`lower-sides` 窗的下部两扇朝室外开，`sliding` 窗与 2F 推拉门为推拉。
+  - `floorplan2d.ts` 画墙体时跳过洞口墙段（`isOpeningWall`），露出下面的房间色块 / 白底形成 CAD 式断开留白；再叠加门窗框四线、窗玻璃中线与竖梃、门扇线 + 1/4 开启弧、外开窗虚线三角、推拉扇错位线 + 滑动箭头、常开洞口无门扇虚线。沿用既有窗蓝 / 门深灰配色、房间色块、23 条初始标注与测量拖拽，均未改动。
+  - 覆盖 1F / 2F / 3F 全部外门、内门、外墙窗与 1F 厨房常开洞口，屋顶层无门窗；FPS 小地图复用同一 `draw()`，同步显示符号。原 `DOOR_ARC_2D` / `getDoorArc2D()` 保留导出但 2D 图不再使用（其固定弧线朝 +z，与 3D 入户门内开方向不符）。
+
+### 修复
+
+- **2F 北墙原后门区 2D 仍显示为门洞色块**：`getWalls2D(2F)` 的映射条件按 `w.w≈1.0` 匹配，而 `WALLS_2D` 该段宽为 `1.1`，导致 3D 已改成窗、2D 仍是深灰门洞。现在该段由 `getOpenings2D()` 的窗记录匹配挖白并重画窗框，2D 表现与 3D 一致。
+
 ## [0.5.13] - 2026-11-06
 
 ### 新增
