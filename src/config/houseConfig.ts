@@ -13,6 +13,7 @@ import type {
   StairHeight,
   StairRun,
   StairSurface,
+  ThresholdSegment,
   WallHole,
   WallSpec2D,
   WalkRect,
@@ -537,6 +538,154 @@ function collectFloorDoors(floor: FloorConfig): FloorDoorDef[] {
   return list;
 }
 
+// ==========================================================
+// 门槛 / 过门石（按各门两侧实际地面与干湿情况配置）
+// ==========================================================
+
+/** 门框（门套）贯通墙厚的深度：门槛条按此宽度铺满整个门洞 */
+const SILL_DEPTH = T_INT; // 0.24m
+/** 外墙门内 / 外踏面向门框两侧延伸的长度（米） */
+const TREAD_EXTEND = 0.15;
+/** 踏面压在楼板 / 院子铺装上的共面让缝（米），与 WALL_TOP_GUARD 同类 */
+const TREAD_GUARD = 0.002;
+
+/** 单扇门的门槛做法：键 = `${楼层序号}:${门 id}`；门位与洞宽仍由 collectFloorDoors 派生，避免重复维护 */
+interface ThresholdStyle {
+  /** 门槛条材质：房门 / 卫生间为黑色大理石，其余与门框一致 */
+  sill: MaterialKey;
+  /** 室内侧踏面材质（仅 infillGeom 门使用；缺省同 sill） */
+  inner?: MaterialKey;
+  /** 室外侧踏面材质（仅 infillGeom 门使用；缺省同 sill） */
+  outer?: MaterialKey;
+  /** 门槛顶相对本层完成面的抬高（米） */
+  sillRise: number;
+  /** 室外侧踏面顶相对完成面的高差（米）：1F 院子 0.2m，其余 0 */
+  outerRise: number;
+  /** 外墙门需把内外踏面延伸到门框两侧，并填实门洞缺口 */
+  infillGeom: boolean;
+  /** 室外所在方向（沿墙厚的有符号方向）：+1 = +x/+z，-1 = -x/-z；内门为 0 */
+  outerSign: 1 | -1 | 0;
+  /** 2D 图例颜色 */
+  color: string;
+  /** 该门实际情况说明 */
+  note: string;
+}
+
+const SILL_BLACK = '#2b2b30';
+const SILL_DOOR_DARK = '#2c2c30';
+const SILL_METAL = '#707478';
+const SILL_ALUMINUM = '#2a2a2c';
+
+/**
+ * 全 11 扇门的逐门做法：
+ * - 门槛条一律按门框宽度 SILL_DEPTH(0.24m) 居中铺满整个门洞墙厚；
+ * - 房门 5 扇 + 卫生间 2 扇统一黑色大理石 blackMarble；
+ * - 其余 4 扇门槛与各自门框同材质：入户 doorDark、后门 metalDoor、
+ *   2F 推拉门 blackAluminum、3F 正面门 metalDoor（整扇已统一为灰色金属）；
+ * - 3 扇外墙门把内 / 外踏面移到门框两侧各延伸 0.15m，仍用 floor / paving
+ *   保留两侧实际地面与 1F 的 0.2m 高差过渡。
+ */
+export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
+  '0:main': {
+    sill: 'doorDark', inner: 'floor', outer: 'paving',
+    sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: 1,
+    color: SILL_DOOR_DARK, note: '入户双开门：门槛与深灰仿铜门框同材质；内外踏面分用室内瓷砖与前院卵石，过渡 0.2m 高差',
+  },
+  '0:back': {
+    sill: 'metalDoor', inner: 'floor', outer: 'paving',
+    sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: -1,
+    color: SILL_METAL, note: '北墙后门：门槛与灰色金属门框同材质；18mm 挡水 + 内外高差过渡踏面',
+  },
+  '0:door-bed1': {
+    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '卧室1：房门统一黑色大理石门槛',
+  },
+  '0:door-store': {
+    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '杂物间：房门统一黑色大理石门槛',
+  },
+  '0:door-bath': {
+    sill: 'blackMarble', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '卫生间：干湿分区，黑色大理石门槛抬高 18mm 挡水',
+  },
+  '1:sliding': {
+    sill: 'blackAluminum', inner: 'floor', outer: 'floor',
+    sillRise: 0.004, outerRise: 0, infillGeom: true, outerSign: 1,
+    color: SILL_ALUMINUM, note: '2F 阳台推拉门：门槛与黑色铝合金门框同材质；内外踏面用地砖并保持齐平、不绊脚',
+  },
+  '1:door-bed1': {
+    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '2F 卧室1：房门统一黑色大理石门槛',
+  },
+  '1:door-store': {
+    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '2F 后卧：房门统一黑色大理石门槛',
+  },
+  '1:door-bath': {
+    sill: 'blackMarble', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '2F 卫生间：干湿分区，黑色大理石门槛抬高 18mm 挡水',
+  },
+  '2:front3f': {
+    sill: 'metalDoor', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_METAL,
+    note: '3F 正面门：整扇（门扇 / 门框 / 门槛）统一灰色金属 metalDoor；阳台板已连续覆盖门洞故不补地面',
+  },
+  '2:door-3f2': {
+    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    color: SILL_BLACK, note: '3F 内门：房门统一黑色大理石门槛',
+  },
+};
+
+/**
+ * 按楼层生成全部门槛 / 门洞补地面实体（**世界坐标**，不走 remapBox）。
+ * 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用这一份推导结果。
+ * 沿墙厚方向以墙心为 0：门槛条固定占 [-SILL_DEPTH/2, +SILL_DEPTH/2]（与门框等宽）；
+ * 外墙门的内 / 外踏面分别再向两侧延伸 TREAD_EXTEND；内门楼板连续，只生成门槛条。
+ */
+export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
+  const out: ThresholdSegment[] = [];
+  for (const door of collectFloorDoors(floor)) {
+    const style = THRESHOLD_STYLES[`${floor.index}:${door.id}`];
+    if (!style) continue;
+    const alongX = Math.abs(door.rotY) < 0.01; // 墙沿 x 延展 → 墙厚在 z
+    const center = alongX ? door.z : door.x;
+    const sign = style.outerSign || 1;
+    const half = SILL_DEPTH / 2;
+    const parts: Array<{
+      a: number; b: number; rise: number; material: MaterialKey; kind: 'sill' | 'infill';
+    }> = [{ a: -half, b: half, rise: style.sillRise, material: style.sill, kind: 'sill' }];
+    if (style.infillGeom) {
+      // 踏面移到门框两侧：顶标高加 2mm 让缝，避免与楼板 / 院子铺装顶面共面 z-fighting
+      parts.unshift({
+        a: -half - TREAD_EXTEND, b: -half,
+        rise: TREAD_GUARD, material: style.inner ?? style.sill, kind: 'infill',
+      });
+      parts.push({
+        a: half, b: half + TREAD_EXTEND,
+        rise: style.outerRise + TREAD_GUARD, material: style.outer ?? style.sill, kind: 'infill',
+      });
+    }
+    for (const p of parts) {
+      const c0 = center + sign * p.a;
+      const c1 = center + sign * p.b;
+      const lo = Math.min(c0, c1);
+      const hi = Math.max(c0, c1);
+      const topY = floor.baseY + p.rise;
+      // 门槛条：外门下探到楼板底以填实门洞缺口，内门只嵌 2cm；
+      // 内外踏面：压在楼板 / 院子铺装之上的 2cm 薄贴面
+      const bottom = p.kind === 'sill'
+        ? floor.baseY - (style.infillGeom ? SLAB_T : 0.02)
+        : topY - 0.02;
+      const spec: BoxSpec = alongX
+        ? box(door.w, topY - bottom, hi - lo, door.x, (topY + bottom) / 2, (lo + hi) / 2, p.material)
+        : box(hi - lo, topY - bottom, door.w, (lo + hi) / 2, (topY + bottom) / 2, door.z, p.material);
+      const color = p.kind === 'sill' ? style.color : p.material === 'paving' ? '#b7b0a4' : '#d8d8d4';
+      out.push({ id: door.id, kind: p.kind, spec, topY, color, note: style.note });
+    }
+  }
+  return out;
+}
+
 /**
  * 按楼层返回第一人称可行走范围：
  * - **房屋内部**：外墙内皮再内缩 0.08m（与旧的 FPS_LIMIT_X/Z 一致，避免贴墙）；
@@ -645,13 +794,21 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   const outside: WalkRect | undefined =
     floor.index === 0 ? { x0: -OUTER_BOUND, x1: OUTER_BOUND, z0: -OUTER_BOUND, z1: OUTER_BOUND } : undefined;
 
+  // 门槛 / 门洞台阶的局部完成面（与 3D 装配同源）：不阻挡通行，仅用于第一人称脚下贴地
+  const thresholds = getThresholdSegments(floor).map((s) => ({
+    x0: s.spec.x - s.spec.w / 2,
+    x1: s.spec.x + s.spec.w / 2,
+    z0: s.spec.z - s.spec.d / 2,
+    z1: s.spec.z + s.spec.d / 2,
+    y: s.topY,
+  }));
   const y = floor.yard;
   // 所有楼层均启用正常碰撞（墙/栏杆阻挡）；原 2F/3F 的"完全放开"已取消
   const freeRoam = false;
   if (!y) {
     const yard: WalkRect[] = [];
     if (balconyRect) yard.push(balconyRect);
-    return { inside, doors, yard, rails, yardTopY: floor.baseY, solids, gaps, outside, freeRoam };
+    return { inside, doors, yard, rails, yardTopY: floor.baseY, solids, gaps, thresholds, outside, freeRoam };
   }
 
   // 院子边界（与 yard.ts 的铺装/围墙一致）
@@ -677,7 +834,7 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   // 东北斜围墙：西北角直角段东端 → 东北端，院内在其西南侧
   const slope = { ax: xWest + rearStraight, az: zNorth, bx: xEast, bz: rearEastZ };
 
-  return { inside, doors, yard, slope, rails, yardTopY: y.paveH, solids, gaps, outside, freeRoam };
+  return { inside, doors, yard, slope, rails, yardTopY: y.paveH, solids, gaps, thresholds, outside, freeRoam };
 }
 
 /** 按楼层返回窗：2F 北墙原后门区一扇；3F 仅正面墙两扇 */
@@ -889,7 +1046,8 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   if (floor.index === 2) {
     // 门扇高 2.8（参考系=实际 2.0m）与门洞一致；铰链在东、朝阳台（+z）外开（+90°）
     return [
-      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'wood', h: 2.1, openAngle: Math.PI / 2, hingeSide: 1, id: 'front3f', absolute: true },
+      // 3F 正面门：整扇（门扇 / 门套 / 门槛）统一灰色金属 metalDoor
+      { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'metalDoor', frameMaterial: 'metalDoor', h: 2.1, openAngle: Math.PI / 2, hingeSide: 1, id: 'front3f', absolute: true },
       // 墙2（x=1.20）门洞靠南墙的木门，宽1.2×高2.0m，北移
       { w: 1.2, x: 1.2, y: 0, z: -0.22, rotY: Math.PI / 2, materialKey: 'wood', h: 2.0, hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2', absolute: true },
     ];

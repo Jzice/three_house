@@ -417,6 +417,13 @@ export function createViewManager(
       levelFloor = floorForHeight(best.step);
       return best;
     }
+    // 门槛 / 门洞台阶：过门石凸起不进入 solids / gaps（不阻挡漫游），
+    // 但脚下贴地须按该段完成面标高，否则相机在门洞处会沉入门槛或突然跳到院子标高。
+    for (const t of area.thresholds) {
+      if (inRect(t, x, z) && Math.abs(t.y - current) <= STAIR_MATCH_LIMIT) {
+        return { step: t.y, cont: t.y };
+      }
+    }
     if (!inRect(area.inside, x, z)) {
       // 院外有界地面按自然地面标高；院子/阳台按各自 yardTopY（上层阳台 = 楼层 baseY）
       const onOutside =

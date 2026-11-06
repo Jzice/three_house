@@ -2,6 +2,24 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.11] - 2026-11-06
+
+### 变更
+
+- **门槛宽度对齐门框、材质按门的实际门框重新分配**：门槛条进深由 6~8cm 加宽到 `SILL_DEPTH = T_INT = 0.24m`（与门套贯通墙厚一致），居中铺满整个门洞。`getThresholdSegments()` 改为按「门槛条 + 门框两侧各 0.15m 踏面」推导：3 扇外墙门的内/外踏面移到门框之外，仍用 `floor` / `paving` 保留两侧实际地面与 1F 的 0.2m 高差过渡；踏面以 2cm 薄贴面压在楼板 / 院子铺装之上并留 2mm 共面让缝（`TREAD_GUARD`），避免 z-fighting。8 扇内门楼板连续，只铺一条 0.24m 宽门槛条。
+- **材质规则**：房门 5 扇 + 卫生间 2 扇统一新增 `blackMarble`（程序化近黑底浅灰白脉络抛光大理石）；其余 4 扇门槛与各自门框同材质——`main`→`doorDark`、`back`→`metalDoor`、`sliding`→`blackAluminum`、`front3f`→`metalDoor`。上一轮的 `thresholdStone` / `woodFloor` / `bathTile` / `metalTrim` 按确认**保留在材质字典中**但不再被门槛引用。
+- **3F 正面门整扇统一灰色金属**：`InteriorDoorSpec` 新增 `frameMaterial` 使 `createInteriorDoor()` 的门套材质可配置（原先硬编码 `materials.wood`），并把 `materialKey` 扩展到 `metalDoor`；`front3f` 的门扇、门套、门槛统一为 `metalDoor`（与 1F 后门同款）。门窗开合角度、交互与通行判定不变。
+- 2D 图例色随新材质更新（黑色大理石近黑、门框按各自色、踏面按 `floor`/`paving` 浅色半透明）；`docs/house.json` / `docs/house.dxf` 按新几何重生成。
+
+## [0.5.10] - 2026-11-06
+
+### 新增
+
+- **按各门实际情况增加门槛 / 过门石与门洞地面材质**（全 11 扇门）：此前整屋地面是单一 `floor` 浅灰大理石瓷砖，门只有「门洞 + 门扇 + U 形门套」、完全没有门槛构件，且 1F/2F 外墙门洞 `z∈[4.9,5.12]` 因楼板止于 `±4.90` 存在地面缺口。本轮按「配置即建模」新增 `THRESHOLD_STYLES`（键 = `${楼层}:${门 id}`，逐门记录两侧空间、材质与标高）与 `getThresholdSegments()`，门位/洞宽仍由既有 `collectFloorDoors()` 派生、不重复维护；推导结果同时供 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地使用。
+  - **逐门做法**：1F 入户双开门 / 北墙后门用深色花岗岩过门石挡水（仅 `18mm`，不遮挡门扇下部），室内侧踏面取 `floor` 与室内齐平、室外侧取 `paving` 与院子齐平，把院子铺装 `0.5m` 与室内完成面 `0.3m` 的 `0.2m` 高差填实为一段明确的台阶，顺带补齐门洞缺口；2F 阳台推拉门内外齐平，补地面仍用地砖、中间压一条 `+4mm` 不绊脚的金属下轨；3F 正面门由阳台板连续覆盖门洞，只加 `18mm` 石材挡水坎；卫生间两扇做 `18mm` 防滑砖挡水；卧室 / 后卧 / 杂物间等内门按两侧地面压木纹或石材收边条。
+  - **新增 4 个 `MaterialKey`**：`thresholdStone`（深色花岗岩矿粒贴图）、`woodFloor`（长条木地板贴图）、`bathTile`（哑光灰蓝防滑砖贴图）、`metalTrim`（缎面拉丝金属纯色），全部 Canvas 程序化生成、无外部资源，已在 `createMaterials()` 同步注册；门槛网格按构件尺寸平铺贴图并设 repeat 下限，窄条上仍可见木纹 / 矿粒，六面同材质保留石材断口。
+  - **2D / CAD / DXF / 漫游同步**：`floorplan2d.ts` 在墙体之上绘出门槛条（实色）与门洞补地面（半透明）；`genHouseCad.ts` 新增 `THRESHOLD` 图层并重新生成 `docs/house.json` / `docs/house.dxf`；`FpsWalkArea.thresholds` 让 `resolveGround()` 按每段实际完成面贴地，凸起门槛不进入 `solids` / `gaps`，不影响第一人称通行。
+
 ## [0.5.9] - 2026-11-05
 
 ### 变更

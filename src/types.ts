@@ -30,7 +30,17 @@ export type MaterialKey =
   | 'doorDark'
   /** 金铜色描线/角饰/拉手/锁面板/格棂：一层入户门装饰与五金 */
   | 'bronze'
-  | 'blackPost';
+  | 'blackPost'
+  /** 深色花岗岩过门石：外门挡水坎 / 室内石材收边 */
+  | 'thresholdStone'
+  /** 木地板：卧室门内侧过渡与收边 */
+  | 'woodFloor'
+  /** 卫生间哑光防滑砖：干湿分区挡水门槛 */
+  | 'bathTile'
+  /** 拉丝金属收边 / 推拉门下轨：齐平不绊脚 */
+  | 'metalTrim'
+  /** 黑色大理石（近黑底浅灰白脉络）：房门 / 卫生间门统一门槛 */
+  | 'blackMarble';
 
 export type MaterialMap = Record<MaterialKey, THREE.MeshStandardMaterial>;
 
@@ -183,8 +193,32 @@ export interface FpsWalkArea {
   yardTopY: number;
   /** 院外有界地面（仅 1F）：允许走出院子到外侧地面，围墙仅视觉不阻挡 */
   outside?: WalkRect;
+  /**
+   * 门槛 / 门洞台阶的局部完成面（俯视矩形 + 世界标高）：不参与 solids / gaps，
+   * 即凸起过门石不阻挡通行，仅让第一人称脚下贴地按实际完成面抬升。
+   */
+  thresholds: (WalkRect & { y: number })[];
   /** 完全放开漫游：跳过所有行走边界判定（含穿墙/悬空），用于上层第一人称自由查看 */
   freeRoam?: boolean;
+}
+
+/**
+ * 门槛 / 门洞地面的一段实体：由 `getThresholdSegments()` 统一推导，
+ * 供 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用，避免四处重复建模。
+ */
+export interface ThresholdSegment {
+  /** 所属门 id（与可交互门 userData.id、门禁 gaps、2D 图例一致） */
+  id: string;
+  /** 过门石条 / 门洞补地面 */
+  kind: 'sill' | 'infill';
+  /** 世界坐标盒体（顶面 = topY），不走 remapBox */
+  spec: BoxSpec;
+  /** 该段完成面标高（世界 y） */
+  topY: number;
+  /** 2D 平面图图例颜色 */
+  color: string;
+  /** 该门的实际做法说明 */
+  note: string;
 }
 
 /** 带交互数据的 Object3D */
@@ -210,7 +244,7 @@ export interface SlidingDoorSpec {
   absolute?: boolean;
 }
 
-/** 内门放置：含宽度、朝向与材质（木门 / 磨砂玻璃门） */
+/** 内门放置：含宽度、朝向、门扇材质与门套材质 */
 export interface InteriorDoorSpec {
   /** 门洞宽度（米） */
   w: number;
@@ -219,7 +253,10 @@ export interface InteriorDoorSpec {
   z: number;
   /** 容器绕 Y 轴旋转：墙沿 z 延展用 π/2，墙沿 x 延展用 0 */
   rotY: number;
-  materialKey: 'wood' | 'frostedGlass';
+  /** 门扇材质：木门 / 磨砂玻璃门 / 灰色金属门 */
+  materialKey: 'wood' | 'frostedGlass' | 'metalDoor';
+  /** 门套（门框）材质，缺省 wood；3F 正面门整扇统一 metalDoor */
+  frameMaterial?: MaterialKey;
   /** 门扇高度，默认 2.1m（门头下方） */
   h?: number;
   /** 开启角度（弧度），默认 0.85 × 90°；90° 可让门扇完全贴靠相邻墙面 */

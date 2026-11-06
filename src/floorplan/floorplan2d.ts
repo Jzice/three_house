@@ -7,6 +7,7 @@ import {
   getWalls2D,
   getYard2D,
   getDimensions2D,
+  getThresholdSegments,
   PLATFORM_FRONT_Z,
 } from '../config/houseConfig';
 
@@ -228,6 +229,22 @@ export function createFloorplan2D(
         wall.w * scale,
         wall.d * scale,
       );
+    }
+
+    // ---- 门槛 / 过门石（过门石条实色，门洞补地面半透明，按各门实际做法区分材质） ----
+    for (const seg of getThresholdSegments(floor)) {
+      const { x, z, w, d } = seg.spec;
+      const px = getX(x - w / 2);
+      const py = getY(z - d / 2);
+      ctx.globalAlpha = seg.kind === 'sill' ? 1 : 0.45;
+      ctx.fillStyle = seg.color;
+      ctx.fillRect(px, py, w * scale, d * scale);
+      ctx.globalAlpha = 1;
+      if (seg.kind === 'sill') {
+        ctx.strokeStyle = seg.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, py, w * scale, d * scale);
+      }
     }
 
     // ---- 入户门开启弧线（推拉门无弧线） ----

@@ -747,8 +747,8 @@ export function createInteriorDoor(
 
   const container = new THREE.Group();
   container.add(hinge);
-  // 房间门门套：木色（洞口内口包边 + 外沿套线）
-  container.add(createDoorCasing(w, h, T_INT, materials.wood));
+  // 房间门门套：默认木色，可由 frameMaterial 指定（如 3F 正面门统一灰色金属）
+  container.add(createDoorCasing(w, h, T_INT, materials[spec.frameMaterial ?? 'wood']));
   container.position.set(spec.x, spec.y, spec.z);
   container.rotation.y = spec.rotY;
   if (floor) {

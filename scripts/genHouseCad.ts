@@ -15,7 +15,7 @@
 import {
   FLOORS, getExteriorWalls, getInteriorWalls, getFloorSlabs, getSouthWall,
   getStairSurface, getWindows, getInteriorDoors, COLUMNS,
-  MAIN_DOOR, SLIDING_DOOR, BACK_DOOR,
+  MAIN_DOOR, SLIDING_DOOR, BACK_DOOR, getThresholdSegments,
   H, T_EXT, T_INT, SLAB_T, FRONT_DOOR_H, DOOR_INNER_H, W, D,
 } from '../src/config/houseConfig';
 import type { BoxSpec, FloorConfig } from '../src/types';
@@ -25,7 +25,7 @@ import * as path from 'path';
 // 图层与颜色（CAD 颜色索引）
 const LAYER_DEFS: [string, number][] = [
   ['WALL', 8], ['SLAB', 30], ['COLUMN', 6], ['STAIR', 5],
-  ['DOOR', 40], ['WINDOW', 4], ['ROOF', 1], ['YARD', 3],
+  ['DOOR', 40], ['WINDOW', 4], ['ROOF', 1], ['YARD', 3], ['THRESHOLD', 34],
 ];
 
 const fix = (n: number) => Math.round(n * 1e4) / 1e4;
@@ -163,6 +163,15 @@ for (const f of FLOORS) {
       if (ns) addBox('DOOR', boxPts(d.x, cy, d.z, d.w, doorH, T_INT));
       else addBox('DOOR', boxPts(d.x, cy, d.z, T_INT, doorH, d.w));
     }
+  }
+}
+
+// ---- 门槛 / 过门石 / 门洞补地面（世界坐标，与 3D 装配同源） ----
+for (const f of FLOORS) {
+  if (f.index === 3) continue;
+  for (const seg of getThresholdSegments(f)) {
+    const { x, y, z, w, h, d } = seg.spec;
+    addBox('THRESHOLD', boxPts(x, y, z, w, h, d));
   }
 }
 

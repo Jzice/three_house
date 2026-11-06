@@ -209,6 +209,215 @@ function createStepTileTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** 程序化生成黑色大理石贴图（近黑底 + 浅灰白脉络 + 细密矿粒），整块石材无砖缝 */
+function createBlackMarbleTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，黑色大理石贴图生成失败');
+
+  let seed = 6112026;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  ctx.fillStyle = '#1b1c20';
+  ctx.fillRect(0, 0, S, S);
+
+  // 深色云斑：打散纯黑底，保留石材层次
+  for (let i = 0; i < 22; i++) {
+    const x = rand() * S;
+    const y = rand() * S;
+    const r = 50 + rand() * 150;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, rand() > 0.5 ? 'rgba(58,60,66,0.36)' : 'rgba(8,9,12,0.42)');
+    g.addColorStop(1, 'rgba(20,21,25,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 浅灰白主脉：斜穿贴图，先画柔光晕再画脉芯，随机分叉
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const vein = (x: number, y: number, ang: number, len: number, wdt: number, depth: number): void => {
+    if (depth > 3 || wdt < 0.35) return;
+    const steps = 12;
+    let px = x;
+    let py = y;
+    let a = ang;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    for (let i = 0; i < steps; i++) {
+      a += (rand() - 0.5) * 0.24;
+      px += (Math.cos(a) * len) / steps;
+      py += (Math.sin(a) * len) / steps;
+      ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = `rgba(206,210,214,${0.10 - depth * 0.02})`;
+    ctx.lineWidth = wdt * 5;
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(224,228,232,${0.55 - depth * 0.1})`;
+    ctx.lineWidth = wdt;
+    ctx.stroke();
+    if (rand() < 0.65) {
+      const t = 0.3 + rand() * 0.5;
+      vein(x + (px - x) * t, y + (py - y) * t, a + (rand() - 0.5) * 0.7, len * 0.5, wdt * 0.5, depth + 1);
+    }
+  };
+  for (let i = 0; i < 4; i++) {
+    vein(rand() * S * 0.4, rand() * S, Math.PI / 4 + (rand() - 0.5) * 0.6, 300 + rand() * 260, 1.4 + rand() * 1.4, 0);
+  }
+  for (let i = 0; i < 5; i++) {
+    vein(rand() * S, rand() * S, rand() * Math.PI * 2, 90 + rand() * 160, 0.6, 2);
+  }
+
+  // 细矿粒：抛光面的细微颗粒
+  for (let i = 0; i < 4200; i++) {
+    ctx.fillStyle = rand() > 0.6 ? 'rgba(190,194,198,0.10)' : 'rgba(0,0,0,0.16)';
+    ctx.fillRect(rand() * S, rand() * S, 1 + rand() * 1.6, 1 + rand() * 1.6);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** 程序化生成深色花岗岩过门石贴图（细密矿粒 + 少量浅色矿脉），整块石材无砖缝 */
+function createGraniteTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，花岗岩贴图生成失败');
+
+  let seed = 20261106;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  ctx.fillStyle = '#3f4448';
+  ctx.fillRect(0, 0, S, S);
+
+  // 矿粒：深浅两色高密度散点，模拟花岗岩结晶断面
+  for (let i = 0; i < 9000; i++) {
+    const light = rand() > 0.55;
+    ctx.fillStyle = light
+      ? `rgba(196,199,201,${0.10 + rand() * 0.28})`
+      : `rgba(24,28,31,${0.10 + rand() * 0.30})`;
+    const r = 0.6 + rand() * 2.2;
+    ctx.fillRect(rand() * S, rand() * S, r, r);
+  }
+  // 浅色矿脉：几道细而不规则的斜向短线
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 14; i++) {
+    let x = rand() * S;
+    let y = rand() * S;
+    let a = rand() * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let j = 0; j < 6; j++) {
+      a += (rand() - 0.5) * 0.5;
+      x += Math.cos(a) * (8 + rand() * 22);
+      y += Math.sin(a) * (8 + rand() * 22);
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(178,184,188,${0.10 + rand() * 0.16})`;
+    ctx.lineWidth = 0.6 + rand() * 1.2;
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** 程序化生成木地板贴图（3 条长板 + 错缝端接 + 顺纹细线），哑光暖木色 */
+function createWoodFloorTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，木地板贴图生成失败');
+
+  let seed = 6112026;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  ctx.fillStyle = '#6b4f37'; // 板缝底色
+  ctx.fillRect(0, 0, S, S);
+
+  const boardH = S / 3;
+  for (let b = 0; b < 3; b++) {
+    const y0 = b * boardH + 2;
+    ctx.fillStyle = ['#a87b52', '#9c7049', '#b1845a'][b];
+    ctx.fillRect(0, y0, S, boardH - 4);
+    // 顺纹：沿板长方向的细长深浅线
+    for (let i = 0; i < 130; i++) {
+      const y = y0 + rand() * boardH;
+      ctx.strokeStyle = rand() > 0.5
+        ? `rgba(90,62,40,${0.05 + rand() * 0.16})`
+        : `rgba(224,190,150,${0.05 + rand() * 0.14})`;
+      ctx.lineWidth = 0.5 + rand() * 1.3;
+      ctx.beginPath();
+      ctx.moveTo(rand() * S, y);
+      ctx.lineTo(rand() * S, y + (rand() - 0.5) * 3);
+      ctx.stroke();
+    }
+    // 板端错缝：每条板 1~2 道竖向接缝
+    const seamX = b % 2 === 0 ? S * 0.55 : S * 0.28;
+    ctx.fillStyle = 'rgba(72,50,34,0.75)';
+    ctx.fillRect(seamX, y0, 3, boardH - 4);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** 程序化生成卫生间防滑砖贴图（哑光灰蓝 + 细密防滑颗粒 + 2×2 小格浅缝） */
+function createBathTileTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，防滑砖贴图生成失败');
+
+  let seed = 11062026;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  ctx.fillStyle = '#8e9ba3';
+  ctx.fillRect(0, 0, S, S);
+  // 防滑颗粒
+  for (let i = 0; i < 5200; i++) {
+    ctx.fillStyle = rand() > 0.5 ? 'rgba(226,232,235,0.16)' : 'rgba(74,88,96,0.14)';
+    ctx.fillRect(rand() * S, rand() * S, 1 + rand() * 2, 1 + rand() * 2);
+  }
+  // 一张贴图内含 2×2 块小砖，缝浅而细
+  ctx.strokeStyle = 'rgba(196,206,211,0.85)';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(2.5, 2.5, S - 5, S - 5);
+  ctx.beginPath();
+  ctx.moveTo(S / 2, 0);
+  ctx.lineTo(S / 2, S);
+  ctx.moveTo(0, S / 2);
+  ctx.lineTo(S, S / 2);
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 /** 创建整屋共用的材质字典 */
 export function createMaterials(): MaterialMap {
   const tileTex = createTileTexture();
@@ -287,6 +496,40 @@ export function createMaterials(): MaterialMap {
       map: createPavingTexture(),
       roughness: 0.9,
       metalness: 0.0,
+    }),
+    // 以下 4 个为 v0.5.10 的门槛材质：v0.5.11 规则调整后按确认保留在字典中（当前无构件引用）
+    // 过门石：深色花岗岩整块石材，半抛光（比地砖哑一点，收住门洞边界）
+    thresholdStone: new THREE.MeshStandardMaterial({
+      map: createGraniteTexture(),
+      roughness: 0.35,
+      metalness: 0.08,
+      envMapIntensity: 0.6,
+    }),
+    // 卧室地面 / 收边：暖木色长条地板，哑光无镜面反射
+    woodFloor: new THREE.MeshStandardMaterial({
+      map: createWoodFloorTexture(),
+      roughness: 0.72,
+      metalness: 0.0,
+    }),
+    // 卫生间门槛：哑光灰蓝防滑砖（干湿分区挡水坎）
+    bathTile: new THREE.MeshStandardMaterial({
+      map: createBathTileTexture(),
+      roughness: 0.85,
+      metalness: 0.0,
+    }),
+    // 推拉门下轨 / 金属收边条：缎面拉丝金属，纯材质无贴图
+    metalTrim: new THREE.MeshStandardMaterial({
+      color: 0x8a9096,
+      roughness: 0.38,
+      metalness: 0.85,
+      envMapIntensity: 0.9,
+    }),
+    // 黑色大理石：房门 / 卫生间门统一门槛（近黑底浅灰白脉络，抛光留环境反射）
+    blackMarble: new THREE.MeshStandardMaterial({
+      map: createBlackMarbleTexture(),
+      roughness: 0.22,
+      metalness: 0.06,
+      envMapIntensity: 0.75,
     }),
   };
 }

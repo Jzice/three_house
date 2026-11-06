@@ -8,6 +8,7 @@ import {
   getInteriorDoors,
   getInteriorWalls,
   getSouthWall,
+  getThresholdSegments,
   getWindows,
   H,
   MAIN_DOOR,
@@ -113,6 +114,28 @@ function createSlabMesh(
   return mesh;
 }
 
+/**
+ * 门槛 / 门洞补地面网格：过门石是整块实心材料，六面同材质（侧面为断口而非乳胶漆）。
+ * 带贴图的材质按构件自身尺寸平铺，不套用楼板的 0.8m 全局砖缝相位——真实过门石本就独立分块；
+ * 并给窄条设 repeat 下限，避免木纹 / 矿粒在几厘米宽的门槛上被裁成纯色。
+ */
+function createThresholdMesh(spec: BoxSpec, materials: MaterialMap): THREE.Mesh {
+  const src = materials[spec.material];
+  const mat = src.clone();
+  if (src.map) {
+    const tex = (src.map as THREE.Texture).clone();
+    tex.needsUpdate = true;
+    tex.repeat.set(Math.max(spec.w / TILE_SIZE, 0.5), Math.max(spec.d / TILE_SIZE, 0.5));
+    mat.map = tex;
+  }
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), mat);
+  mesh.name = `threshold-${spec.material}-${spec.x.toFixed(2)}-${spec.z.toFixed(2)}`;
+  mesh.position.set(spec.x, spec.y, spec.z);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
 /** 依据 floor 的标高与层高装配该层整屋 */
 export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseResult {
   const root = new THREE.Group();
@@ -136,6 +159,12 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
   // 楼板：每块按自身尺寸设置 0.8m 瓷砖重复。
   for (const spec of getFloorSlabs(floor)) {
     root.add(createSlabMesh(spec, materials));
+  }
+
+  // 门槛 / 过门石 / 门洞补地面：按各门两侧实际地面与高差铺装（世界坐标，不走 remapBox）。
+  // 放在楼板之后、门窗之前，外门缺口由补地面实体填实，内门收边条叠在连续楼板之上。
+  for (const seg of getThresholdSegments(floor)) {
+    root.add(createThresholdMesh(seg.spec, materials));
   }
 
   // 天花板：本层上方的楼板底面（= 上层楼板 / 屋顶板），仅第一人称处于该层时可见，
