@@ -86,6 +86,59 @@ function bootstrap(): void {
     },
   );
 
+  // ---- 门开合状态持久化（每层各门窗的开关；与视角/楼层分开存储，刷新后恢复） ----
+  const DOORS_KEY = 'house-doors-v1';
+  /** 门开合节流写盘间隔（毫秒）：点击切换离散发生，短节流即可，避免刷新丢最后一次切换 */
+  const DOORS_PERSIST_MS = 300;
+
+  /** 收集每层 interactables 的开关状态（普通门 / 成组窗扇 / 推拉门 / 多级窗格档位） */
+  function saveDoors(): void {
+    try {
+      const doors = floors.map((f) =>
+        f.interactables.map((o) => [o.userData.isOpen ? 1 : 0, o.userData.openStep ?? 0]),
+      );
+      localStorage.setItem(DOORS_KEY, JSON.stringify({ v: 1, doors }));
+    } catch {
+      // localStorage 不可用：忽略
+    }
+  }
+
+  /** 应用保存的门开合状态；长度/结构不符则跳过对应项（版本变更或楼盘重构时不崩溃） */
+  function loadDoors(): void {
+    try {
+      const raw = localStorage.getItem(DOORS_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as { v: number; doors: unknown };
+      if (!data || !Array.isArray(data.doors)) return;
+      data.doors.forEach((layer: unknown, fi: number) => {
+        if (!Array.isArray(layer)) return;
+        const f = floors[fi];
+        if (!f) return;
+        layer.forEach((cell: unknown, i: number) => {
+          if (!Array.isArray(cell)) return;
+          const o = f.interactables[i];
+          if (!o) return;
+          o.userData.isOpen = (cell[0] as number) === 1;
+          // 仅多级开合窗格（含 openAngles）才恢复档位，普通门/窗忽略 step
+          if (o.userData.openAngles && o.userData.openAngles.length > 0) {
+            o.userData.openStep = Number(cell[1]) || 0;
+          }
+        });
+      });
+    } catch {
+      // 解析失败：忽略，使用默认开关
+    }
+  }
+
+  /** 门开合节流写盘（视角由 view.persist 另管） */
+  let lastDoorPersist = 0;
+  function persistDoors(): void {
+    const now = performance.now();
+    if (now - lastDoorPersist < DOORS_PERSIST_MS) return;
+    lastDoorPersist = now;
+    saveDoors();
+  }
+
   // ---- 2D 平面图（按当前活动层绘制对应户型） ----
   const floorplan = createFloorplan2D(canvas2D, {
     getMode: () => view.getMode(),
@@ -190,11 +243,13 @@ function bootstrap(): void {
     floorplan.draw();
   }
 
-  // ---- 初始状态 ----
-  view.setActiveFloor(0);
-  view.setMode('tps');
-  ui.setActiveFloor(0);
-  ui.setActiveMode('tps');
+  // ---- 初始状态（从 localStorage 恢复视角 / 楼层 / 门开合；不可用时回退默认） ----
+  loadDoors();
+  // 先用保存值初始化视角与楼层；setMode(restore) 让刷新后的 FPS 沿用上次位置而非重置出生点
+  view.setMode(view.getMode(), true);
+  view.setActiveFloor(view.activeFloor);
+  ui.setActiveFloor(view.activeFloor);
+  ui.setActiveMode(view.getMode());
 
   // ---- 尺寸变化 ----
   window.addEventListener('resize', () => {
@@ -226,6 +281,9 @@ function bootstrap(): void {
       for (const f of floors) if (f.root.visible) updateInteractables(f.interactables);
       ctx.renderer.render(ctx.scene, ctx.camera);
     }
+    // 持续把视角（view 内部节流）与门开合（此处节流）写入 localStorage
+    view.persist();
+    persistDoors();
   }
 
   // WebGPURenderer 在缺少 WebGPU 的设备上会自动回退到 WebGL2 后端；

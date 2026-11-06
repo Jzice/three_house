@@ -93,6 +93,19 @@ export const WINDOW_SILL = 0.9;
 export const WINDOW_H = 1.8;
 /** 标准窗洞顶标高 = 窗台高 + 窗洞高 */
 export const WINDOW_TOP = WINDOW_SILL + WINDOW_H;
+
+/**
+ * 楼梯间后墙「上下 2 行、下行单扇可平开」窗的竖向尺寸（相对本层完成面的绝对米数）。
+ * 洞口沿用原后门洞净宽 1.1m、中心 x=-2.67、墙心 z=-5.0，仅调整高度与窗格形式：
+ * - 2F：窗台 0.40 / 窗顶 1.45（本层 baseY 3.80 → 世界窗顶 5.25m），整窗压在 2F 楼梯
+ *   休息台（3.80+1.50=5.30m）下方 5cm；窗高 1.05m，替代原 3 列标准大窗。
+ * - 3F 半层：无休息台约束，窗台 0.90 / 窗顶 2.40（本层墙高 2.50，窗上段留 10cm 墙），
+ *   窗高 1.50m，与 2F 同款窗格、同洞口位置。
+ */
+export const STAIR_BACK_WINDOW = {
+  f2: { sill: 0.4, top: 1.45 },
+  f3: { sill: 0.9, top: 2.4 },
+} as const;
 /** 地板瓷砖边长（米） */
 export const TILE_SIZE = 0.8;
 
@@ -307,12 +320,15 @@ function exteriorWallSpecs(floor: FloorConfig): BoxSpec[] {
 
     // ---- 北墙 z = -5.0 ----
     box(1.16, wallH, T_EXT, -3.80, wallH / 2, -5.0), // 西侧门垛 x∈[-4.38,-3.22]
-    // 后门区（x∈[-3.22,-2.12]）：1F 为净高 BACK_DOOR_H 的门洞 + 门楣；2F 改为标准窗
+    // 后门区（x∈[-3.22,-2.12]）：1F 为净高 BACK_DOOR_H 的门洞 + 门楣；2F 改为楼梯间后墙 2 行单扇窗
     ...(floor.index === 0
       ? [box(1.1, wallH - BACK_DOOR_H, T_EXT, -2.67, BACK_DOOR_H + (wallH - BACK_DOOR_H) / 2, -5.0)]
       : [
-          box(1.1, WINDOW_SILL, T_EXT, -2.67, WINDOW_SILL / 2, -5.0),
-          box(1.1, headH, T_EXT, -2.67, headY, -5.0),
+          // 窗台/窗上段按 STAIR_BACK_WINDOW.f2 单独切（不用统一 WINDOW_SILL/WINDOW_TOP），
+          // 使整窗落在 2F 休息台下方
+          box(1.1, STAIR_BACK_WINDOW.f2.sill, T_EXT, -2.67, STAIR_BACK_WINDOW.f2.sill / 2, -5.0),
+          box(1.1, wallH - STAIR_BACK_WINDOW.f2.top, T_EXT, -2.67,
+            STAIR_BACK_WINDOW.f2.top + (wallH - STAIR_BACK_WINDOW.f2.top) / 2, -5.0),
         ]),
     box(0.72, wallH, T_EXT, -1.76, wallH / 2, -5.0), // 东侧门垛 x∈[-2.12,-1.40]
     // 窗 1：窗台 + 窗上墙
@@ -930,18 +946,30 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   return { inside, doors, yard, slope, rails, yardTopY: y.paveH, solids, gaps, thresholds, outside, freeRoam };
 }
 
-/** 按楼层返回窗：2F 北墙原后门区一扇；3F 仅正面墙两扇 */
+/** 按楼层返回窗：2F 北墙原后门区为楼梯间后墙 2 行单扇窗；3F 正面墙两扇 + 后墙楼梯间窗 */
 export function getWindows(floor: FloorConfig): WindowSpec[] {
   if (floor.index === 0) return WINDOWS;
   if (floor.index === 3) return []; // 屋顶层无窗
+  /** 楼梯间后墙窗：洞口宽 1.1m、z=-5.0、rotY=π，竖向尺寸由 STAIR_BACK_WINDOW 给定 */
+  const backWin = (v: { sill: number; top: number }): WindowSpec => ({
+    w: 1.1,
+    h: v.top - v.sill,
+    x: -2.67,
+    y: (v.sill + v.top) / 2,
+    z: -5.0,
+    rotY: Math.PI,
+    style: 'two-row',
+    absolute: true,
+  });
   if (floor.index === 2) {
     return [
       { w: 1.2, h: 1.3, x: -2.75, y: 1.45, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
       { w: 1.2, h: 1.3, x: 2.75, y: 1.45, z: 0.5, rotY: 0, style: 'sliding', absolute: true },
+      backWin(STAIR_BACK_WINDOW.f3), // 3F 半层后墙（2-3 层楼梯休息台后方）
     ];
   }
-  // 2F 北墙原后门区改标准窗（宽沿用后门洞 1.1m），与同层其余窗同窗台/窗高
-  return [...WINDOWS, { w: 1.1, h: WINDOW_H, x: -2.67, y: WINDOW_CENTER_Y, z: -5.0, rotY: Math.PI, absolute: true }];
+  // 2F 北墙原后门区：整窗压在 2F 休息台下方的 2 行单扇窗
+  return [...WINDOWS, backWin(STAIR_BACK_WINDOW.f2)];
 }
 
 /** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心；尺寸均为绝对米数） */
@@ -1059,7 +1087,12 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
     return [
       box(T_EXT, wallH, 5.5, -4.5, wallH / 2, -2.37), // 西外墙 z∈[-5.12,0.38]
       box(T_EXT, wallH, 5.5, 4.5, wallH / 2, -2.37), // 东外墙
-      box(8.76, wallH, T_EXT, 0, wallH / 2, -5.0), // 北墙（整面封闭）
+      // 北墙：楼梯间后墙 x=-2.67 处留 1.1m 窗洞（与 2F 同位置），其余分成两段整面墙
+      box(1.16, wallH, T_EXT, -3.80, wallH / 2, -5.0), // 西段 x∈[-4.38,-3.22]
+      box(1.1, STAIR_BACK_WINDOW.f3.sill, T_EXT, -2.67, STAIR_BACK_WINDOW.f3.sill / 2, -5.0), // 窗台
+      box(1.1, wallH - STAIR_BACK_WINDOW.f3.top, T_EXT, -2.67,
+        STAIR_BACK_WINDOW.f3.top + (wallH - STAIR_BACK_WINDOW.f3.top) / 2, -5.0), // 窗上段
+      box(6.5, wallH, T_EXT, 1.13, wallH / 2, -5.0), // 东段 x∈[-2.12,4.38]
       // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
       box(0.97, wallH, T_EXT, -4.135, wallH / 2, 0.5), // 左角
       box(0.3, wallH, T_EXT, -3.5, wallH / 2, 0.5), // 左角—西窗 填充
@@ -1208,7 +1241,9 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
     return [
       { w: T_EXT, d: 5.5, x: -4.5, z: -2.37 }, // 西外墙
       { w: T_EXT, d: 5.5, x: 4.5, z: -2.37 }, // 东外墙
-      { w: 8.76, d: T_EXT, x: 0, z: -5.0 }, // 北墙
+      { w: 1.16, d: T_EXT, x: -3.80, z: -5.0 }, // 北墙西段
+      { w: 1.1, d: T_EXT, x: -2.67, z: -5.0, color: '#88ccff' }, // 楼梯间后墙窗洞口（与 3D 同源）
+      { w: 6.5, d: T_EXT, x: 1.13, z: -5.0 }, // 北墙东段
       { w: 0.97, d: T_EXT, x: -4.135, z: 0.5 }, // 正面墙西北角
       { w: 0.3, d: T_EXT, x: -3.5, z: 0.5 }, // 角—西窗 填充
       { w: 1.2, d: T_EXT, x: -2.75, z: 0.5, color: '#88ccff' }, // 西窗 1.2m
@@ -1289,7 +1324,7 @@ function makeOpening(
  * 与 3D 共用同一份配置，避免 3D / 2D 两套数据漂移：
  * - 窗：`getWindows(floor)` 的 `rotY` 决定墙向与室外法向；`openSashes='lower-sides'`
  *   的下部两扇在 `createLowerSashWindow()` 里一律朝局部 +z（室外）开；`style='sliding'`
- *   为推拉窗。
+ *   为推拉窗；`style='two-row'`（楼梯间后墙窗）的下行单扇同样朝室外平开。
  * - 门：`InteriorDoorSpec` 的 `hingeSide` / `openAngle` / `rotY` 直接换算。门扇绕铰链
  *   旋转 α 后指向 `hingeSide × sign(α) × 局部 +z`（见 `builders.ts` 的
  *   `hinge.rotation.y`），故 `openSign` 由此得出，与 3D 实际开向完全一致。
@@ -1303,7 +1338,7 @@ export function getOpenings2D(floor: FloorConfig): Opening2DSpec[] {
   getWindows(floor).forEach((win, i) => {
     const motion: Opening2DSpec['motion'] = win.style === 'sliding'
       ? 'slidingWindow'
-      : win.openSashes === 'lower-sides' ? 'casement' : 'fixed';
+      : win.style === 'two-row' || win.openSashes === 'lower-sides' ? 'casement' : 'fixed';
     list.push(makeOpening(
       `window-${floor.index}-${i}`, 'window', motion,
       win.x, win.z, win.w, T_EXT, win.rotY, 0, 1, OPENING_WINDOW_COLOR,

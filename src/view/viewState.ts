@@ -28,7 +28,13 @@ export interface ViewState {
 export interface ViewManager {
   /** 当前活动楼层序号 */
   readonly activeFloor: number;
-  setMode(mode: ViewMode): void;
+  /**
+   * 切换模式。`restore=true` 专用于刷新恢复：此时进入第一人称不重置到出生点，
+   * 而是沿用保存的精确位置与朝向（主动切换仍按既有行为重置）。
+   */
+  setMode(mode: ViewMode, restore?: boolean): void;
+  /** 将当前视角与楼层写入 localStorage（内部按 PERSIST_MS 节流；force 跳过节流） */
+  persist(force?: boolean): void;
   /** 切换活动楼层（保持当前模式，全局视角按楼层完成面高差竖直平移，方位/朝向/水平位置延续） */
   setActiveFloor(floor: number): void;
   /** 第一人称小地图显隐（仅在该模式下实际生效；非 FPS 时仅记忆状态） */
@@ -71,6 +77,54 @@ function loadMinimapVisible(): boolean {
     return false; // 隐私模式：静默降级为默认关闭
   }
 }
+
+/** 视角 + 楼层 + 门开合状态的本地存储键（刷新后自动恢复） */
+const VIEW_STORAGE_KEY = 'house-view-v1';
+/** 视角/楼层持久化节流间隔（毫秒）：连续漫游时控制写盘频率，切换/切层时 force 立即落盘 */
+const PERSIST_MS = 500;
+
+/** 视角/楼层的持久化结构（门开合由 main 单独存储，见 main.ts 的 DOORS_KEY） */
+interface PersistedView {
+  v: number;
+  mode: ViewMode;
+  floor: number;
+  tpsPos: number[];
+  tpsTarget: number[];
+  fpsPos: number[];
+  fpsYaw: number;
+  fpsPitch: number;
+}
+
+/** 读取持久化视角；结构不符 / 存储不可用时返回 null（回退默认） */
+function loadPersistedView(): PersistedView | null {
+  try {
+    const raw = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as Partial<PersistedView>;
+    if (!d || d.v !== 1 || !Array.isArray(d.tpsPos) || !Array.isArray(d.fpsPos)) return null;
+    const mode: ViewMode =
+      d.mode === 'tps' || d.mode === 'fps' || d.mode === '2d' ? d.mode : 'tps';
+    const floor =
+      Number.isFinite(d.floor as number)
+        ? Math.max(0, Math.min(FLOORS.length - 1, (d.floor as number) | 0))
+        : 0;
+    return {
+      v: 1,
+      mode,
+      floor,
+      tpsPos: d.tpsPos.slice(0, 3).map(Number),
+      tpsTarget: (d.tpsTarget ?? [0, 0, 0]).slice(0, 3).map(Number),
+      fpsPos: d.fpsPos.slice(0, 3).map(Number),
+      fpsYaw: Number(d.fpsYaw) || 0,
+      fpsPitch: Number(d.fpsPitch) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 模块加载时一次性读取持久化视角（createState 与 createViewManager 共用，保证一致） */
+const PERSISTED_VIEW = loadPersistedView();
 
 /** 各层的第一人称可行走范围（房屋内部 + 门洞通道 + 院子） */
 const walkAreas: FpsWalkArea[] = FLOORS.map((f) => getFpsWalkArea(f));
@@ -173,13 +227,26 @@ function computeBuildingFrame(): { pos: THREE.Vector3; target: THREE.Vector3 } {
 function createState(): ViewState {
   const f = FLOORS[0];
   const { pos, target } = computeBuildingFrame();
+  const tpsPos = PERSISTED_VIEW
+    ? new THREE.Vector3(PERSISTED_VIEW.tpsPos[0], PERSISTED_VIEW.tpsPos[1], PERSISTED_VIEW.tpsPos[2])
+    : pos;
+  const tpsTarget = PERSISTED_VIEW
+    ? new THREE.Vector3(
+        PERSISTED_VIEW.tpsTarget[0],
+        PERSISTED_VIEW.tpsTarget[1],
+        PERSISTED_VIEW.tpsTarget[2],
+      )
+    : target;
+  const fpsPos = PERSISTED_VIEW
+    ? new THREE.Vector3(PERSISTED_VIEW.fpsPos[0], PERSISTED_VIEW.fpsPos[1], PERSISTED_VIEW.fpsPos[2])
+    : new THREE.Vector3(VIEW.fpsPos[0], f.baseY + FPS_EYE_Y, VIEW.fpsPos[2]);
   return {
-    mode: 'tps',
-    tpsPos: pos,
-    tpsTarget: target,
-    fpsPos: new THREE.Vector3(VIEW.fpsPos[0], f.baseY + FPS_EYE_Y, VIEW.fpsPos[2]),
-    fpsYaw: 0,
-    fpsPitch: 0,
+    mode: PERSISTED_VIEW?.mode ?? 'tps',
+    tpsPos,
+    tpsTarget,
+    fpsPos,
+    fpsYaw: PERSISTED_VIEW?.fpsYaw ?? 0,
+    fpsPitch: PERSISTED_VIEW?.fpsPitch ?? 0,
     addFpsForward: (amount: number) => {
       // 仅第一人称下累加
       if (state.mode === 'fps') fpsMoveImpulse += amount;
@@ -207,15 +274,45 @@ export function createViewManager(
   onAutoFloor?: (floor: number) => void,
 ): ViewManager {
   const { camera, controls, renderer } = ctx;
-  let activeFloor = 0;
+  let activeFloor = PERSISTED_VIEW?.floor ?? 0;
   /** 第一人称小地图是否可见（默认关闭，用户开关持久化；仅 FPS 模式下实际显示） */
   let minimapVisible = loadMinimapVisible();
+  /**
+   * 视角 + 楼层节流写盘；force 跳过节流（切换 / 切层 / 刷新恢复后立即落盘）。
+   * 门开合状态由 main 单独存储，不在此处。
+   */
+  let lastPersist = 0;
+  function persist(force = false): void {
+    const now = performance.now();
+    if (!force && now - lastPersist < PERSIST_MS) return;
+    lastPersist = now;
+    try {
+      const p = state.tpsPos;
+      const t = state.tpsTarget;
+      const fp = state.fpsPos;
+      localStorage.setItem(
+        VIEW_STORAGE_KEY,
+        JSON.stringify({
+          v: 1,
+          mode: state.mode,
+          floor: activeFloor,
+          tpsPos: [p.x, p.y, p.z],
+          tpsTarget: [t.x, t.y, t.z],
+          fpsPos: [fp.x, fp.y, fp.z],
+          fpsYaw: state.fpsYaw,
+          fpsPitch: state.fpsPitch,
+        }),
+      );
+    } catch {
+      // localStorage 不可用：忽略，保持内存状态即可
+    }
+  }
   /** 第一人称脚下标高（当前所踩踏面/完成面的绝对高度） */
   let groundY = FLOORS[0].baseY;
   /** 第一人称所属楼层（人在哪一层：楼梯半层归属下层楼层；离开楼梯后保持） */
   let levelFloor = 0;
   /** 第一人称 UI 指示楼层（按钮 / 小地图）：按完成面判定"已到达楼层"，与可见层（休息台即切上层）解耦 */
-  let uiFloor = 0;
+  let uiFloor = PERSISTED_VIEW?.floor ?? 0;
   /** 上一帧移动更新的时刻（用于眼高插值的帧率无关平滑） */
   let lastMoveTime = performance.now();
 
@@ -244,7 +341,7 @@ export function createViewManager(
     });
   }
 
-  function setMode(mode: ViewMode): void {
+  function setMode(mode: ViewMode, restore = false): void {
     state.mode = mode;
 
     if (mode === 'tps') {
@@ -261,25 +358,36 @@ export function createViewManager(
       canvas2D.style.display = minimapVisible ? 'block' : 'none';
       canvas2D.classList.toggle('minimap', minimapVisible);
       renderer.domElement.style.display = 'block';
-      // 进入第一人称重置为标准视野（触摸板捏合缩放从默认 FOV 起算）；眼高对齐当前活动层完成面
       camera.fov = VIEW.fov;
       camera.updateProjectionMatrix();
-      camera.position.set(VIEW.fpsPos[0], FLOORS[activeFloor].baseY + FPS_EYE_Y, VIEW.fpsPos[2]);
-      levelFloor = activeFloor;
-      uiFloor = activeFloor;
-      groundY = resolveGround(
-        walkAreas[activeFloor],
-        camera.position.x,
-        camera.position.z,
-        FLOORS[activeFloor].baseY,
-      ).step;
-      camera.position.y = groundY + FPS_EYE_Y;
-      lastMoveTime = performance.now();
-      // 保持既有行为：进入第一人称朝向复位
-      state.fpsYaw = 0;
-      state.fpsPitch = 0;
-      tmpEuler.set(0, 0, 0, 'YXZ');
-      camera.quaternion.setFromEuler(tmpEuler);
+      if (restore) {
+        // 刷新恢复：沿用保存的第一人称位置与朝向，不重置到出生点
+        camera.position.copy(state.fpsPos);
+        groundY = state.fpsPos.y - FPS_EYE_Y;
+        levelFloor = activeFloor;
+        uiFloor = activeFloor;
+        tmpEuler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
+        camera.quaternion.setFromEuler(tmpEuler);
+        lastMoveTime = performance.now();
+      } else {
+        // 主动切换：重置为标准视野（触摸板捏合缩放从默认 FOV 起算）；眼高对齐当前活动层完成面
+        camera.position.set(VIEW.fpsPos[0], FLOORS[activeFloor].baseY + FPS_EYE_Y, VIEW.fpsPos[2]);
+        levelFloor = activeFloor;
+        uiFloor = activeFloor;
+        groundY = resolveGround(
+          walkAreas[activeFloor],
+          camera.position.x,
+          camera.position.z,
+          FLOORS[activeFloor].baseY,
+        ).step;
+        camera.position.y = groundY + FPS_EYE_Y;
+        lastMoveTime = performance.now();
+        // 保持既有行为：进入第一人称朝向复位
+        state.fpsYaw = 0;
+        state.fpsPitch = 0;
+        tmpEuler.set(0, 0, 0, 'YXZ');
+        camera.quaternion.setFromEuler(tmpEuler);
+      }
       state.fpsPos.copy(camera.position);
     } else {
       controls.enabled = false;
@@ -289,6 +397,7 @@ export function createViewManager(
       onEnter2D();
     }
     applyVisibility();
+    persist(true);
   }
 
   /**
@@ -330,6 +439,7 @@ export function createViewManager(
     }
     // 2D 模式无需相机，平面图由外部在切层后重绘
     applyVisibility();
+    persist(true);
   }
 
   function setMinimapVisible(visible: boolean): void {
@@ -475,6 +585,7 @@ export function createViewManager(
     // 走楼梯时相机位置即连续物理位置，直接记入存储
     state.fpsPos.copy(camera.position);
     applyVisibility();
+    persist(true);
   }
 
   function updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void {
@@ -563,6 +674,7 @@ export function createViewManager(
     getMinimapVisible,
     updateFpsMovement,
     saveTpsView,
+    persist,
     getMode: () => state.mode,
     getState: () => state,
     getUiFloor: () => uiFloor,

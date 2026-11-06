@@ -26,6 +26,7 @@ import {
   createLowerSashWindow,
   createSlidingGlassDoor,
   createSlidingWindow,
+  createTwoRowSashWindow,
 } from './builders';
 import { createStairs, buildStairHandrail } from './stairs';
 import { createBalcony } from './balcony';
@@ -181,14 +182,16 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
   }
   root.add(ceiling);
 
-  // 可交互窗（按层抬升 + 竖向缩放；推拉窗走滑动逻辑；大窗走下方小窗格对开）
+  // 可交互窗（按层抬升；推拉窗走滑动逻辑、3 列大窗走下方小窗格对开、楼梯间后墙走 2 行单扇）
   for (const spec of getWindows(floor)) {
     const builder =
       spec.style === 'sliding'
         ? createSlidingWindow
-        : spec.openSashes === 'lower-sides'
-          ? createLowerSashWindow
-          : createInteractiveWindow;
+        : spec.style === 'two-row'
+          ? createTwoRowSashWindow
+          : spec.openSashes === 'lower-sides'
+            ? createLowerSashWindow
+            : createInteractiveWindow;
     const { container, parts } = builder(spec, materials, floor);
     root.add(container);
     interactables.push(...parts);

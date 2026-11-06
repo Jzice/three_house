@@ -46,6 +46,29 @@ const WX_ICONS: Record<WeatherKind, string> = {
     '"/><polyline points="12,19 9.5,24 12,24 10,28" stroke-linejoin="round" stroke-linecap="round" fill="none"/>',
 };
 
+/** 夜间变体：晴 / 少云用月亮代替太阳；其余天气（云 / 雨 / 雪 / 雾 / 雷）夜间与日间一致 */
+const CLEAR_NIGHT = '<path d="M20 14.5 A7 7 0 1 1 13.5 5 A5.5 5.5 0 0 0 20 14.5 Z"/>';
+const PARTLY_NIGHT = '<path d="M9 11.5 A3.5 3.5 0 1 1 6 5 A2.8 2.8 0 0 0 9 11.5 Z"/><path d="' + CLOUD + '"/>';
+
+/**
+ * 取完整内联 SVG 天气图标（与 TOGGLE_ICON 同构，可直接赋给元素 innerHTML）。
+ * 夜间且为晴 / 少云时返回月亮变体，其余返回日间图标。
+ */
+function wxIconFor(kind: WeatherKind, isDay: boolean): string {
+  const inner =
+    !isDay && kind === 'clear'
+      ? CLEAR_NIGHT
+      : !isDay && kind === 'partly'
+        ? PARTLY_NIGHT
+        : WX_ICONS[kind];
+  return (
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' +
+    inner +
+    '</svg>'
+  );
+}
+
 const REFRESH_ICON =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12 a9 9 0 1 1 -2.6 -6.4"/><polyline points="21 3 21 8 16 8"/></svg>';
 const TOGGLE_ICON =
@@ -479,6 +502,14 @@ export function createEnvPanel(env: Environment): EnvPanel {
   // 开机恢复本地设置（env 已就绪；面板读数由后续快照被动刷新，不被此处覆盖）
   loadSettings();
 
+  let lastToggleIcon = '';
+  /** 顶部按钮图标变更时才重写 innerHTML，避免快照频繁刷新导致 SVG 重绘闪烁 */
+  function setToggleIcon(html: string): void {
+    if (html === lastToggleIcon) return;
+    lastToggleIcon = html;
+    toggle.innerHTML = html;
+  }
+
   return {
     update(s: EnvironmentSnapshot) {
       // 地点下拉同步（被外部 setLocation 改变时）
@@ -502,9 +533,12 @@ export function createEnvPanel(env: Environment): EnvPanel {
       elevEl.textContent = `高度 ${elDeg >= 0 ? '+' : ''}${elDeg.toFixed(1)}°`;
       suntimesEl.textContent = `日出 ${formatMin(s.sunriseMin)} · 日落 ${formatMin(s.sunsetMin)}`;
 
-      // 天气：关闭实时天气时显示"已关闭·晴天"，不展示真实数据
+      // 天气：开启实时天气时，顶部圆形按钮图标换成当前天气状况（夜间晴/少云用月亮）；
+      // 关闭时恢复默认组合图标。面板内天气图标同步更新为完整 SVG（与顶部按钮同构）。
       if (weatherOn) {
-        wxIcon.innerHTML = WX_ICONS[s.weather.kind];
+        const icon = wxIconFor(s.weather.kind, s.weather.isDay);
+        wxIcon.innerHTML = icon;
+        setToggleIcon(icon);
         tempEl.textContent = `${Math.round(s.weather.temperature)}°`;
         wxText.textContent = WEATHER_TEXT[s.weather.kind];
         cloudEl.textContent = `${Math.round(s.weather.cloudCover)}%`;
@@ -513,7 +547,8 @@ export function createEnvPanel(env: Environment): EnvPanel {
         wxErr.style.display = s.weather.stale ? 'block' : 'none';
         wxMain.classList.toggle('dim', s.weather.stale);
       } else {
-        wxIcon.innerHTML = WX_ICONS.clear;
+        wxIcon.innerHTML = wxIconFor('clear', true);
+        setToggleIcon(TOGGLE_ICON);
         tempEl.textContent = '--°';
         wxText.textContent = '晴 · 实时天气已关';
         cloudEl.textContent = '--';

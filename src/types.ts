@@ -374,8 +374,8 @@ export interface WindowSpec {
   y: number;
   z: number;
   rotY: number;
-  /** 开启样式：平开（默认）或左右推拉 */
-  style?: 'casement' | 'sliding';
+  /** 开启样式：平开（默认）、左右推拉、上下 2 行（下行单扇平开、上行固定亮窗） */
+  style?: 'casement' | 'sliding' | 'two-row';
   /** 开启构件：左右下方两枚小窗格对开（外开），其余格位固定不动 */
   openSashes?: 'lower-sides';
   /** 兼容标记：y/h 为相对本层完成面的绝对米数；渲染侧不再按层高缩放 */

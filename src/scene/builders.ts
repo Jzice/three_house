@@ -532,6 +532,98 @@ export function createLowerSashWindow(
   return { container, parts };
 }
 
+/**
+ * 楼梯间后墙窗（1.1m 宽）：上下 2 行、下行单扇可平开、上行固定亮窗，替代原「3 列」大窗。
+ * - 固定件：外框四边 + 一根通长中横梃（分出上/下两行）+ 上行整块固定玻璃，不参与开合；
+ * - 可开启件：下行整行一枚单扇平开窗（玻璃 + 自身一圈细铜边），绕左立边（外缘）向室外开，
+ *   点击按 0°→45°→60°→90° 循环，与 createLowerSashWindow 的多级开合档位一致。
+ * 此类洞口较矮（2F 压在休息台下方），不再设竖梃分列，避免格位过碎。
+ */
+export function createTwoRowSashWindow(
+  spec: WindowSpec,
+  materials: MaterialMap,
+  floor?: FloorConfig,
+): InteractiveBuildResult {
+  const { w, h, x, y, z, rotY } = spec;
+  const frameT = 0.04;   // 外框料宽
+  const hT = 0.04;       // 中横梃高
+  const sashT = 0.025;   // 下行窗扇自身细铜边宽
+  const sashD = SASH_D;  // 下行窗扇自身细铜边厚
+  const deg = (d: number): number => THREE.MathUtils.degToRad(d);
+
+  const innerW = w - frameT * 2;
+  const innerH = h - frameT * 2;
+  const xL = -w / 2 + frameT;  // 内框左沿
+  const xR = w / 2 - frameT;   // 内框右沿
+  const yT = h / 2 - frameT;   // 内框上沿
+  const yB = -h / 2 + frameT;  // 内框下沿
+  // 下行（可开）占 57%、上行（固定）占 43%
+  const barY = yB + innerH * 0.57;
+  const barTop = barY + hT / 2;
+  const barBot = barY - hT / 2;
+
+  const container = new THREE.Group();
+  const frame = new THREE.Group(); // 固定框（点击不响应、不参与开合）
+  container.add(frame);
+
+  // 外框四边：向外扩 OV 压住墙口，盖住墙/框接缝（内口尺寸不变）
+  const OV = 0.015;
+  const frameBars: Array<[number, number, number, number]> = [
+    [w + OV * 2, frameT + OV, 0, h / 2 + (OV - frameT) / 2],
+    [w + OV * 2, frameT + OV, 0, -h / 2 + (frameT - OV) / 2],
+    [frameT + OV, h + OV * 2, -w / 2 + (frameT - OV) / 2, 0],
+    [frameT + OV, h + OV * 2, w / 2 + (OV - frameT) / 2, 0],
+  ];
+  for (const [bw, bh, bx, by] of frameBars) {
+    addFrameBar(frame, bw, bh, bx, by, materials.copper);
+  }
+  // 中横梃：通长，把洞口分成上下两行（开窗后仍在原位，网格不断）
+  addFrameBar(frame, innerW, hT, 0, barY, materials.copper);
+
+  // 上行固定玻璃
+  const upperGlass = new THREE.Mesh(
+    new THREE.BoxGeometry(innerW - 0.012, yT - barTop - 0.012, 0.02),
+    materials.glass,
+  );
+  upperGlass.position.set(0, (yT + barTop) / 2, FRAME_Z);
+  frame.add(upperGlass);
+
+  // 下行单扇平开窗：铰链在左立边（外缘），扇体向右延伸至整行宽，向室外开
+  const pw = xR - xL;
+  const ph = barBot - yB;
+  const sash = new THREE.Group();
+  sash.position.set(xL, (barBot + yB) / 2, FRAME_Z);
+  const edge = (ew: number, eh: number, ex: number, ey: number): void => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.copper);
+    b.position.set(ex, ey, 0);
+    sash.add(b);
+  };
+  edge(sashT, ph, sashT / 2, 0);                            // 铰接侧边
+  edge(sashT, ph, pw - sashT / 2, 0);                       // 自由侧边
+  edge(pw - sashT * 2, sashT, pw / 2, ph / 2 - sashT / 2);  // 上沿
+  edge(pw - sashT * 2, sashT, pw / 2, -ph / 2 + sashT / 2); // 下沿
+  const sashGlass = new THREE.Mesh(
+    new THREE.BoxGeometry(pw - sashT * 2, ph - sashT * 2, 0.02),
+    materials.glass,
+  );
+  sashGlass.position.set(pw / 2, 0, 0);
+  sash.add(sashGlass);
+
+  const part = markInteractive(sash, 'window', 0);
+  part.userData.openAngles = [0, deg(45), deg(60), deg(90)];
+  part.userData.openStep = 0;
+  // 铰链在左外缘：负角使扇体绕外缘向局部 +z（室外）摆出，与 3 列窗左下格一致
+  part.userData.hingeSign = -1;
+  container.add(sash);
+
+  container.position.set(x, y, z);
+  container.rotation.y = rotY;
+  // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
+  if (floor) container.position.y = floor.baseY + spec.y;
+
+  return { container, parts: [part] };
+}
+
 /** 左右推拉窗：白色塑钢外框 + 中竖梃 + 两扇可推拉玻璃扇（内外双轨、交错推拉）。
  *  闭合时两扇于中梃处相接覆盖整窗；开启时左扇右滑、右扇左滑至对侧半洞，
  *  两扇前后叠放、始终留在窗框内，露出半个洞口（与 2F 阳台推拉门一致）。 */
