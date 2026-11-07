@@ -2,6 +2,17 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.30] - 2026-11-07
+
+### 改动
+
+- **同步 `package-lock.json` 版本元数据**：`v0.5.29` 发布时只递增了 `package.json`（0.5.26 → 0.5.29），`package-lock.json` 的根 `version` 与 `packages[""].version` 仍停留在 0.5.26。现将两处连同 `package.json` 一并同步为 0.5.30，三处版本一致。
+- 本次**无功能改动**：`src/` 与构建配置未动，单文件产物功能与 `v0.5.29` 一致；该版本仅用于把仓库版本元数据对齐。`npm ci` 不校验根 `version` 字段，故 `v0.5.29` 的 CI / Release 产物不受影响。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功；产物自检 `dist/` 仅两个 html、离线版无外链、CDN 版 1 条 importmap。
+
 ## [0.5.29] - 2026-11-07
 
 ### 改动
