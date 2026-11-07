@@ -219,12 +219,11 @@ export function createEnvPanel(env: Environment): EnvPanel {
           <option value="hail">冰雹</option>
         </select>
       </div>
-      <div class="env-row env-row-weather">
+      <div class="env-row env-row-weather" id="env-intensity-row">
         <span class="env-live-label" id="env-intensity-label">云量</span>
         <input id="env-intensity" class="env-range" type="range" min="0" max="30" step="1" value="10" />
         <span class="env-intensity-val" id="env-intensity-val">10%</span>
       </div>
-      <div class="env-row env-row-hint" id="env-precip-hint" style="display:none">实时天气开启中，天气模式不可用</div>
       <div class="env-row env-row-weather">
         <span id="env-wx-icon" class="env-wx-icon">${WX_ICONS.clear}</span>
         <div class="env-wx-main"><div id="env-temp" class="env-temp">--°</div><div id="env-wx-text" class="env-wx-text">--</div></div>
@@ -270,7 +269,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
   const intensitySlider = el<HTMLInputElement>(panel, 'env-intensity');
   const intensityLabel = el<HTMLElement>(panel, 'env-intensity-label');
   const intensityVal = el<HTMLElement>(panel, 'env-intensity-val');
-  const precipHint = el<HTMLDivElement>(panel, 'env-precip-hint');
+  const intensityRow = el<HTMLDivElement>(panel, 'env-intensity-row');
   const wxErr = el<HTMLDivElement>(panel, 'env-wx-err');
   const versionEl = el<HTMLElement>(panel, 'env-version');
   versionEl.textContent = `v${__APP_VERSION__} · ${__BUILD_DATE__}`;
@@ -306,17 +305,39 @@ export function createEnvPanel(env: Environment): EnvPanel {
     lightBtn.classList.toggle('on', on);
     lightBtn.setAttribute('aria-checked', String(on));
   }
+  /** 动态插入/移除「实时」项：实时天气开启时显示，关闭时移除（下拉回到手动选项） */
+  function ensureLiveOption(): void {
+    if (!precipModeSel.querySelector('option[value="live"]')) {
+      const o = document.createElement('option');
+      o.value = 'live';
+      o.textContent = '实时';
+      precipModeSel.insertBefore(o, precipModeSel.firstChild);
+    }
+  }
+  function removeLiveOption(): void {
+    const o = precipModeSel.querySelector('option[value="live"]');
+    if (o) o.remove();
+  }
   function setWeatherUI(on: boolean): void {
     weatherOn = on;
     wxEnableBtn.classList.toggle('on', on);
     wxEnableBtn.setAttribute('aria-checked', String(on));
     refreshBtn.disabled = !on;
-    // 实时天气开启时禁用天气模式（整组），天气由实况驱动；关闭后恢复可选
-    precipModeSel.disabled = on;
-    intensitySlider.disabled = on;
-    precipModeSel.classList.toggle('env-disabled', on);
-    intensitySlider.classList.toggle('env-disabled', on);
-    precipHint.style.display = on ? 'block' : 'none';
+    if (on) {
+      // 实时模式：下拉显示「实时」并禁用（天气完全由实况驱动）；程度滑块隐藏
+      ensureLiveOption();
+      precipModeSel.value = 'live';
+      precipModeSel.disabled = true;
+      precipModeSel.classList.add('env-disabled');
+      intensityRow.style.display = 'none';
+    } else {
+      // 手动模式：移除「实时」项、恢复下拉与程度滑块（回到上次手动选择）
+      removeLiveOption();
+      precipModeSel.disabled = false;
+      precipModeSel.classList.remove('env-disabled');
+      intensityRow.style.display = '';
+      applyPrecipMode(curKind);
+    }
   }
 
   /** 当前类型的程度值（晴=云量比例，其余=降水强度） */
@@ -357,7 +378,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
       front: Number(frontSel.value),
       lighting: lightingOn,
       weather: weatherOn,
-      precipKind: precipModeSel.value,
+      precipKind: curKind === 'none' || curKind === null ? 'clear' : curKind,
       precipClearCloud: clearCloud,
       precipRainI: rainI,
       precipSnowI: snowI,
@@ -446,7 +467,10 @@ export function createEnvPanel(env: Environment): EnvPanel {
     snowI = typeof s.precipSnowI === 'number' ? clamp01(s.precipSnowI) : 0.5;
     hailI = typeof s.precipHailI === 'number' ? clamp01(s.precipHailI) : 0.5;
     const kind: PrecipKind = safeKind === 'clear' ? 'none' : (safeKind as PrecipKind);
-    applyPrecipMode(kind);
+    curKind = kind;
+    // 实时天气开启时由 setWeatherUI 显示「实时」并隐藏滑块，不在此覆盖下拉；
+    // 关闭时恢复手动选择并下发（回到上次各类型程度）。
+    if (!weatherOn) applyPrecipMode(kind);
   }
 
   function applyCustomGeo(): void {
@@ -542,6 +566,11 @@ export function createEnvPanel(env: Environment): EnvPanel {
   wxEnableBtn.addEventListener('click', () => {
     setWeatherUI(!weatherOn);
     env.setWeatherEnabled(weatherOn);
+    // 单向联动：实时天气关闭时，强制关闭实时光照（动态阴影）
+    if (!weatherOn) {
+      setLightingUI(false);
+      env.setShadowEnabled(false);
+    }
     saveSettings();
   });
 
@@ -587,10 +616,10 @@ export function createEnvPanel(env: Environment): EnvPanel {
   // 开机恢复本地设置（env 已就绪；面板读数由后续快照被动刷新，不被此处覆盖）
   loadSettings();
 
-  // 默认天气模式：晴（关）。loadSettings 已在有本地存储时恢复；此处兜底确保
-  // 首次打开（无存储）或旧存储无天气模式字段时默认停在「晴」，并下发一次覆盖。
-  if (!precipModeSel.value) precipModeSel.value = 'clear';
-  applyPrecipMode(precipModeSel.value === 'clear' ? 'none' : (precipModeSel.value as PrecipKind));
+  // 默认天气模式兜底：实时天气关闭且无有效手动值时，停在「晴（关）」并下发一次覆盖。
+  if (!weatherOn && (precipModeSel.value === 'clear' || !precipModeSel.value)) {
+    applyPrecipMode('none');
+  }
 
   let lastToggleIcon = '';
   /** 顶部按钮图标变更时才重写 innerHTML，避免快照频繁刷新导致 SVG 重绘闪烁 */
