@@ -468,6 +468,10 @@ export function createMaterials(): MaterialMap {
       opacity: 0.35,
       metalness: 0.6,
       roughness: 0.1,
+      // 透明玻璃不写入深度缓冲：否则排在它之后绘制（renderOrder 更大）的天空低空层
+      // （云2/霾3/灰罩4/裙板4.6/太阳光晕5）会被玻璃写入的近平面深度整片剔除，
+      // 导致透过玻璃看不到这些层、与开窗洞口不一致。
+      depthWrite: false,
     }),
     // 灰色木门（卧室 / 杂物间）
     wood: new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.7, metalness: 0.0 }),

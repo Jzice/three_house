@@ -533,11 +533,14 @@ export function createLowerSashWindow(
 }
 
 /**
- * 楼梯间后墙窗（1.1m 宽）：上下 2 行、下行单扇可平开、上行固定亮窗，替代原「3 列」大窗。
- * - 固定件：外框四边 + 一根通长中横梃（分出上/下两行）+ 上行整块固定玻璃，不参与开合；
- * - 可开启件：下行整行一枚单扇平开窗（玻璃 + 自身一圈细铜边），绕左立边（外缘）向室外开，
+ * 楼梯间后墙窗（1.1m 宽）：上下 2 行、上行固定亮窗；下行按小格:大格=4:6 分左右两格，
+ * 左 60% 为一枚可平开扇、右 40% 为固定玻璃，替代原「3 列」大窗。
+ * - 固定件：外框四边 + 一根通长中横梃（分出上/下两行）+ 上行整块固定玻璃 + 下行右小格固定玻璃；
+ * - 可开启件：下行左大扇一枚平开窗（玻璃 + 自身一圈细铜边），铰链在窗口左外缘、向室外开，
  *   点击按 0°→45°→60°→90° 循环，与 createLowerSashWindow 的多级开合档位一致。
- * 此类洞口较矮（2F 压在休息台下方），不再设竖梃分列，避免格位过碎。
+ * 下行 60/40 分界处有一根固定竖中框（与中横梃同款、挂在 frame 上），开扇打开后仍留在原位；
+ * 右小格不再单独造细铜边（曾因 frame 组与 FRAME_Z 错层产生"浮空窗页"），
+ * 其四边由外框右立边 / 中横梃 / 外框下边 / 分界竖中框围合。
  */
 export function createTwoRowSashWindow(
   spec: WindowSpec,
@@ -588,9 +591,9 @@ export function createTwoRowSashWindow(
   upperGlass.position.set(0, (yT + barTop) / 2, FRAME_Z);
   frame.add(upperGlass);
 
-  // 下行 7:3 划分（左右镜像）：左 70% 平开窗（铰链在窗口左外缘、向室外 +z 摆出）、右 30% 固定玻璃
+  // 下行 6:4 划分（小格:大格 = 4:6）：左 60% 平开窗（铰链在窗口左外缘、向室外 +z 摆出）、右 40% 固定玻璃
   const ph = barBot - yB;
-  const boundary = xL + (xR - xL) * 0.70; // 70/30 分界竖线（局部 x），开扇占左 70%
+  const boundary = xL + (xR - xL) * 0.60; // 60/40 分界竖线（局部 x），开扇占左 60%
   const addEdge = (
     grp: THREE.Group, ew: number, eh: number, ex: number, ey: number,
   ): void => {
@@ -600,21 +603,27 @@ export function createTwoRowSashWindow(
   };
   const lc = yB + ph / 2; // 下行中心 y（局部）
 
-  // —— 右 30% 固定玻璃（非交互）——
-  const fixedW = xR - boundary;
+  // —— 60/40 分界处固定竖中框（与中横梃同款：frameT 宽 / FRAME_FD 深）——
+  // 挂在 frame 上、位于 FRAME_Z 平面，不随开扇转动：开扇打开后仍在原位、网格不断。
+  // 左右两块玻璃各让出半个框宽，避免闭合时开扇自由侧边与中框共面闪烁。
+  const mullionHalf = frameT / 2;
+  addFrameBar(frame, frameT, ph, boundary, lc, materials.copper);
+
+  // —— 右 40% 固定玻璃（非交互）——
+  // 固定格不再单独造细铜边：那些边条曾落在局部 z=0，而玻璃/外框/中横梃在 FRAME_Z 平面，
+  // 错层约 0.10m 会在斜视时形成一片"浮空窗页"。玻璃四边由外框右立边 / 中横梃 /
+  // 外框下边 / 分界竖中框围合。
+  const fixedX0 = boundary + mullionHalf;
+  const fixedW = xR - fixedX0;
   const fixedGlass = new THREE.Mesh(
-    new THREE.BoxGeometry(fixedW - 0.012, ph - 0.012, 0.02),
+    new THREE.BoxGeometry(fixedW, ph, 0.02),
     materials.glass,
   );
-  fixedGlass.position.set(boundary + fixedW / 2, lc, FRAME_Z);
+  fixedGlass.position.set(fixedX0 + fixedW / 2, lc, FRAME_Z);
   frame.add(fixedGlass);
-  addEdge(frame, sashT, ph, xR - sashT / 2, lc);              // 右立边
-  addEdge(frame, sashT, ph, boundary + sashT / 2, lc);        // 分界竖边
-  addEdge(frame, fixedW - sashT * 2, sashT, boundary + fixedW / 2, yB + sashT / 2);   // 下沿
-  addEdge(frame, fixedW - sashT * 2, sashT, boundary + fixedW / 2, barBot - sashT / 2); // 上沿
 
-  // —— 左 70% 平开窗（铰链在窗口左外缘 xL，扇体向右延伸，向室外 +z 摆出）——
-  const pw = boundary - xL;
+  // —— 左 60% 平开窗（铰链在窗口左外缘 xL，扇体向右延伸，向室外 +z 摆出）——
+  const pw = boundary - mullionHalf - xL;
   const sash = new THREE.Group();
   sash.position.set(xL, lc, FRAME_Z); // 铰链位于窗口左外缘
   addEdge(sash, sashT, ph, sashT / 2, 0);                       // 铰接侧边（左外缘）

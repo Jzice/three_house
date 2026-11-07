@@ -67,6 +67,18 @@ function bootstrap(): void {
   const floors = FLOORS.map((f) => buildHouse(materials, f));
   floors.forEach((fr) => ctx.scene.add(fr.root));
 
+  // 玻璃绘制顺序修复：透明玻璃已关闭 depthWrite，此处把所有玻璃 mesh 排在所有天空低空
+  // 透明层之后（renderOrder=6，高于云2/霾3/灰罩4/裙板4.6/太阳光晕5）绘制，使透过玻璃
+  // 也能叠加云/霾/裙板，与开窗洞口逐像素一致；颜色/透明度/反射保持原观感。
+  floors.forEach(({ root }) =>
+    root.traverse((o) => {
+      const mesh = o as unknown as { isMesh?: boolean; material?: unknown };
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? (mesh.material as unknown[]) : [mesh.material];
+      if (mats.includes(materials.glass)) (o as unknown as { renderOrder: number }).renderOrder = 6;
+    }),
+  );
+
   // 天气表面特效：把降水（雨/雪/冰雹）映射到室外几何的积雪/积水表现，
   // 与 envPanel「降水动画」下拉、metaverse-sky 的粒子同源。
   // 必须在房屋（屋顶/阳台/院子）装配并加入场景之后创建，才能收集到这些带标记的室外 mesh。
