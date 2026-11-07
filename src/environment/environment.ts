@@ -31,7 +31,7 @@ import {
   utcToLocalMinutes,
   type SolarPosition,
 } from './solar';
-import { createWeatherService, mapWeatherToSky, type WeatherService } from './weather';
+import { createWeatherService, mapWeatherToSky, moodOf, type WeatherService } from './weather';
 import { createStarfield, type Starfield } from './starfield';
 import { writeMoonSceneDir } from './celestial';
 import { createGround, applyFog, GROUND_TILE } from './ground';
@@ -170,7 +170,8 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   /** 把天气实况（+ 手动覆盖）映射并下发到 metaverse-sky（云量/大气/风每帧下发无害，降水受 timing 约束需节流） */
   function applyWeatherToSky(): void {
     const m = mapWeatherToSky(weather, precipOverride);
-    metaSky.setClouds(m.coverage, undefined, CLOUD_DAY_COLOR[weather.kind]);
+    // 云色用氛围类型（手动覆盖时跟随所选天气，而非实时分类 weather.kind——实时关闭时恒为 clear）
+    metaSky.setClouds(m.coverage, undefined, CLOUD_DAY_COLOR[m.cloudKind]);
     metaSky.setAtmosphere(m.turbidity, m.rayleigh);
     metaSky.setWind(m.windDeg, m.windSpeed);
     const precipSig = `${m.precipType}|${m.precipIntensity.toFixed(3)}`;
@@ -204,7 +205,11 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   function applyLightingAndFog(utc: number, solar: SolarPosition): void {
     const frontAz = frontAzimuthDeg * DEG;
     const sunDir = toSceneDirection(solar, frontAz);
-    const lighting = computeLighting(solar, weather, sunDir);
+    // 手动选择天气模式（override）时，光照与雾也跟随所选氛围（云量/雾距/雾色），
+    // 否则选了雨地面雾仍是晴天浅蓝、雾距 900m，与阴沉天空割裂。
+    const mood = moodOf(weather, precipOverride);
+    const moodWeather: WeatherSnapshot = { ...weather, kind: mood.kind, cloudCover: mood.cloudCover };
+    const lighting = computeLighting(solar, moodWeather, sunDir);
     lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
     const moonSinAlt = writeMoonSceneDir(utc, location.lat, location.lon, frontAz, _moonDir);
     if (moonSinAlt <= 0) lighting.moonIntensity = 0;

@@ -190,14 +190,44 @@ export function createWeatherService(opts: WeatherServiceOptions): WeatherServic
   };
 }
 
+/** 手动选择降水类型（含 clear='none'）时的天气氛围映射：ATMOSPHERE 无 'hail' 键，冰雹归入阴天（overcast） */
+const PRECIP_MOOD: Record<Exclude<PrecipKind, 'none'>, WeatherKind> = {
+  rain: 'rain',
+  snow: 'snow',
+  hail: 'overcast',
+};
+/** 手动选择时的云量预设（%，0~100）：晴薄云、雨/雪/冰雹厚云阴沉 */
+const PRECIP_CLOUD: Record<Exclude<PrecipKind, 'none'>, number> = {
+  rain: 85,
+  snow: 92,
+  hail: 95,
+};
+/** 手动选「晴（关）」时的薄云量（%） */
+const PRECIP_CLOUD_CLEAR = 8;
+
+/**
+ * 下拉手动选择时的天气氛围（云量 % + 大气类别）；auto（override=null）沿用实时数据。
+ * 供 `mapWeatherToSky`（云色/浑浊/瑞利）与 `environment` 的光照/雾（雾色/雾距）共用，
+ * 保证"选了雨地面雾也阴沉"的整体跟随，不重复推导。
+ */
+export function moodOf(w: WeatherSnapshot, override: PrecipKind | null): { kind: WeatherKind; cloudCover: number } {
+  if (override === null) return { kind: w.kind, cloudCover: w.cloudCover };
+  if (override === 'none') return { kind: 'clear', cloudCover: PRECIP_CLOUD_CLEAR };
+  return { kind: PRECIP_MOOD[override], cloudCover: PRECIP_CLOUD[override] };
+}
+
 /**
  * 天气实况 → 天空视觉映射（驱动 metaverse-sky）。
- * 当 `override` 非空时强制覆盖降水类型（面板手动演示），给一个合理的默认强度；
- * 否则由天气分类与降水量推导。
+ * 当 `override` 非空（面板手动选择明确天气，含 clear='none'）时，整体天气氛围
+ * （云量/浑浊/瑞利）跟随该选择，否则会出现"选了雨却仍是晴天"的割裂；只有
+ * auto（override=null，跟随实况）才沿用实时数据 w.cloudCover / w.kind。
+ * `cloudKind` 供云色与雾色判断，手动覆盖时取所选天气的类别而非实时分类。
  */
 export interface SkyWeatherMapping {
   /** 云量 0..1 */
   coverage: number;
+  /** 云色/大气氛围类型（手动覆盖时跟随所选天气，而非实时分类） */
+  cloudKind: WeatherKind;
   precipType: PrecipKind;
   /** 降水强度 0..1 */
   precipIntensity: number;
@@ -210,7 +240,10 @@ export interface SkyWeatherMapping {
 }
 
 export function mapWeatherToSky(w: WeatherSnapshot, override: PrecipKind | null): SkyWeatherMapping {
-  const atm = ATMOSPHERE[w.kind];
+  // 下拉手动选择明确天气（含 clear='none'）时，整体天气氛围跟随该选择；
+  // 只有 auto（override=null，跟随实况）才沿用实时数据。否则"选了雨却仍是晴天"割裂。
+  const mood = moodOf(w, override);
+  const atm = ATMOSPHERE[mood.kind];
   let precipType: PrecipKind = 'none';
   if (override) {
     precipType = override;
@@ -225,7 +258,8 @@ export function mapWeatherToSky(w: WeatherSnapshot, override: PrecipKind | null)
   // 用户在面板里主动选了降水，就是要"看得出来"的明显效果；跟随实况时仍按真实降水量弱化。
   const precipIntensity = precipType === 'none' ? 0 : Math.max(fromData, override ? 1 : 0);
   return {
-    coverage: clamp(w.cloudCover / 100, 0, 1),
+    coverage: clamp(mood.cloudCover / 100, 0, 1),
+    cloudKind: mood.kind,
     precipType,
     precipIntensity,
     windDeg: 0,

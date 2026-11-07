@@ -98,6 +98,8 @@ interface PersistedSettings {
   lighting: boolean;
   /** 实时天气开关 */
   weather: boolean;
+  /** 天气模式（降水动画下拉）：auto/clear/rain/snow/hail */
+  precip: string;
 }
 
 function formatMin(min: number): string {
@@ -198,10 +200,10 @@ export function createEnvPanel(env: Environment): EnvPanel {
         <button id="env-wx-enable" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
       </div>
       <div class="env-row env-row-weather">
-        <span class="env-live-label">降水动画</span>
+        <span class="env-live-label">天气模式</span>
         <select id="env-precip-mode" class="env-select env-select-inline">
           <option value="auto">跟随实况</option>
-          <option value="clear">晴（关）</option>
+          <option value="clear" selected>晴（关）</option>
           <option value="rain">雨</option>
           <option value="snow">雪</option>
           <option value="hail">冰雹</option>
@@ -299,6 +301,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
       front: Number(frontSel.value),
       lighting: lightingOn,
       weather: weatherOn,
+      precip: precipModeSel.value,
     };
     if (isCustom) {
       const lat = Number(latInput.value);
@@ -373,6 +376,17 @@ export function createEnvPanel(env: Environment): EnvPanel {
     env.setShadowEnabled(Boolean(s.lighting));
     setWeatherUI(Boolean(s.weather));
     env.setWeatherEnabled(Boolean(s.weather));
+
+    // 天气模式（降水动画下拉）：auto=跟随实况；clear=晴；rain/snow/hail=强制。
+    if (typeof s.precip === 'string') {
+      precipModeSel.value = s.precip;
+      const v = s.precip;
+      let kind: PrecipKind | null = null;
+      if (v === 'auto') kind = null;
+      else if (v === 'clear') kind = 'none';
+      else kind = v as PrecipKind;
+      env.setWeatherOverride(kind);
+    }
   }
 
   function applyCustomGeo(): void {
@@ -471,7 +485,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
     saveSettings();
   });
 
-  // 降水动画覆盖：auto=跟随实况；clear=强制晴天；rain/snow/hail=强制该类型（演示）
+  // 天气模式（降水动画下拉）：auto=跟随实况；clear=晴；rain/snow/hail=强制该类型
   precipModeSel.addEventListener('change', () => {
     const v = precipModeSel.value;
     let kind: PrecipKind | null = null;
@@ -479,6 +493,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
     else if (v === 'clear') kind = 'none';
     else kind = v as PrecipKind;
     env.setWeatherOverride(kind);
+    saveSettings(); // 持久化天气模式选择
   });
 
   // 点击面板外部 / Esc 关闭
@@ -501,6 +516,18 @@ export function createEnvPanel(env: Environment): EnvPanel {
 
   // 开机恢复本地设置（env 已就绪；面板读数由后续快照被动刷新，不被此处覆盖）
   loadSettings();
+
+  // 默认天气模式：晴（关）。loadSettings 已在有本地存储时恢复；此处兜底确保
+  // 首次打开（无存储）或旧存储无 precip 字段时默认停在「晴」，并下发一次覆盖。
+  if (!precipModeSel.value) precipModeSel.value = 'clear';
+  {
+    const v = precipModeSel.value || 'clear';
+    let kind: PrecipKind | null = null;
+    if (v === 'auto') kind = null;
+    else if (v === 'clear') kind = 'none';
+    else kind = v as PrecipKind;
+    env.setWeatherOverride(kind);
+  }
 
   let lastToggleIcon = '';
   /** 顶部按钮图标变更时才重写 innerHTML，避免快照频繁刷新导致 SVG 重绘闪烁 */
