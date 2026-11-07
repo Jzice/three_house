@@ -19,6 +19,7 @@ const CURRENT_FIELDS =
   'temperature_2m,relative_humidity_2m,precipitation,weather_code,cloud_cover,visibility,wind_speed_10m,is_day';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /** WMO 天气代码 → 内部分类 */
 function mapWeatherKind(code: number): WeatherKind {
@@ -190,30 +191,52 @@ export function createWeatherService(opts: WeatherServiceOptions): WeatherServic
   };
 }
 
-/** 手动选择降水类型（含 clear='none'）时的天气氛围映射：ATMOSPHERE 无 'hail' 键，冰雹归入阴天（overcast） */
+/** 手动选择降水类型时的大气氛围映射：ATMOSPHERE 无 'hail' 键，冰雹归入阴天（overcast） */
 const PRECIP_MOOD: Record<Exclude<PrecipKind, 'none'>, WeatherKind> = {
   rain: 'rain',
   snow: 'snow',
   hail: 'overcast',
 };
-/** 手动选择时的云量预设（%，0~100）：晴薄云、雨/雪/冰雹厚云阴沉 */
-const PRECIP_CLOUD: Record<Exclude<PrecipKind, 'none'>, number> = {
-  rain: 85,
-  snow: 92,
-  hail: 95,
+/** 手动选择时云量随程度（intensity 0~1）在「下限↔上限」间插值：小雨薄云 → 暴雨厚云阴沉 */
+const PRECIP_CLOUD_BASE: Record<Exclude<PrecipKind, 'none'>, number> = {
+  rain: 35,
+  snow: 50,
+  hail: 55,
 };
-/** 手动选「晴（关）」时的薄云量（%） */
-const PRECIP_CLOUD_CLEAR = 8;
+const PRECIP_CLOUD_TOP: Record<Exclude<PrecipKind, 'none'>, number> = {
+  rain: 95,
+  snow: 98,
+  hail: 98,
+};
+/** 手动选「晴（关）」时云量随程度（clearCloud 0~1）在 2%~30% 间插值：碧空 ↔ 薄云多云 */
+const PRECIP_CLEAR_CLOUD_BASE = 2;
+const PRECIP_CLEAR_CLOUD_TOP = 30;
 
 /**
- * 下拉手动选择时的天气氛围（云量 % + 大气类别）；auto（override=null）沿用实时数据。
+ * 下拉手动选择时的天气氛围（云量 % + 大气类别 + 降水强度）；auto（override=null）沿用实时数据。
+ * `intensity`：晴时为云量比例（碧空↔薄云），雨/雪/冰雹时为降水强度（也驱动云量）。
  * 供 `mapWeatherToSky`（云色/浑浊/瑞利）与 `environment` 的光照/雾（雾色/雾距）共用，
  * 保证"选了雨地面雾也阴沉"的整体跟随，不重复推导。
  */
-export function moodOf(w: WeatherSnapshot, override: PrecipKind | null): { kind: WeatherKind; cloudCover: number } {
-  if (override === null) return { kind: w.kind, cloudCover: w.cloudCover };
-  if (override === 'none') return { kind: 'clear', cloudCover: PRECIP_CLOUD_CLEAR };
-  return { kind: PRECIP_MOOD[override], cloudCover: PRECIP_CLOUD[override] };
+export function moodOf(
+  w: WeatherSnapshot,
+  override: PrecipKind | null,
+  intensity: number,
+): { kind: WeatherKind; cloudCover: number; precipIntensity: number } {
+  if (override === null) {
+    // 跟随实况：云量/降水强度用真实数据
+    return { kind: w.kind, cloudCover: w.cloudCover, precipIntensity: clamp(w.precipitation / 5, 0, 1) };
+  }
+  if (override === 'none') {
+    // 晴：intensity 作为云量比例（碧空↔薄云）
+    return { kind: 'clear', cloudCover: lerp(PRECIP_CLEAR_CLOUD_BASE, PRECIP_CLEAR_CLOUD_TOP, intensity), precipIntensity: 0 };
+  }
+  // 雨/雪/冰雹：intensity 同时驱动降水强度与云量（小雨薄云 → 暴雨厚云）
+  return {
+    kind: PRECIP_MOOD[override],
+    cloudCover: lerp(PRECIP_CLOUD_BASE[override], PRECIP_CLOUD_TOP[override], intensity),
+    precipIntensity: intensity,
+  };
 }
 
 /**
@@ -239,24 +262,21 @@ export interface SkyWeatherMapping {
   rayleigh: number;
 }
 
-export function mapWeatherToSky(w: WeatherSnapshot, override: PrecipKind | null): SkyWeatherMapping {
+export function mapWeatherToSky(w: WeatherSnapshot, override: PrecipKind | null, intensity: number): SkyWeatherMapping {
   // 下拉手动选择明确天气（含 clear='none'）时，整体天气氛围跟随该选择；
   // 只有 auto（override=null，跟随实况）才沿用实时数据。否则"选了雨却仍是晴天"割裂。
-  const mood = moodOf(w, override);
+  const mood = moodOf(w, override, intensity);
   const atm = ATMOSPHERE[mood.kind];
   let precipType: PrecipKind = 'none';
-  if (override) {
-    precipType = override;
-  } else if (w.kind === 'rain' || w.kind === 'drizzle' || w.kind === 'thunder') {
-    precipType = 'rain';
-  } else if (w.kind === 'snow') {
-    precipType = 'snow';
+  if (override === null) {
+    // 跟随实况：由实时分类推导降水类型
+    if (w.kind === 'rain' || w.kind === 'drizzle' || w.kind === 'thunder') precipType = 'rain';
+    else if (w.kind === 'snow') precipType = 'snow';
+  } else if (override !== 'none') {
+    precipType = override; // 手动选雨/雪/冰雹
   }
-  // 降水量（mm）换算为 0..1 强度，封顶 5mm
-  const fromData = clamp(w.precipitation / 5, 0, 1);
-  // 手动选择雨/雪/冰雹时给满强度 1.0：粒子数量与不透明度拉满，积雪/积水也到满档——
-  // 用户在面板里主动选了降水，就是要"看得出来"的明显效果；跟随实况时仍按真实降水量弱化。
-  const precipIntensity = precipType === 'none' ? 0 : Math.max(fromData, override ? 1 : 0);
+  // 降水强度：晴/无降水=0；手动选择用 mood 的强度（= intensity）；实况用真实降水量换算
+  const precipIntensity = precipType === 'none' ? 0 : mood.precipIntensity;
   return {
     coverage: clamp(mood.cloudCover / 100, 0, 1),
     cloudKind: mood.kind,

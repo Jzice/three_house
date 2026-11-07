@@ -239,6 +239,11 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
 .env-chip b { color: #2C3238; }
 .env-wx-err { color: #C33B32; font-size: 11px; margin-top: 6px; }
 
+.env-range { flex: 1; accent-color: #2980B9; height: 4px; cursor: pointer; }
+.env-intensity-val { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; color: #2C3238; }
+.env-row-hint { font-size: 11px; color: #C33B32; }
+.env-disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+
 .env-version {
   margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, 0.08);
   text-align: center; font-size: 11px; color: #9AA1A9; letter-spacing: 0.02em;

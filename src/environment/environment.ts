@@ -40,6 +40,8 @@ import { createMetaSky, type MetaSkyHandle } from './metaSky';
 import { CLOUD_DAY_COLOR } from './skyAtmosphere';
 
 const DEG = Math.PI / 180;
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 /** 快照（UI 读数）节流间隔 */
 const SNAPSHOT_THROTTLE_MS = 500;
 
@@ -72,8 +74,8 @@ export interface Environment {
   setWeatherEnabled(enabled: boolean): void;
   /** 开启/关闭实时光照（动态阴影）；默认关闭，开启后由太阳高度自动决定是否投射阴影 */
   setShadowEnabled(enabled: boolean): void;
-  /** 设置降水动画覆盖（晴/雨/雪/冰雹；null 表示跟随实况） */
-  setWeatherOverride(kind: PrecipKind | null): void;
+  /** 设置天气模式覆盖（晴/雨/雪/冰雹；null 表示跟随实况）；intensity 0~1 为程度（晴时为云量比例，其余为降水强度） */
+  setWeatherOverride(kind: PrecipKind | null, intensity: number): void;
   getSnapshot(): EnvironmentSnapshot;
   /**
    * 每帧推进。render3D=false（2D 模式）时仍推进状态（回到 3D 时无重建负担）；
@@ -124,8 +126,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
   let weatherEnabled = opts.weatherEnabled ?? false;
   // 房屋正面（+z 入户门侧）所朝真实方位角（度，自北顺时针）；默认西=270，与默认地点武穴组合即"默认武穴·朝西"
   let frontAzimuthDeg = FRONT_AZIMUTH_DEG;
-  // 降水动画覆盖：null=跟随实况；否则强制该类型（面板手动演示）
+  // 天气模式覆盖：null=跟随实况；否则强制该类型（面板手动演示）。intensity 0~1 为程度。
   let precipOverride: PrecipKind | null = null;
+  let precipIntensityOverride = 0.5;
 
   /** 复用临时向量：真实月亮方向（供月光，避免每帧 new） */
   const _moonDir = new THREE.Vector3();
@@ -167,9 +170,15 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     return clock.live ? Date.now() : clock.manualMs;
   }
 
+  /** 实时天气开启时强制跟随实况、忽略手动覆盖（互斥）；否则用面板选择的天气模式 */
+  function effectiveOverride(): PrecipKind | null {
+    return weatherEnabled ? null : precipOverride;
+  }
+
   /** 把天气实况（+ 手动覆盖）映射并下发到 metaverse-sky（云量/大气/风每帧下发无害，降水受 timing 约束需节流） */
   function applyWeatherToSky(): void {
-    const m = mapWeatherToSky(weather, precipOverride);
+    const eff = effectiveOverride();
+    const m = mapWeatherToSky(weather, eff, eff === null ? 0 : precipIntensityOverride);
     // 云色用氛围类型（手动覆盖时跟随所选天气，而非实时分类 weather.kind——实时关闭时恒为 clear）
     metaSky.setClouds(m.coverage, undefined, CLOUD_DAY_COLOR[m.cloudKind]);
     metaSky.setAtmosphere(m.turbidity, m.rayleigh);
@@ -207,10 +216,17 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     const sunDir = toSceneDirection(solar, frontAz);
     // 手动选择天气模式（override）时，光照与雾也跟随所选氛围（云量/雾距/雾色），
     // 否则选了雨地面雾仍是晴天浅蓝、雾距 900m，与阴沉天空割裂。
-    const mood = moodOf(weather, precipOverride);
+    const eff = effectiveOverride();
+    const mood = moodOf(weather, eff, eff === null ? 0 : precipIntensityOverride);
     const moodWeather: WeatherSnapshot = { ...weather, kind: mood.kind, cloudCover: mood.cloudCover };
     const lighting = computeLighting(solar, moodWeather, sunDir);
     lighting.shadowEnabled = shadowEnabled && lighting.shadowEnabled; // 用户未开启实时光照则不投射阴影
+    // 降水程度越大，雾越浓（远平面越近）；晴/无降水不缩放
+    if (eff && eff !== 'none') {
+      const f = lerp(1.0, 0.5, precipIntensityOverride);
+      lighting.fogNear *= f;
+      lighting.fogFar *= f;
+    }
     const moonSinAlt = writeMoonSceneDir(utc, location.lat, location.lon, frontAz, _moonDir);
     if (moonSinAlt <= 0) lighting.moonIntensity = 0;
     applyLighting(lights, lighting, sunDir, _moonDir);
@@ -236,7 +252,8 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     const utc = currentUtcMs();
     const solar = solarPosition(utc, location.lat, location.lon);
     const times = sunTimes(utc, location.lat, location.lon);
-    const precip = mapWeatherToSky(weather, precipOverride);
+    const eff = effectiveOverride();
+    const precip = mapWeatherToSky(weather, eff, eff === null ? 0 : precipIntensityOverride);
     return {
       location,
       clock,
@@ -295,8 +312,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       recompute();
       emitSnapshot(true);
     },
-    setWeatherOverride(kind) {
+    setWeatherOverride(kind, intensity) {
       precipOverride = kind;
+      precipIntensityOverride = clamp01(intensity);
       recompute();
       emitSnapshot(true);
     },
