@@ -175,16 +175,16 @@ export const STAIR = {
   baseH: 0.012,
   /** 顶扶手圆管直径（米） */
   handrailD: 0.06,
-  /** 横杆根数（不锈钢圆管，沿扶手高度等距） */
+  /** 连续钢丝根数（与顶扶手同源的整楼连续折线，沿高度等距） */
   barCount: 4,
-  /** 横杆直径（米） */
+  /** 钢丝直径（米） */
   barD: 0.009,
-  /** 横杆两端缩进量（米，缩至首末立柱内侧，避免穿出） */
-  barInset: 0.06,
-  /** 柱身装饰圆钮直径（米，不锈钢，包裹横杆穿柱点） */
+  /** 钢丝端头保护铆钉直径（米，整球球头；仅整栋楼两处真实外露端使用） */
+  wireCapD: 0.016,
+  /** 柱身半圆铆钉直径（米，不锈钢，位于钢丝穿柱点） */
   knobD: 0.026,
-  /** 装饰圆钮球心距柱面的凸出量（米） */
-  knobOut: 0.002,
+  /** 半圆铆钉平底嵌入柱面的深度（米）：底边嵌入柱体，不露空腔 */
+  knobEmbed: 0.001,
   /**
    * 转角圆弧弯头半径上限（米）：实际半径按相邻直段长度夹取
    * （休息平台 / 梯口横移只有 0.16m，会被夹到 0.08m）。
@@ -428,8 +428,9 @@ function interiorWallSpecs(floor: FloorConfig): BoxSpec[] {
       ? [header(0.8, T_INT, 1.8, -1.50, DOOR_INNER_H, wallH)] // 杂物间门头 x∈[1.40,2.20]
       : [
           box(1.0, wallH, T_INT, 1.7, wallH / 2, -1.50), // 封堵原杂物间门洞 x∈[1.20,2.20]
-          box(2.08, wallH, T_INT, 0.04, wallH / 2, -1.50), // 后卧南墙 x∈[-1.00,1.08]
-          header(0.8, T_INT, -1.4, -1.50, DOOR_INNER_H, wallH), // 新门洞门头 x∈[-1.80,-1.00]
+          box(0.20, wallH, T_INT, -1.70, wallH / 2, -1.50), // 门洞左侧墙垛 x∈[-1.80,-1.60]（柱东面→门洞）
+          box(1.88, wallH, T_INT, 0.14, wallH / 2, -1.50), // 后卧南墙 x∈[-0.80,1.08]
+          header(0.8, T_INT, -1.20, -1.50, DOOR_INNER_H, wallH), // 门洞门头 x∈[-1.60,-0.80]
         ]),
     box(3.30, wallH, T_INT, 2.73, wallH / 2, 0.50),
   ];
@@ -924,13 +925,37 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
     z1: s.spec.z + s.spec.d / 2,
     y: s.topY,
   }));
+  // ---- 楼板挖空区（梯井 / 两跑夹缝）：与 getFloorSlabs 的 STAIR_VOID 同源 ----
+  // 2F/3F 在 STAIR_VOID 不铺楼板，但区内仍有本层 / 相邻层的楼梯踏面可站立，
+  // 故登记为「挖空区 + 楼梯面白名单」：落在挖空区且不在任何楼梯面上即禁止进入。
+  const voids: WalkRect[] = floor.index === 0
+    ? []
+    : [{ x0: STAIR_VOID.x0, x1: STAIR_VOID.x1, z0: STAIR_VOID.z0, z1: STAIR_VOID.z1 }];
+  const stairKeep: WalkRect[] = [];
+  for (let f = floor.index - 1; f <= floor.index + 1; f++) {
+    if (f < 0 || f >= FLOORS.length) continue;
+    const s = getStairSurface(FLOORS[f]);
+    if (!s) continue;
+    const runRect = (r: StairRun): WalkRect => ({
+      x0: r.x0,
+      x1: r.x1,
+      z0: Math.min(r.zLow, r.zHigh),
+      z1: Math.max(r.zLow, r.zHigh),
+    });
+    stairKeep.push(
+      runRect(s.run1),
+      { x0: s.platform.x0, x1: s.platform.x1, z0: s.platform.z0, z1: s.platform.z1 },
+      runRect(s.run2),
+    );
+  }
+
   const y = floor.yard;
   // 所有楼层均启用正常碰撞（墙/栏杆阻挡）；原 2F/3F 的"完全放开"已取消
   const freeRoam = false;
   if (!y) {
     const yard: WalkRect[] = [];
     if (balconyRect) yard.push(balconyRect);
-    return { inside, doors, yard, rails, yardTopY: floor.baseY, solids, gaps, thresholds, outside, freeRoam };
+    return { inside, doors, yard, rails, voids, stairKeep, yardTopY: floor.baseY, solids, gaps, thresholds, outside, freeRoam };
   }
 
   // 院子边界（与 yard.ts 的铺装/围墙一致）
@@ -956,7 +981,7 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   // 东北斜围墙：西北角直角段东端 → 东北端，院内在其西南侧
   const slope = { ax: xWest + rearStraight, az: zNorth, bx: xEast, bz: rearEastZ };
 
-  return { inside, doors, yard, slope, rails, yardTopY: y.paveH, solids, gaps, thresholds, outside, freeRoam };
+  return { inside, doors, yard, slope, rails, voids, stairKeep, yardTopY: y.paveH, solids, gaps, thresholds, outside, freeRoam };
 }
 
 /** 按楼层返回窗：2F 北墙原后门区为楼梯间后墙 2 行单扇窗；3F 正面墙两扇 + 后墙楼梯间窗 */
@@ -1143,7 +1168,7 @@ export function getInteriorWalls(floor: FloorConfig): BoxSpec[] {
   return paint(interiorWallSpecs(floor));
 }
 
-/** 按楼层返回内门：2F 后卧入口贴柱；3F 正面墙装饰门（通阳台，外开） */
+/** 按楼层返回内门：2F 后卧入口与西侧立柱留门套间距；3F 正面墙装饰门（通阳台，外开） */
 export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   if (floor.index === 0) return INTERIOR_DOORS;
   if (floor.index === 3) return []; // 屋顶层无门
@@ -1158,7 +1183,9 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
   }
   return INTERIOR_DOORS.map((d) =>
     d.materialKey === 'wood' && Math.abs(d.z + 1.5) < 1e-6
-      ? { ...d, x: -1.4, openAngle: Math.PI / 2 }
+      // 右移 0.20m：门洞 x∈[-1.60,-0.80]，门套外缘左端 -1.68，
+      // 与西侧立柱东面 -1.80 之间留 0.12m 墙垛（原门套嵌进柱 8cm）
+      ? { ...d, x: -1.2, openAngle: Math.PI / 2 }
       : d,
   );
 }
@@ -1295,7 +1322,8 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
     return true;
   }).concat([
     { w: T_INT, d: 1.1, x: -2.00, z: -3.30 }, // 补全楼梯间东墙：封住 1F 的 1.1m 常开洞口 z∈[-3.85,-2.75]
-    { w: 2.08, d: T_INT, x: 0.04, z: -1.50 }, // 后卧南墙 x∈[-1.00,1.08]（门洞 x∈[-1.80,-1.00] 靠立柱）
+    { w: 1.88, d: T_INT, x: 0.14, z: -1.50 }, // 后卧南墙 x∈[-0.80,1.08]（门洞 x∈[-1.60,-0.80]）
+    { w: 0.20, d: T_INT, x: -1.70, z: -1.50 }, // 门洞左侧墙垛 x∈[-1.80,-1.60]，与柱东面留 0.12m 门套间距
     { w: 1.0, d: T_INT, x: 1.7, z: -1.50 }, // 封堵原杂物间门洞 x∈[1.20,2.20]
   ]);
 }

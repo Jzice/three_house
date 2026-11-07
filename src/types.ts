@@ -12,8 +12,10 @@ export type MaterialKey =
   | 'railingGray'
   /** 不锈钢（银色高金属）：扶手装饰圆钮 / 底座 / 端头球头 */
   | 'stainless'
-  /** 拉丝不锈钢（缎面银灰，纯材质参数无贴图）：扶手下方 4 根平行横杆专用 */
+  /** 拉丝不锈钢（缎面银灰，纯材质参数无贴图）：门拉手 / 执手 / 锁具五金 */
   | 'stainlessBrushed'
+  /** 银白细微拉丝不锈钢（程序化细纹贴图）：楼梯扶手 4 根连续钢丝与柱身半圆铆钉专用 */
+  | 'railWire'
   | 'pvc'
   /** 白色乳胶漆：各层内墙、天花板、承重柱统一使用 */
   | 'paint'
@@ -191,6 +193,10 @@ export interface FpsWalkArea {
   yard: WalkRect[];
   /** 栏杆障碍线段（楼梯扶手 / 阳台栏杆 / 楼梯洞口护栏）：缓冲带内不可行走 */
   rails: RailSeg[];
+  /** 楼板挖空区（2F/3F 梯井，俯视）：区内只有落在 stairKeep 上才可站立，防止走进两跑夹缝坠落 */
+  voids: WalkRect[];
+  /** 挖空区内的楼梯行走面白名单（本层及相邻层两跑 / 平台的俯视并集） */
+  stairKeep: WalkRect[];
   /** 恒阻拦的墙/柱俯视脚印矩形（已含墙厚，判定端再外扩玩家半径） */
   solids: WalkRect[];
   /** 门洞：关门阻拦、开门放行；id 对应可交互门 userData.id */

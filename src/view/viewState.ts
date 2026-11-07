@@ -471,6 +471,8 @@ export function createViewManager(
     for (const r of area.rails) {
       if (pointSegDist2D(x, z, r) < r.half) return false;
     }
+    // 楼板挖空区（梯井 / 两跑夹缝）：区内只允许站在楼梯行走面上，否则会坠落
+    if (area.voids.some((v) => inRect(v, x, z)) && !area.stairKeep.some((r) => inRect(r, x, z))) return false;
     // 允许区域：屋内 / 门洞通道 / 院子(含阳台) / 院外有界地面
     const regionOk =
       inRect(area.inside, x, z) ||
@@ -492,6 +494,28 @@ export function createViewManager(
       if (x >= g.x0 - PLAYER_R && x <= g.x1 + PLAYER_R && z >= g.z0 - PLAYER_R && z <= g.z1 + PLAYER_R) return false;
     }
     return true;
+  }
+
+  /**
+   * 非法落点救急：以当前位置为中心按半径递增、环形采样，找最近的合法点。
+   * 仅在位置已非法时调用（正常漫游零开销），把卡在栏杆缓冲带 / 梯井夹缝里的玩家
+   * 推出障碍，避免「只拒绝新点、不推出」造成两轴同时被拒、无法动弹。
+   */
+  function nearestWalkable(
+    area: FpsWalkArea,
+    x: number,
+    z: number,
+    fromInside: boolean,
+  ): { x: number; z: number } | null {
+    for (let r = 0.08; r <= 1.6; r += 0.08) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const nx = x + Math.cos(a) * r;
+        const nz = z + Math.sin(a) * r;
+        if (isWalkable(area, nx, nz, fromInside)) return { x: nx, z: nz };
+      }
+    }
+    return null;
   }
 
   /** 当前层指定 id 的门是否处于开启状态（未接入查询时视为可通行） */
@@ -582,6 +606,15 @@ export function createViewManager(
     if (floor === activeFloor) return;
     activeFloor = floor;
     levelFloor = floor;
+    // 切层后新层的栏杆集合 / 挖空区不同（3F 只有洞口护栏），旧位置可能瞬间变非法：
+    // 立即校验并推回最近合法点，避免切层瞬间被卡在障碍带内。
+    const area = walkAreas[floor];
+    const fromInside = inRect(area.inside, camera.position.x, camera.position.z);
+    if (!isWalkable(area, camera.position.x, camera.position.z, fromInside)) {
+      const safe = nearestWalkable(area, camera.position.x, camera.position.z, fromInside);
+      camera.position.x = safe ? safe.x : VIEW.fpsPos[0];
+      camera.position.z = safe ? safe.z : VIEW.fpsPos[2];
+    }
     // 走楼梯时相机位置即连续物理位置，直接记入存储
     state.fpsPos.copy(camera.position);
     applyVisibility();
@@ -607,6 +640,13 @@ export function createViewManager(
 
     const area = walkAreas[activeFloor];
     const fromInside = inRect(area.inside, camera.position.x, camera.position.z);
+    // 落点救急：若当前已处于非法位置（切层 / 历史存档 / 穿栏进入夹缝），先推回最近合法点。
+    // 之后分轴判定只禁止「合法→非法」，允许「非法→合法」，玩家永远能自己走出来。
+    if (!isWalkable(area, camera.position.x, camera.position.z, fromInside)) {
+      const safe = nearestWalkable(area, camera.position.x, camera.position.z, fromInside);
+      camera.position.x = safe ? safe.x : VIEW.fpsPos[0];
+      camera.position.z = safe ? safe.z : VIEW.fpsPos[2];
+    }
     // 分轴推进：x、z 各自判定，落在可行走区域内才生效（贴墙时可沿墙滑动）
     if (fwd !== 0) {
       const step = fwd * FPS_SPEED;

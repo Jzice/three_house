@@ -318,6 +318,46 @@ function createSandblastedMetalTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** 程序化生成银白细微拉丝不锈钢贴图：近白底 + 极淡交叉细纹 + 细密噪点。
+ *  刻意保持弱方向性：直段圆柱与 Torus 弯头的 UV 方向相差 90°，强单向拉丝会在弯头
+ *  接缝处突然转向；细纹被噪点打散后，直段与弯头都只呈现细腻的缎面柔光。 */
+function createFineBrushedTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 256;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，细微拉丝金属贴图生成失败');
+
+  let seed = 11072027;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  ctx.fillStyle = '#fafbfc';
+  ctx.fillRect(0, 0, S, S);
+  // 极淡细纹：横竖双向各一道，低对比且被噪点打散，只留缎面丝理
+  for (let i = 0; i < S; i += 2) {
+    ctx.fillStyle = rand() > 0.5 ? 'rgba(126,134,142,0.055)' : 'rgba(255,255,255,0.10)';
+    ctx.fillRect(0, i, S, 1);
+    ctx.fillStyle = rand() > 0.5 ? 'rgba(126,134,142,0.04)' : 'rgba(255,255,255,0.08)';
+    ctx.fillRect(i, 0, 1, S);
+  }
+  // 细密噪点：打散规则条纹，避免形成可见网格
+  for (let i = 0; i < 9000; i++) {
+    ctx.fillStyle = rand() > 0.5
+      ? `rgba(255,255,255,${0.10 + rand() * 0.18})`
+      : `rgba(110,118,126,${0.03 + rand() * 0.08})`;
+    const r = 0.5 + rand() * 1.2;
+    ctx.fillRect(rand() * S, rand() * S, r, r);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 /** 程序化生成卫生间磨砂玻璃竖向压花（长虹）贴图：渐变边缘竖条 + 细密磨砂噪点，
  *  底色近白，与 `frostedGlass` 的浅灰基色相乘后只留下低对比明暗起伏。 */
 function createFrostedRibTexture(): THREE.CanvasTexture {
@@ -522,13 +562,24 @@ export function createMaterials(): MaterialMap {
     blackPost: new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.4, metalness: 0.25 }),
     // 不锈钢（银色高金属）：扶手装饰圆钮 / 底座 / 端头球头
     stainless: new THREE.MeshStandardMaterial({ color: 0xd8d8da, roughness: 0.25, metalness: 0.9 }),
-    // 拉丝不锈钢（扶手下方 4 根横杆）：比抛光不锈钢更暗、更粗的漫反射，
+    // 缎面拉丝不锈钢（门拉手 / 执手 / 锁具五金）：比抛光不锈钢更暗、更粗的漫反射，
     // 用偏高 roughness + 高 metalness 在不加贴图（单文件约束）的前提下模拟缎面拉丝观感
     stainlessBrushed: new THREE.MeshStandardMaterial({
       color: 0xbfc4c9,
       roughness: 0.42,
       metalness: 0.9,
       envMapIntensity: 0.9,
+    }),
+    // 银白细微拉丝不锈钢（楼梯扶手 4 根连续钢丝 + 柱身半圆铆钉专用）：
+    // 比门五金的 stainlessBrushed 更白更亮，roughness 介于抛光与缎面之间保留细腻丝理。
+    // metalness 压到 0.72：过高会把漫反射吃掉、9mm 细丝在室内光下反而发黑（同 gunmetal 的经验），
+    // 保留金属高光的同时让银白基色稳定显色。
+    railWire: new THREE.MeshStandardMaterial({
+      color: 0xf0f2f4,
+      map: createFineBrushedTexture(),
+      roughness: 0.36,
+      metalness: 0.72,
+      envMapIntensity: 1.0,
     }),
     // 阳台栏杆：深灰色金属
     railingGray: new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.5, metalness: 0.5 }),

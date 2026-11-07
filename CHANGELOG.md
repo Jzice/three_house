@@ -2,6 +2,61 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.33] - 2026-11-07
+
+### 改动
+
+- **第一人称穿栏 / 坠入两跑夹缝 / 卡死修复**：三处同源补齐。
+  - `FpsWalkArea` 新增 `voids`（楼板挖空区）与 `stairKeep`（楼梯面白名单）；`getFpsWalkArea()` 按 `STAIR_VOID`（与 `getFloorSlabs` 同源）为 2F/3F 登记梯井挖空区，并把本层及相邻层两跑 / 平台的俯视矩形列入白名单。`isWalkable()` 在挖空区内只允许站在楼梯面上，两跑之间 0.06m 夹缝与梯井边条从此不可进入，不再"掉到下层"。
+  - `viewState.ts` 新增 `nearestWalkable()`：位置已非法时按 0.08m 半径步进、16 方向环形采样推回最近合法点（正常漫游零开销）。`updateFpsMovement()` 每帧先做落点救急，使分轴判定只禁止「合法→非法」、允许「非法→合法」；`autoSwitchFloor()` 切层后立即校验新层落点（3F 栏杆集合与 2F 不同），避免切层瞬间卡在障碍带内。`FPS_SPEED=0.08` 与离散分轴判定保持不变。
+- **2F 后卧房门右移 0.20m**：门中心 `x=-1.40 → -1.20`，门洞 `x∈[-1.60,-0.80]`；门套外沿套线左端 `-1.68` 与西侧立柱东面 `-1.80` 之间留出 0.12m 墙垛（原门套左外缘 `-1.88` 嵌进柱 8cm）。同步 `interiorWallSpecs` 的 2F 分支：门头右移、右侧后卧南墙由 `2.08m@x=0.04` 收为 `1.88m@x=0.14`、补 `0.20m@x=-1.70` 左侧墙垛，保证洞口与实墙吻合、左侧不留通透缺口；`getWalls2D()` 同步这两段 2D 墙色块。门扇铰链侧 / 开启角保持原样，1F 与 3F 门位不动。
+- 门符号（`getOpenings2D`）、门禁 `gaps` / `solids`、过门石（`getThresholdSegments`）、门扇与门套（`createInteriorDoor`）均由 `getInteriorDoors` / `getInteriorWalls` 同源派生，随门位自动跟随；尺寸标注未动。
+
+### 同步
+
+- `package.json` / `package-lock.json` 版本 0.5.32 → 0.5.33。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功；产物自检 `dist/` 仅两个 html、离线版无外链、CDN 版 1 条 importmap。
+- dev 数值核对：2F 门位、2D 门符号、2D 墙段与门洞一致；梯井挖空区的两跑夹缝 / 边条被拒、run1 与休息平台仍可站立，1F 无挖空区。
+- dev 行为回归：FPS 下把相机置于夹缝非法点后，落点被自动推回最近合法点且可继续移动；三种模式切换除既有 `favicon.ico` 404 外无运行时错误。
+
+## [0.5.32] - 2026-11-07
+
+### 改动
+
+- **4 根连续钢丝两端加整球保护铆钉**：新增 `STAIR.wireCapD = 0.016`（16mm ≈ 1.8× 丝径，比柱身 26mm 半圆铆钉小一档）。`handrail.ts` 新增 `railWireEnds()`：按 `bends` 的**弯头切点**（而非折线顶点）解算钢丝真实端面——首点带共享弯头时取 `points[0] − firstDir·trims[0]`、末点带弯头时取 `points[n−1] + lastDir·trims[n−1]`、无弯头（含 `lastTrim` 直截）按相邻直段方向与 `trims` 回退；`createRailWires()` 在被标记的外露端把整球球心落在端面上，内半嵌住 9mm 钢丝断面、外半成圆头，材质沿用 `railWire` 银白细微拉丝。
+- **封头范围按 A 方案**：仅整栋楼两处真实外露端——1F 楼梯起步端、3F 洞口护栏西端贴墙端——各 4 颗共 8 颗。1F 末 / 2F 首、2F 末 / 3F 东端这四处是显示分组产生的虚拟端（两层同显时由共享弯头接通、且与上层切点坐标重合），一律不封：既保留 0.5.31 的整楼连续弯曲，也不会出现双球重叠。新增 `RailWireOpts.capStart / capEnd` 由 `stairs.ts` 按层显式传入，楼层判断不进几何层；顶扶手端点不加。
+- 不变：钢丝路径与弯头、柱身半圆铆钉（168 颗）、顶扶手酒红木、竖杆黑漆、底座与门五金材质、按层显隐、2D 平面图与 FPS 碰撞。
+
+### 同步
+
+- `package.json` / `package-lock.json` 版本 0.5.31 → 0.5.32。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功；产物自检 `dist/` 仅两个 html、离线版无外链、CDN 版 1 条 importmap。
+- dev 场景遍历：1F / 3F 各新增 4 颗 `SphereGeometry(r=0.008)` 整球（共 8 颗，2F 为 0），材质色 `f0f2f4`；球心坐标分别为 (−3.33, 1.02/0.84/0.66/0.48, 0.72) 与 (−4.35, 7.52/7.34/7.16/6.98, −1.22)，与 4 根钢丝端面一一对应。三种模式切换后除既有 `favicon.ico` 404 外无运行时错误。
+
+## [0.5.31] - 2026-11-07
+
+### 改动
+
+- **楼梯扶手 4 根横杆改为与顶管同源的整楼连续钢丝**：原 `createHandrailRun()` 每跑单独摆一根直圆柱、两端各缩进 `barInset=0.06`，休息平台 0.16m 横移、1F↔2F 梯口、2F↔3F 洞口护栏东端下弯处全部断开。现把折线转角解算抽为 `computeRailBends()`（dirs / lens / 弯头半径 / 切点），顶管解算一次写入 `StraightRailOpts.bends`；新增 `createRailWires()` 把顶管折线按 `j·railHeight/(barCount+1)` 整体下移，逐根复用 `createStraightRailTube()` 生成「笔直直管 + 同一半径圆弧弯头」。平台横移、跨层共享弯头、`lastTrim` 封口全部与顶管同心同切点，整楼连续弯过；按层独立分组与第三人称显隐不变。
+- **银白细微拉丝不锈钢 + 半圆铆钉**：新增材质键 `railWire`（程序化 `createFineBrushedTexture()`：近白底 + 极淡交叉细纹 + 噪点，弱方向性以避开圆柱直段与 Torus 弯头 UV 相差 90° 造成的拉丝转向接缝；`0xf0f2f4` / `roughness 0.36` / `metalness 0.72`，压低金属度让 9mm 细丝在室内光下稳定显银白）。4 根钢丝与柱身接头专用；门拉手 / 执手 / 锁具五金仍用 `stainlessBrushed`，底座仍用 `stainless`，顶扶手酒红木 `railing` 与黑漆竖杆 `blackPost` 保持不变。柱身前后各一列的整球圆钮改为 `SphereGeometry` 上半球（平底嵌入柱面 `knobEmbed=0.001`、凸面沿栏杆走向朝外），高度仍与每根钢丝轴线一一对齐。
+- **配置清理**：`STAIR` 去掉 `barInset`（钢丝贯通至管端）、`knobOut` 改为 `knobEmbed`；`barCount=4` / `barD=0.009` / `knobD=0.026` / `elbowR=0.15`、立柱分布与柱顶斜切全部保留。
+
+### 同步
+
+- `src/types.ts` 新增 `railWire` 并更正 `stainlessBrushed` 用途注释；`package.json` / `package-lock.json` 版本 0.5.30 → 0.5.31。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功；产物自检 `dist/` 仅两个 html、离线版无外链、CDN 版 1 条 importmap。
+- dev 目视 + 场景遍历自检：1F/2F/3F 每层每根钢丝的网格数与顶管完全一致（4 / 6 / 4 个，即同心同弯头），`railWire` 铆钉数为 88 / 64 / 16（立柱 11 / 8 / 2 × 4 根 × 前后 2 面）；三种模式切换后控制台 0 错误。
+- 不变：户型尺寸、2D 平面图与标注、第一人称栏杆碰撞、门窗开合与点击判定、光照与环境层。
+
 ## [0.5.30] - 2026-11-07
 
 ### 改动

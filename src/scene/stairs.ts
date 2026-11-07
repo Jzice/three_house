@@ -9,7 +9,9 @@ import {
   VOID_GUARD,
 } from '../config/houseConfig';
 import {
+  computeRailBends,
   createHandrailRun,
+  createRailWires,
   createStraightRailTube,
   elbowTrim,
   type HandrailParams,
@@ -208,7 +210,8 @@ export const STAIR_MARKERS = {
  * 单层楼梯扶手（按楼层构建，挂到该层 root）。
  *
  * - 顶管：本层两跑（含休息平台横移）一条折线，每段为**严格笔直的直管**，转角为圆弧弯头；
- *   立柱截顶等坡斜切，从下方顶住扶手；横杆为 4 根等距**拉丝不锈钢**细管，严格平行扶手轴线。
+ *   立柱截顶等坡斜切，从下方顶住扶手；4 根钢丝由顶管折线整体下移生成，与顶管同源同心、
+ *   整楼连续弯过（含平台横移与跨层共享弯头），柱身半圆铆钉与钢丝穿柱点一一对齐。
  * - 3F 额外含楼梯洞口护栏（水平段 + 与 2F 第二跑顶端 D1 衔接的弯头）。
  * - 各层扶手是**独立对象**：末端圆柱自带端盖，天然在"扶手楼层交接处"封口（不裁切立柱），
  *   由第三人称的楼层可见性整体隐藏/显示，不再穿层。
@@ -225,10 +228,8 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
     baseH: STAIR.baseH,
     handrailD: STAIR.handrailD,
     barCount: STAIR.barCount,
-    barD: STAIR.barD,
-    barInset: STAIR.barInset,
     knobD: STAIR.knobD,
-    knobOut: STAIR.knobOut,
+    knobEmbed: STAIR.knobEmbed,
     elbowR: STAIR.elbowR,
   };
 
@@ -316,7 +317,18 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
       railOpts.firstLen = lenRun2ToD0;
       railOpts.lastTrim = tGuard; // 2F 第二跑顶在洞口护栏交接处封口（弯头归 3F 组）
     }
+    railOpts.bends = computeRailBends(railOpts); // 顶管与 4 根钢丝共用同一套弯头半径 / 切点
     group.add(createStraightRailTube(railOpts));
+    group.add(createRailWires({
+      top: railOpts,
+      barCount: STAIR.barCount,
+      barD: STAIR.barD,
+      railHeight: rh,
+      material: materials.railWire,
+      wireCapD: STAIR.wireCapD,
+      capStart: floor.index === 0, // 仅 1F 起步端是真实外露端；2F 首端为跨层共享弯头，不封
+      capEnd: false,               // 1F/2F 末端均为楼层交接端，保持连续
+    }));
 
     const n1 = floor.index === 0 ? 7 : 4; // 1F run1=7，其余直跑=4
     group.add(
@@ -345,16 +357,26 @@ export function buildStairHandrail(materials: MaterialMap, floor: FloorConfig): 
   if (floor.index === 2) {
     const vg = VOID_GUARD;
 
-    group.add(
-      createStraightRailTube({
-        points: [gWest, gEast, d1],
-        elbowR: STAIR.elbowR,
-        tubeR: STAIR.handrailD / 2,
-        material: materials.railing,
-        lastDir: dirD1Down, // 东端弯头顺楼梯向下回弯，与 2F 末段封口点严丝合缝（弯头归 3F 组）
-        lastLen: lenRun2ToD1,
-      }),
-    );
+    const guardOpts: StraightRailOpts = {
+      points: [gWest, gEast, d1],
+      elbowR: STAIR.elbowR,
+      tubeR: STAIR.handrailD / 2,
+      material: materials.railing,
+      lastDir: dirD1Down, // 东端弯头顺楼梯向下回弯，与 2F 末段封口点严丝合缝（弯头归 3F 组）
+      lastLen: lenRun2ToD1,
+    };
+    guardOpts.bends = computeRailBends(guardOpts);
+    group.add(createStraightRailTube(guardOpts));
+    group.add(createRailWires({
+      top: guardOpts,
+      barCount: STAIR.barCount,
+      barD: STAIR.barD,
+      railHeight: rh,
+      material: materials.railWire,
+      wireCapD: STAIR.wireCapD,
+      capStart: true,  // 洞口护栏西端贴墙，是整栋楼另一处真实外露端
+      capEnd: false,   // 东端下弯为 2F↔3F 交接端，保持连续
+    }));
 
     group.add(
       createHandrailRun({
