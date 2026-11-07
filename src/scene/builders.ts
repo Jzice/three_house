@@ -588,20 +588,39 @@ export function createTwoRowSashWindow(
   upperGlass.position.set(0, (yT + barTop) / 2, FRAME_Z);
   frame.add(upperGlass);
 
-  // 下行单扇平开窗：铰链在左立边（外缘），扇体向右延伸至整行宽，向室外开
-  const pw = xR - xL;
+  // 下行 7:3 划分（左右镜像）：左 70% 平开窗（铰链在窗口左外缘、向室外 +z 摆出）、右 30% 固定玻璃
   const ph = barBot - yB;
-  const sash = new THREE.Group();
-  sash.position.set(xL, (barBot + yB) / 2, FRAME_Z);
-  const edge = (ew: number, eh: number, ex: number, ey: number): void => {
+  const boundary = xL + (xR - xL) * 0.70; // 70/30 分界竖线（局部 x），开扇占左 70%
+  const addEdge = (
+    grp: THREE.Group, ew: number, eh: number, ex: number, ey: number,
+  ): void => {
     const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.copper);
     b.position.set(ex, ey, 0);
-    sash.add(b);
+    grp.add(b);
   };
-  edge(sashT, ph, sashT / 2, 0);                            // 铰接侧边
-  edge(sashT, ph, pw - sashT / 2, 0);                       // 自由侧边
-  edge(pw - sashT * 2, sashT, pw / 2, ph / 2 - sashT / 2);  // 上沿
-  edge(pw - sashT * 2, sashT, pw / 2, -ph / 2 + sashT / 2); // 下沿
+  const lc = yB + ph / 2; // 下行中心 y（局部）
+
+  // —— 右 30% 固定玻璃（非交互）——
+  const fixedW = xR - boundary;
+  const fixedGlass = new THREE.Mesh(
+    new THREE.BoxGeometry(fixedW - 0.012, ph - 0.012, 0.02),
+    materials.glass,
+  );
+  fixedGlass.position.set(boundary + fixedW / 2, lc, FRAME_Z);
+  frame.add(fixedGlass);
+  addEdge(frame, sashT, ph, xR - sashT / 2, lc);              // 右立边
+  addEdge(frame, sashT, ph, boundary + sashT / 2, lc);        // 分界竖边
+  addEdge(frame, fixedW - sashT * 2, sashT, boundary + fixedW / 2, yB + sashT / 2);   // 下沿
+  addEdge(frame, fixedW - sashT * 2, sashT, boundary + fixedW / 2, barBot - sashT / 2); // 上沿
+
+  // —— 左 70% 平开窗（铰链在窗口左外缘 xL，扇体向右延伸，向室外 +z 摆出）——
+  const pw = boundary - xL;
+  const sash = new THREE.Group();
+  sash.position.set(xL, lc, FRAME_Z); // 铰链位于窗口左外缘
+  addEdge(sash, sashT, ph, sashT / 2, 0);                       // 铰接侧边（左外缘）
+  addEdge(sash, sashT, ph, pw - sashT / 2, 0);                  // 自由侧边
+  addEdge(sash, pw - sashT * 2, sashT, pw / 2, ph / 2 - sashT / 2);  // 上沿
+  addEdge(sash, pw - sashT * 2, sashT, pw / 2, -ph / 2 + sashT / 2); // 下沿
   const sashGlass = new THREE.Mesh(
     new THREE.BoxGeometry(pw - sashT * 2, ph - sashT * 2, 0.02),
     materials.glass,
@@ -612,7 +631,7 @@ export function createTwoRowSashWindow(
   const part = markInteractive(sash, 'window', 0);
   part.userData.openAngles = [0, deg(45), deg(60), deg(90)];
   part.userData.openStep = 0;
-  // 铰链在左外缘：负角使扇体绕外缘向局部 +z（室外）摆出，与 3 列窗左下格一致
+  // 铰链在窗口左外缘：负角使扇体绕外缘向局部 +z（室外）摆出，与 3 列窗左下格一致
   part.userData.hingeSign = -1;
   container.add(sash);
 

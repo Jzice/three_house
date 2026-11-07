@@ -95,16 +95,20 @@ export const WINDOW_H = 1.8;
 export const WINDOW_TOP = WINDOW_SILL + WINDOW_H;
 
 /**
- * 楼梯间后墙「上下 2 行、下行单扇可平开」窗的竖向尺寸（相对本层完成面的绝对米数）。
- * 洞口沿用原后门洞净宽 1.1m、中心 x=-2.67、墙心 z=-5.0，仅调整高度与窗格形式：
- * - 2F：窗台 0.40 / 窗顶 1.45（本层 baseY 3.80 → 世界窗顶 5.25m），整窗压在 2F 楼梯
- *   休息台（3.80+1.50=5.30m）下方 5cm；窗高 1.05m，替代原 3 列标准大窗。
- * - 3F 半层：无休息台约束，窗台 0.90 / 窗顶 2.40（本层墙高 2.50，窗上段留 10cm 墙），
- *   窗高 1.50m，与 2F 同款窗格、同洞口位置。
+ * 楼梯间后墙「上下 2 行、下行左可平开 70%（铰链在窗口左外缘）/ 右固定 30%」窗的竖向尺寸
+ * （相对本层完成面的绝对米数）。洞口净宽 1.1m、水平居中于楼梯休息台墙面 x=-3.25、
+ * 墙心 z=-5.0、rotY=π，两窗尺寸统一（宽 1.1m、高 1.2m）。
+ * - 2F：相对本层（baseY 3.80）sill=-0.50 / top=0.70 → 世界窗底 3.30m / 窗顶 4.50m。
+ *   整窗较此前下移 0.8m：上沿 4.50、下沿 3.30（落入 1F 墙 0.5m）；1F 后门门楣在
+ *   x∈[-3.22,-2.70] 重叠段让位，窗右下角完整露出。
+ * - 3F 半层：相对本层（baseY 6.80）sill=-0.30 / top=0.90 → 世界窗底 6.50m / 窗顶 7.70m。
+ *   相对上一轮（5.50–6.70）上移 1m；窗底 6.50 略低于 3F 楼面 6.80 的 0.30m（落入 2F 墙顶开洞），
+ *   窗顶 7.70 位于 3F 墙面内，3F 墙在该处开 0.90m 窗洞、其下接 3F 楼面无墙台。
+ * 两窗尺寸统一（宽 1.1m、高 1.2m），水平居中于休息台墙面 x=-3.25（不再与 1F 后门 x=-2.67 对齐）。
  */
 export const STAIR_BACK_WINDOW = {
-  f2: { sill: 0.4, top: 1.45 },
-  f3: { sill: 0.9, top: 2.4 },
+  f2: { sill: -0.5, top: 0.7 },
+  f3: { sill: -0.3, top: 0.9 },
 } as const;
 /** 地板瓷砖边长（米） */
 export const TILE_SIZE = 0.8;
@@ -318,19 +322,28 @@ function exteriorWallSpecs(floor: FloorConfig): BoxSpec[] {
     box(T_EXT, wallH, D - T_EXT, -4.5, wallH / 2, -T_EXT / 2),
     box(T_EXT, wallH, D - T_EXT, 4.5, wallH / 2, -T_EXT / 2),
 
-    // ---- 北墙 z = -5.0 ----
-    box(1.16, wallH, T_EXT, -3.80, wallH / 2, -5.0), // 西侧门垛 x∈[-4.38,-3.22]
-    // 后门区（x∈[-3.22,-2.12]）：1F 为净高 BACK_DOOR_H 的门洞 + 门楣；2F 改为楼梯间后墙 2 行单扇窗
+    // ---- 北墙 z = -5.0（后门区按楼层区分：1F 留后门、2F 留两扇楼梯窗）----
     ...(floor.index === 0
-      ? [box(1.1, wallH - BACK_DOOR_H, T_EXT, -2.67, BACK_DOOR_H + (wallH - BACK_DOOR_H) / 2, -5.0)]
+      ? [
+          // 1F 后门（x=-2.67，洞口 1.1m → x∈[-3.22,-2.12]）+ 东西门垛。
+          // 2F 后窗下移 0.8m 后，其下 0.5m（世界 3.30–3.80、x∈[-3.80,-2.70]）落入本层墙需开洞；
+          // 该窗 x 与 1F 后门洞 x∈[-3.22,-2.12] 重叠 0.52m，门楣在重叠段 [-3.22,-2.70] 拆为
+          // 左右两段让位，窗右下角完整露出。原本 1F 后门西侧的 0.58m 缺口也一并填实。
+          box(0.58, wallH, T_EXT, -4.09, wallH / 2, -5.0),   // 西墙垛 x∈[-4.38,-3.80]
+          box(0.58, 3.0, T_EXT, -3.51, 1.5, -5.0),           // 窗西段下方实墙 x∈[-3.80,-3.22]（世界 0.30–3.30）
+          box(0.52, 1.0, T_EXT, -2.96, 2.5, -5.0),           // 门楣左段 x∈[-3.22,-2.70]（世界 2.30–3.30）
+          box(0.58, 1.5, T_EXT, -2.41, 2.75, -5.0),          // 门楣右段 x∈[-2.70,-2.12]（世界 2.30–3.80）
+          box(0.72, wallH, T_EXT, -1.76, wallH / 2, -5.0),   // 东墙垛 x∈[-2.12,-1.40]
+        ]
       : [
-          // 窗台/窗上段按 STAIR_BACK_WINDOW.f2 单独切（不用统一 WINDOW_SILL/WINDOW_TOP），
-          // 使整窗落在 2F 休息台下方
-          box(1.1, STAIR_BACK_WINDOW.f2.sill, T_EXT, -2.67, STAIR_BACK_WINDOW.f2.sill / 2, -5.0),
-          box(1.1, wallH - STAIR_BACK_WINDOW.f2.top, T_EXT, -2.67,
-            STAIR_BACK_WINDOW.f2.top + (wallH - STAIR_BACK_WINDOW.f2.top) / 2, -5.0),
+          // 2F：两扇楼梯后窗（均 x∈[-3.80,-2.70]）——
+          //   下窗 = 2F 后窗（世界 3.80–4.50，仅上 0.7m 在本层墙内；下 0.5m 在 1F 墙已处理）；
+          //   上窗 = 3F 后窗上移 1m 后的下沿段（世界 6.50–6.80，仅 0.30m 落入本层墙顶）。
+          // 两窗之间世界[4.50,6.50]用实墙补齐，窗上 6.80 即本层墙顶。
+          box(0.58, wallH, T_EXT, -4.09, wallH / 2, -5.0),   // 西墙垛 x∈[-4.38,-3.80]
+          box(1.1, 2.0, T_EXT, -3.25, 1.70, -5.0),           // 两窗之间实墙 世界[4.50,6.50]
+          box(1.30, wallH, T_EXT, -2.05, wallH / 2, -5.0),   // 东墙垛 x∈[-2.70,-1.40]
         ]),
-    box(0.72, wallH, T_EXT, -1.76, wallH / 2, -5.0), // 东侧门垛 x∈[-2.12,-1.40]
     // 窗 1：窗台 + 窗上墙
     box(1.8, WINDOW_SILL, T_EXT, -0.5, WINDOW_SILL / 2, -5.0),
     box(1.8, headH, T_EXT, -0.5, headY, -5.0),
@@ -950,11 +963,11 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
 export function getWindows(floor: FloorConfig): WindowSpec[] {
   if (floor.index === 0) return WINDOWS;
   if (floor.index === 3) return []; // 屋顶层无窗
-  /** 楼梯间后墙窗：洞口宽 1.1m、z=-5.0、rotY=π，竖向尺寸由 STAIR_BACK_WINDOW 给定 */
+  /** 楼梯间后墙窗：洞口宽 1.1m、水平居中于休息台墙面 x=-3.25、z=-5.0、rotY=π，竖向尺寸由 STAIR_BACK_WINDOW 给定 */
   const backWin = (v: { sill: number; top: number }): WindowSpec => ({
     w: 1.1,
     h: v.top - v.sill,
-    x: -2.67,
+    x: -3.25,
     y: (v.sill + v.top) / 2,
     z: -5.0,
     rotY: Math.PI,
@@ -1087,12 +1100,12 @@ export function getExteriorWalls(floor: FloorConfig): BoxSpec[] {
     return [
       box(T_EXT, wallH, 5.5, -4.5, wallH / 2, -2.37), // 西外墙 z∈[-5.12,0.38]
       box(T_EXT, wallH, 5.5, 4.5, wallH / 2, -2.37), // 东外墙
-      // 北墙：楼梯间后墙 x=-2.67 处留 1.1m 窗洞（与 2F 同位置），其余分成两段整面墙
-      box(1.16, wallH, T_EXT, -3.80, wallH / 2, -5.0), // 西段 x∈[-4.38,-3.22]
-      box(1.1, STAIR_BACK_WINDOW.f3.sill, T_EXT, -2.67, STAIR_BACK_WINDOW.f3.sill / 2, -5.0), // 窗台
-      box(1.1, wallH - STAIR_BACK_WINDOW.f3.top, T_EXT, -2.67,
-        STAIR_BACK_WINDOW.f3.top + (wallH - STAIR_BACK_WINDOW.f3.top) / 2, -5.0), // 窗上段
-      box(6.5, wallH, T_EXT, 1.13, wallH / 2, -5.0), // 东段 x∈[-2.12,4.38]
+      // 北墙：3F 楼梯后窗上移 1m 后位于世界 6.50–7.70（底 6.50 略低于 3F 楼面 6.80、
+      // 顶 7.70 在本层墙内），故 3F 墙面在 x∈[-3.80,-2.70] 开 0.90m 窗洞（6.80–7.70），
+      // 其下接 3F 楼面无墙台，仅余窗上段实墙（7.70–9.30）
+      box(0.58, wallH, T_EXT, -4.09, wallH / 2, -5.0), // 西段 x∈[-4.38,-3.80]
+      box(1.1, 1.6, T_EXT, -3.25, 1.70, -5.0),        // 窗上段实墙 世界[7.70,9.30]
+      box(7.08, wallH, T_EXT, 0.84, wallH / 2, -5.0), // 东段 x∈[-2.70,4.38]
       // 正面墙 z∈[0.38,0.62]：两角 + 1.2m 宽推拉窗（西/东）+ 中门
       box(0.97, wallH, T_EXT, -4.135, wallH / 2, 0.5), // 左角
       box(0.3, wallH, T_EXT, -3.5, wallH / 2, 0.5), // 左角—西窗 填充
@@ -1241,8 +1254,8 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
     return [
       { w: T_EXT, d: 5.5, x: -4.5, z: -2.37 }, // 西外墙
       { w: T_EXT, d: 5.5, x: 4.5, z: -2.37 }, // 东外墙
-      { w: 1.16, d: T_EXT, x: -3.80, z: -5.0 }, // 北墙西段
-      { w: 1.1, d: T_EXT, x: -2.67, z: -5.0, color: '#88ccff' }, // 楼梯间后墙窗洞口（与 3D 同源）
+      { w: 0.58, d: T_EXT, x: -4.09, z: -5.0 }, // 北墙西段 x∈[-4.38,-3.80]
+      { w: 1.1, d: T_EXT, x: -3.25, z: -5.0, color: '#88ccff' }, // 楼梯间后墙窗洞口（上移1m，跨3F楼面0.30m）
       { w: 6.5, d: T_EXT, x: 1.13, z: -5.0 }, // 北墙东段
       { w: 0.97, d: T_EXT, x: -4.135, z: 0.5 }, // 正面墙西北角
       { w: 0.3, d: T_EXT, x: -3.5, z: 0.5 }, // 角—西窗 填充
@@ -1265,9 +1278,13 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
     if (Math.abs(w.x + 0.25) < 1e-6 && Math.abs(w.w - 2.4) < 1e-6 && Math.abs(w.z - 5.0) < 1e-6) {
       return { ...w, w: 2.2, x: -0.2 };
     }
-    // 北墙原后门区：2F 改为窗（玻璃蓝标记，与其它窗一致）
-    if (Math.abs(w.x + 2.67) < 1e-6 && Math.abs(w.z + 5.0) < 1e-6 && Math.abs(w.w - 1.0) < 1e-6) {
-      return { ...w, color: '#88ccff' };
+    // 北墙西段：收窄到 x∈[-4.38,-3.80]，让出后墙窗洞口 [-3.80,-2.70]
+    if (Math.abs(w.x + 3.775) < 1e-6 && Math.abs(w.w - 1.21) < 1e-6) return { ...w, w: 0.58, x: -4.09 };
+    // 北墙东段：2F 由 [-2.17,-1.40] 扩到 [-2.70,-1.40]，与西窗洞口 [-3.80,-2.70] 闭合
+    if (Math.abs(w.x + 1.785) < 1e-6 && Math.abs(w.w - 0.77) < 1e-6) return { ...w, w: 1.30, x: -2.05 };
+    // 北墙原后门区：2F 改为窗（玻璃蓝标记），居中于休息台墙面 x=-3.25（与 3D 同源）
+    if (Math.abs(w.x + 2.67) < 1e-6 && Math.abs(w.z + 5.0) < 1e-6) {
+      return { ...w, w: 1.1, x: -3.25, color: '#88ccff' };
     }
     return w;
   });
