@@ -1157,12 +1157,14 @@ export function getInteriorWalls(floor: FloorConfig): BoxSpec[] {
   if (floor.index === 2) {
     // 3F 两道南北向内墙（本层 wallH=2.5，竖向绝对米数，与改前一致）：
     // 墙1 x=-2.00（贴楼梯空隙东缘），北墙 → 梯口 z=-1.28
-    // 墙2 x=1.20（与 1F/2F 纵墙对齐），z=-0.22 处留 1.2m 门洞（门洞高 2.0）
+    // 墙2 x=1.20（与 1F/2F 纵墙对齐），z=-0.42 处留 1.2m 门洞（门洞高 2.0）；
+    // 门洞南沿 0.18 与正面墙内表面 0.38 之间补 0.20m 墙垛，给门套外沿套线留 0.12m 间距。
     const wallH = floor.wallH;
     return paint([
       box(T_INT, wallH, 3.60, -2.00, wallH / 2, -3.08), // 墙1 z∈[-4.88,-1.28]
-      box(T_INT, wallH, 4.06, 1.20, wallH / 2, -2.85), // 墙2北段 z∈[-4.88,-0.82]
-      box(T_INT, 0.5, 1.2, 1.20, 2.25, -0.22), // 墙2门头 y∈[2.0,2.5]
+      box(T_INT, wallH, 3.86, 1.20, wallH / 2, -2.95), // 墙2北段 z∈[-4.88,-1.02]
+      box(T_INT, 0.5, 1.2, 1.20, 2.25, -0.42), // 墙2门头 z∈[-1.02,0.18]，y∈[2.0,2.5]
+      box(T_INT, wallH, 0.20, 1.20, wallH / 2, 0.28), // 门洞南侧墙垛 z∈[0.18,0.38]
     ]);
   }
   return paint(interiorWallSpecs(floor));
@@ -1177,8 +1179,9 @@ export function getInteriorDoors(floor: FloorConfig): InteriorDoorSpec[] {
     return [
       // 3F 正面门：整扇（门扇 / 门套 / 门槛）统一灰色金属 metalDoor
       { w: 1.2, x: 0, y: 0, z: 0.5, rotY: 0, materialKey: 'metalDoor', frameMaterial: 'metalDoor', h: 2.1, openAngle: Math.PI / 2, hingeSide: 1, id: 'front3f', absolute: true },
-      // 墙2（x=1.20）门洞靠南墙的木门，宽1.2×高2.0m，北移
-      { w: 1.2, x: 1.2, y: 0, z: -0.22, rotY: Math.PI / 2, materialKey: 'wood', h: 2.0, hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2', absolute: true },
+      // 墙2（x=1.20）木门，宽1.2×高2.0m；北移 0.20m：门洞 z∈[-1.02,0.18]，
+      // 门套外缘南端 0.26 与正面墙内表面 0.38 留 0.12m 墙垛（原门套嵌进南墙 8cm）
+      { w: 1.2, x: 1.2, y: 0, z: -0.42, rotY: Math.PI / 2, materialKey: 'wood', h: 2.0, hingeSide: -1, openAngle: -Math.PI / 2 * 0.85, id: 'door-3f2', absolute: true },
     ];
   }
   return INTERIOR_DOORS.map((d) =>
@@ -1295,8 +1298,9 @@ export function getWalls2D(floor: FloorConfig): WallSpec2D[] {
       { w: 0.3, d: T_EXT, x: 3.5, z: 0.5 }, // 东窗—角 填充
       { w: 0.97, d: T_EXT, x: 4.135, z: 0.5 }, // 正面墙东北角
       { w: T_INT, d: 3.60, x: -2.00, z: -3.08 }, // 墙1（楼梯边，北墙→梯口）
-      { w: T_INT, d: 4.06, x: 1.20, z: -2.85 }, // 墙2北段（缩短）
-      { w: T_INT, d: 1.2, x: 1.20, z: -0.22, color: '#555' }, // 墙2门洞（宽1.2、北移）
+      { w: T_INT, d: 3.86, x: 1.20, z: -2.95 }, // 墙2北段 z∈[-4.88,-1.02]
+      { w: T_INT, d: 1.2, x: 1.20, z: -0.42, color: '#555' }, // 墙2门洞 z∈[-1.02,0.18]
+      { w: T_INT, d: 0.20, x: 1.20, z: 0.28 }, // 门洞南侧墙垛 z∈[0.18,0.38]
     ];
   }
   // 2F 入户门洞 2.4 → 2.2（两折玻璃推拉门，居中于滑门 x=-0.2）
