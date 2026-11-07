@@ -123,6 +123,8 @@ export function createInteractiveMainDoor(
   const midW = doorW - 2 * sideW; // 中间双开总宽 1.9
   const swingW = midW / 2; // 单扇活动门宽 0.95
   const frontZ = doorT / 2; // 门扇正面（朝室外 +z）
+  // 门扇 / 固定窄梃的单件让缝：相邻两件合成一条 4mm 竖缝（真实双开门中缝 3~5mm）
+  const leafGap = 0.004;
 
   const container = new THREE.Group();
 
@@ -146,7 +148,7 @@ export function createInteractiveMainDoor(
 
   // ---- 门扇正面描线边框（内缩 inset）+ 中部竖条 + 四角简化回纹角饰 ----
   const addLeafTrim = (g: THREE.Object3D, cx: number): void => {
-    const lw = swingW - 0.012;
+    const lw = swingW - leafGap;
     const inset = 0.12;
     const tT = 0.04;
     const bw = lw - 2 * inset;
@@ -207,9 +209,9 @@ export function createInteractiveMainDoor(
   // ---- 两侧固定窄梃（非交互）----
   for (const s of [-1, 1]) {
     const px = s * (halfW - sideW / 2);
-    addBox(container, sideW - 0.012, leafH, doorT, px, leafH / 2, 0, materials.doorDark);
+    addBox(container, sideW - leafGap, leafH, doorT, px, leafH / 2, 0, materials.doorDark);
     const inset = 0.08;
-    const bw = sideW - 2 * inset - 0.012;
+    const bw = sideW - 2 * inset - leafGap;
     const bh = leafH - 2 * inset;
     addBox(container, bw, tT, doorT * 0.4, px, inset + tT / 2, frontZ, materials.bronze);
     addBox(container, bw, tT, doorT * 0.4, px, leafH - inset - tT / 2, frontZ, materials.bronze);
@@ -220,19 +222,20 @@ export function createInteractiveMainDoor(
   // ---- 中间双开活动门 ----
   const buildSwingLeaf = (centerOffsetX: number): THREE.Group => {
     const g = new THREE.Group();
-    const lw = swingW - 0.012;
+    const lw = swingW - leafGap;
     addBox(g, lw, leafH, doorT, centerOffsetX, leafH / 2, 0, materials.doorDark);
     addLeafTrim(g, centerOffsetX);
-    // 内外双面竖向长拉手：靠近中缝（门扇自由边），中心离地 1.05m；
-    // 外侧拉手与智能锁面板在水平方向错开，二者互不遮挡
-    const handleX = centerOffsetX - Math.sign(centerOffsetX) * 0.18;
+    // 内外双面竖向长拉手：装在门扇自由边（中缝侧，距边 0.08m），中心离地 1.05m；
+    // 相对铰链的力臂接近整扇宽度，开门省力；与铰链侧的智能锁面板水平错开，互不遮挡
+    const handleX = Math.sign(centerOffsetX) * (swingW - 0.08);
     for (const side of [-1, 1]) {
       g.add(createVerticalPullHandle(materials.bronze, {
         x: handleX, y: 1.05, leafT: doorT, side, length: 0.45,
         accent: materials.doorDark,
       }));
     }
-    // 智能锁面板：从中缝拆半，分别装在左右门扇靠中缝一侧，开门时随门扇旋转（避免悬空）
+    // 智能锁面板：两扇各半、随门扇旋转（避免悬空）；当前位于铰链侧（距铰链约 0.05m），
+    // 与自由侧拉手水平错开、互不遮挡
     const innerEdgeX = centerOffsetX - Math.sign(centerOffsetX) * (lw / 2);
     const lockX = innerEdgeX + Math.sign(centerOffsetX) * 0.045;
     addBox(g, 0.09, 0.32, 0.05, lockX, 1.05, frontZ, materials.bronze);
@@ -569,13 +572,13 @@ export function createLowerSashWindow(
 }
 
 /**
- * 楼梯间后墙窗（1.1m 宽）：上下 2 行、上行固定亮窗；下行按小格:大格=4:6 分左右两格，
- * 左 60% 为一枚可平开扇、右 40% 为固定玻璃，替代原「3 列」大窗。
- * - 固定件：外框四边 + 一根通长中横梃（分出上/下两行）+ 上行整块固定玻璃 + 下行右小格固定玻璃；
- * - 可开启件：下行左大扇一枚平开窗（玻璃 + 自身一圈细铜边），铰链在窗口左外缘、向室外开，
+ * 楼梯间后墙窗（1.1m 宽）：上下 2 行、上行固定亮窗；下行按 1:1 等分左右两格，
+ * 左半为一枚可平开扇、右半为固定玻璃，替代原「3 列」大窗。
+ * - 固定件：外框四边 + 一根通长中横梃（分出上/下两行）+ 上行整块固定玻璃 + 下行右格固定玻璃；
+ * - 可开启件：下行左格一枚平开窗（玻璃 + 自身一圈细铜边），铰链在窗口左外缘、向室外开，
  *   点击按 0°→45°→60°→90° 循环，与 createLowerSashWindow 的多级开合档位一致。
- * 下行 60/40 分界处有一根固定竖中框（与中横梃同款、挂在 frame 上），开扇打开后仍留在原位；
- * 右小格不再单独造细铜边（曾因 frame 组与 FRAME_Z 错层产生"浮空窗页"），
+ * 下行 1:1 分界处有一根固定竖中框（与中横梃同款、挂在 frame 上），开扇打开后仍留在原位；
+ * 右格不再单独造细铜边（曾因 frame 组与 FRAME_Z 错层产生"浮空窗页"），
  * 其四边由外框右立边 / 中横梃 / 外框下边 / 分界竖中框围合。
  */
 export function createTwoRowSashWindow(
@@ -627,9 +630,9 @@ export function createTwoRowSashWindow(
   upperGlass.position.set(0, (yT + barTop) / 2, FRAME_Z);
   frame.add(upperGlass);
 
-  // 下行 6:4 划分（小格:大格 = 4:6）：左 60% 平开窗（铰链在窗口左外缘、向室外 +z 摆出）、右 40% 固定玻璃
+  // 下行 1:1 等分：左半平开窗（铰链在窗口左外缘、向室外 +z 摆出）、右半固定玻璃
   const ph = barBot - yB;
-  const boundary = xL + (xR - xL) * 0.60; // 60/40 分界竖线（局部 x），开扇占左 60%
+  const boundary = xL + (xR - xL) * 0.50; // 1:1 分界竖线（局部 x，落在窗中心），开扇占左半
   const addEdge = (
     grp: THREE.Group, ew: number, eh: number, ex: number, ey: number,
   ): void => {
@@ -639,13 +642,13 @@ export function createTwoRowSashWindow(
   };
   const lc = yB + ph / 2; // 下行中心 y（局部）
 
-  // —— 60/40 分界处固定竖中框（与中横梃同款：frameT 宽 / FRAME_FD 深）——
+  // —— 1:1 分界处固定竖中框（与中横梃同款：frameT 宽 / FRAME_FD 深）——
   // 挂在 frame 上、位于 FRAME_Z 平面，不随开扇转动：开扇打开后仍在原位、网格不断。
   // 左右两块玻璃各让出半个框宽，避免闭合时开扇自由侧边与中框共面闪烁。
   const mullionHalf = frameT / 2;
   addFrameBar(frame, frameT, ph, boundary, lc, materials.copper);
 
-  // —— 右 40% 固定玻璃（非交互）——
+  // —— 右半固定玻璃（非交互）——
   // 固定格不再单独造细铜边：那些边条曾落在局部 z=0，而玻璃/外框/中横梃在 FRAME_Z 平面，
   // 错层约 0.10m 会在斜视时形成一片"浮空窗页"。玻璃四边由外框右立边 / 中横梃 /
   // 外框下边 / 分界竖中框围合。
@@ -658,7 +661,7 @@ export function createTwoRowSashWindow(
   fixedGlass.position.set(fixedX0 + fixedW / 2, lc, FRAME_Z);
   frame.add(fixedGlass);
 
-  // —— 左 60% 平开窗（铰链在窗口左外缘 xL，扇体向右延伸，向室外 +z 摆出）——
+  // —— 左半平开窗（铰链在窗口左外缘 xL，扇体向右延伸，向室外 +z 摆出）——
   const pw = boundary - mullionHalf - xL;
   const sash = new THREE.Group();
   sash.position.set(xL, lc, FRAME_Z); // 铰链位于窗口左外缘

@@ -379,7 +379,7 @@ export interface WindowSpec {
   y: number;
   z: number;
   rotY: number;
-  /** 开启样式：平开（默认）、左右推拉、上下 2 行（下行左大扇平开 + 右小格固定、上行固定亮窗） */
+  /** 开启样式：平开（默认）、左右推拉、上下 2 行（下行左右 1:1 等宽，左半平开 + 右半固定、上行固定亮窗） */
   style?: 'casement' | 'sliding' | 'two-row';
   /** 开启构件：左右下方两枚小窗格对开（外开），其余格位固定不动 */
   openSashes?: 'lower-sides';
