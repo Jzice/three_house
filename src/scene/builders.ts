@@ -11,6 +11,13 @@ import type {
   WindowSpec,
 } from '../types';
 import { DOOR_INNER_H, FRONT_DOOR_H, T_EXT, T_INT } from '../config/houseConfig';
+import {
+  createCasementHandle,
+  createLeverHandleSet,
+  createSlidingLatch,
+  createSlidingLatchStrike,
+  createVerticalPullHandle,
+} from './hardware';
 
 /** 由 BoxSpec 生成一个长方体网格 */
 export function createBox(spec: BoxSpec, materials: MaterialMap): THREE.Mesh {
@@ -216,9 +223,15 @@ export function createInteractiveMainDoor(
     const lw = swingW - 0.012;
     addBox(g, lw, leafH, doorT, centerOffsetX, leafH / 2, 0, materials.doorDark);
     addLeafTrim(g, centerOffsetX);
-    // 内侧拉手（朝室内 -z）：金色长条，靠近中缝
+    // 内外双面竖向长拉手：靠近中缝（门扇自由边），中心离地 1.05m；
+    // 外侧拉手与智能锁面板在水平方向错开，二者互不遮挡
     const handleX = centerOffsetX - Math.sign(centerOffsetX) * 0.18;
-    addBox(g, 0.04, 0.5, 0.06, handleX, leafH * 0.45, -doorT / 2, materials.bronze);
+    for (const side of [-1, 1]) {
+      g.add(createVerticalPullHandle(materials.bronze, {
+        x: handleX, y: 1.05, leafT: doorT, side, length: 0.45,
+        accent: materials.doorDark,
+      }));
+    }
     // 智能锁面板：从中缝拆半，分别装在左右门扇靠中缝一侧，开门时随门扇旋转（避免悬空）
     const innerEdgeX = centerOffsetX - Math.sign(centerOffsetX) * (lw / 2);
     const lockX = innerEdgeX + Math.sign(centerOffsetX) * 0.045;
@@ -263,13 +276,15 @@ export function createSlidingGlassDoor(
   // 内外两轨的 z 向间距，保证两扇可重叠滑动
   const trackGap = 0.06;
 
-  // 竖向金属执手：贴中梃侧、内外两面各一根（细长盒体）
-  const handleGeo = new THREE.BoxGeometry(0.02, 0.4, 0.02);
+  // 竖向长拉手：贴中梃侧、内外两面各一根（圆管 + 上下连接座），中心离地 1.10m。
+  // 扇局部 y 以扇中心为 0，故换算成相对扇中心的偏移。
+  const handleY = 1.10 - h / 2;
   const addHandles = (leaf: THREE.Group, stileX: number) => {
-    for (const hz of [-0.05, 0.05]) {
-      const handle = new THREE.Mesh(handleGeo, materials.blackAluminum);
-      handle.position.set(stileX, 0, hz);
-      leaf.add(handle);
+    for (const side of [-1, 1]) {
+      leaf.add(createVerticalPullHandle(materials.stainlessBrushed, {
+        x: stileX, y: handleY, leafT: 0.05, side, length: 0.36,
+        accent: materials.blackAluminum,
+      }));
     }
   };
 
@@ -382,6 +397,10 @@ export function createInteractiveWindow(
   const hT = 0.06;
   const centerW = 0.54;
   const sideW = (innerW - 2 * vT - centerW) / 2;
+  // 自由侧扇框：与竖梃同款、随窗扇转动。执手必须落在这根框料上，不能压在玻璃上。
+  const edgeT = vT;
+  const panelW = innerW - edgeT;
+  const rightSideW = sideW - edgeT;
 
   // 两道竖向分隔
   const vOffsets = [sideW + vT / 2, sideW + vT + centerW + vT / 2];
@@ -390,18 +409,30 @@ export function createInteractiveWindow(
     v.position.x = vx;
     windowSash.add(v);
   }
+  // 自由侧扇框（贴在玻璃右缘，铰链仍在左缘）
+  const freeEdge = new THREE.Mesh(new THREE.BoxGeometry(edgeT, h, SASH_D), materials.copper);
+  freeEdge.position.x = innerW - edgeT / 2;
+  windowSash.add(freeEdge);
 
-  // 两道横向分隔
-  const hOffsets = [sideW / 2, sideW + vT + centerW + vT + sideW / 2];
-  for (const hx of hOffsets) {
-    const hBar = new THREE.Mesh(new THREE.BoxGeometry(sideW, hT, SASH_D), materials.copper);
+  // 两道横向分隔：右列横梃收到自由侧扇框内缘，避免与扇框共面闪烁
+  const hBars: Array<[number, number]> = [
+    [sideW / 2, sideW],
+    [sideW + vT + centerW + vT + rightSideW / 2, rightSideW],
+  ];
+  for (const [hx, bw] of hBars) {
+    const hBar = new THREE.Mesh(new THREE.BoxGeometry(bw, hT, SASH_D), materials.copper);
     hBar.position.set(hx, 0.3, 0);
     windowSash.add(hBar);
   }
 
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(innerW, innerH, 0.02), materials.glass);
-  glass.position.set(innerW / 2, 0, 0);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(panelW, innerH, 0.02), materials.glass);
+  glass.position.set(panelW / 2, 0, 0);
   windowSash.add(glass);
+
+  // 平开窗 7 字执手：装在自由侧扇框中心、只朝室内侧（-z），拨杆悬在玻璃前方
+  windowSash.add(createCasementHandle(materials.copper, {
+    x: innerW - edgeT / 2, y: 0, leafT: SASH_D, leverDir: -1,
+  }));
 
   // 朝向决定开启方向
   const openDir = Math.abs(rotY) < 0.1 ? (Math.PI / 2) * 0.9 : (-Math.PI / 2) * 0.9;
@@ -511,6 +542,11 @@ export function createLowerSashWindow(
     );
     glass.position.set((dir * pw) / 2, 0, 0);
     sash.add(glass);
+    // 下格小平开窗执手：底板落在自由侧细铜边中心（宽 0.025m），拨杆朝格内悬在玻璃前方
+    sash.add(createCasementHandle(materials.copper, {
+      x: dir * (pw - sashT / 2), y: 0, leafT: sashD,
+      leverDir: -dir, scale: 0.85,
+    }));
     const part = markInteractive(sash, 'window', 0);
     part.userData.openAngles = [0, deg(45), deg(60), deg(90)];
     part.userData.openStep = 0;
@@ -636,6 +672,11 @@ export function createTwoRowSashWindow(
   );
   sashGlass.position.set(pw / 2, 0, 0);
   sash.add(sashGlass);
+  // 下行平开扇执手：底板落在自由侧细铜边中心（宽 0.025m）、室内侧；扇格较小故缩至 0.75
+  sash.add(createCasementHandle(materials.copper, {
+    x: pw - sashT / 2, y: 0, leafT: sashD,
+    leverDir: -1, scale: 0.75,
+  }));
 
   const part = markInteractive(sash, 'window', 0);
   part.userData.openAngles = [0, deg(45), deg(60), deg(90)];
@@ -713,6 +754,11 @@ export function createSlidingWindow(
   // 左扇（内轨）：闭合居中 -halfLeaf，开启右滑到右扇背后（+halfLeaf），让出左半洞口
   const leftLeaf = buildLeaf();
   leftLeaf.position.set(-halfLeaf, 0, trackInnerZ);
+  // 月牙锁锁体：内轨扇右缘（自由边）室内侧，拨扣朝交接处伸出
+  leftLeaf.add(createSlidingLatch(pvc, {
+    x: leafW / 2 - 0.022, y: 0, leafT: 0.05,
+    accent: materials.stainlessBrushed, leverDir: 1,
+  }));
   const leftPart = markInteractive(leftLeaf, 'window', 0);
   leftPart.userData.slideX = { closed: -halfLeaf, open: halfLeaf };
   container.add(leftLeaf);
@@ -720,6 +766,11 @@ export function createSlidingWindow(
   // 右扇（外轨）：闭合居中 +halfLeaf，开启左滑到左扇位置（-halfLeaf），让出右半洞口
   const rightLeaf = buildLeaf();
   rightLeaf.position.set(halfLeaf, 0, trackOuterZ);
+  // 月牙锁扣座：外轨扇左缘（自由边）室内侧，与内轨扇锁体配对
+  rightLeaf.add(createSlidingLatchStrike(pvc, {
+    x: -leafW / 2 + 0.022, y: 0, leafT: 0.05,
+    accent: materials.stainlessBrushed, leverDir: -1,
+  }));
   const rightPart = markInteractive(rightLeaf, 'window', 0);
   rightPart.userData.slideX = { closed: halfLeaf, open: -halfLeaf };
   container.add(rightLeaf);
@@ -786,20 +837,34 @@ export function createDoorCasing(
   return group;
 }
 
-/** 磨砂玻璃门扇：白色塑钢边框（pvc）包裹磨砂玻璃面板 */
-function createFramedGlassLeaf(w: number, h: number, t: number, materials: MaterialMap): THREE.Group {
+/**
+ * 卫生间门扇：哑光灰漆金属边框（bathDoorMetal，与 1F 后门同色）+ 上 48% 磨砂玻璃 / 下 52% 实心金属板。
+ * - 四边框（上/下/铰链侧/自由侧）、4.8:5.2 分界细横边、下半 52% 金属板统一为 bathDoorMetal（细喷砂颗粒）；
+ * - 上半 48% 保持 frostedGlass 磨砂玻璃；
+ * - 分界按内框净空 y∈[ft, h-ft]（=2.02m）划分：上 48% / 下 52%，分界中心 y=1.0904m；
+ *   细横边宽 0.02m（为四边框 0.04m 的一半）、厚同边框 fd，正反两面压住上下两板接缝；
+ *   两板各让出半个横边后，玻璃实际高 0.9596m、下板实际高 1.0404m。
+ * - **自由侧竖框加宽为 0.10m「锁边料」**：双面执手（含锁芯 / 指示旋钮）装在这根通高
+ *   金属框料上，与玻璃 / 下板分区无关，始终不压玻璃；玻璃与下板因此相应缩窄并整体偏移。
+ *   hingeSide 为铰链侧（1 / -1），自由侧方向取反。
+ */
+function createFramedGlassLeaf(
+  w: number, h: number, t: number, materials: MaterialMap, hingeSide: 1 | -1,
+): THREE.Group {
   const g = new THREE.Group();
-  const ft = 0.04; // 边框宽
-  const fd = t + 0.01; // 边框略厚于玻璃，正反两面都压住玻璃边
-  const frameMat = materials.pvc;
-  const glassMat = materials.frostedGlass;
+  const ft = 0.04; // 铰链侧 / 上下边框宽
+  const lockW = 0.10; // 自由侧加宽锁边料（承托双面执手）
+  const freeDir = -hingeSide; // leaf 局部 x 指向自由边的方向
+  const fd = t + 0.01; // 边框略厚于内嵌板，正反两面都压住板边
+  const frameMat = materials.bathDoorMetal; // 与后门同色的哑光灰漆金属 + 细喷砂颗粒：四边框 / 分界横边 / 下半板
+  const glassMat = materials.frostedGlass; // 上半磨砂玻璃
 
-  // 四边框（上、下、左、右）；竖梃夹在上、下沿之间，避免角部重叠打架
+  // 四边框：上下通宽居中；铰链侧 ft 宽、自由侧 lockW 宽，分别贴在各自门边
   const bars: Array<[number, number, number, number]> = [
     [w, ft, 0, h - ft / 2],
     [w, ft, 0, ft / 2],
-    [ft, h - 2 * ft, -w / 2 + ft / 2, h / 2],
-    [ft, h - 2 * ft, w / 2 - ft / 2, h / 2],
+    [ft, h - 2 * ft, -freeDir * (w / 2 - ft / 2), h / 2],
+    [lockW, h - 2 * ft, freeDir * (w / 2 - lockW / 2), h / 2],
   ];
   for (const [bw, bh, bx, by] of bars) {
     const bar = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, fd), frameMat);
@@ -808,12 +873,38 @@ function createFramedGlassLeaf(w: number, h: number, t: number, materials: Mater
     bar.receiveShadow = false;
     g.add(bar);
   }
-  // 磨砂玻璃面板（略薄，嵌在边框内）
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(w - 2 * ft, h - 2 * ft, t), glassMat);
-  glass.position.set(0, h / 2, 0);
+
+  // 4.8:5.2 分界（按内框净空）：上 48% 磨砂玻璃、下 52% 哑光灰漆金属板
+  const panelW = w - ft - lockW; // 内嵌板净宽，夹在铰链侧框与自由侧锁边料之间
+  const panelCx = (freeDir * (ft - lockW)) / 2; // 非对称边框导致内嵌板中心偏移
+  const innerH = h - 2 * ft; // 内嵌板净高
+  const ySplit = ft + innerH * 0.52; // 分界中心 y（下段占 52%）
+  const railT = 0.02; // 分界细横边宽（四边框的一半）
+
+  // 下半 52%：实心哑光灰漆金属板（略薄，嵌在边框内），上缘让出半个细横边
+  const lowerH = ySplit - railT / 2 - ft;
+  const lower = new THREE.Mesh(new THREE.BoxGeometry(panelW, lowerH, t), frameMat);
+  lower.position.set(panelCx, ft + lowerH / 2, 0);
+  lower.castShadow = false;
+  lower.receiveShadow = false;
+  g.add(lower);
+
+  // 上半 48%：磨砂玻璃，下缘让出半个细横边
+  const upperBot = ySplit + railT / 2;
+  const upperH = h - ft - upperBot;
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(panelW, upperH, t), glassMat);
+  glass.position.set(panelCx, upperBot + upperH / 2, 0);
   glass.castShadow = false;
   glass.receiveShadow = false;
   g.add(glass);
+
+  // 分界细横边：与边框同厚 fd，正反两面压住上下两板接缝
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(panelW, railT, fd), frameMat);
+  rail.position.set(panelCx, ySplit, 0);
+  rail.castShadow = false;
+  rail.receiveShadow = false;
+  g.add(rail);
+
   return g;
 }
 
@@ -835,8 +926,8 @@ export function createInteriorDoor(
 
   let leaf: THREE.Object3D;
   if (spec.materialKey === 'frostedGlass') {
-    // 磨砂玻璃门：白色边框 + 磨砂玻璃
-    leaf = createFramedGlassLeaf(w, h, t, materials);
+    // 卫生间门：哑光灰漆金属边框（与后门同色）+ 上 48% 磨砂玻璃 / 下 52% 金属板（门套由 frameMaterial 指定）
+    leaf = createFramedGlassLeaf(w, h, t, materials, side);
   } else {
     const panel = new THREE.Mesh(new THREE.BoxGeometry(w, h, t), materials[spec.materialKey]);
     panel.position.set(0, h / 2, 0);
@@ -846,6 +937,20 @@ export function createInteriorDoor(
   }
   leaf.position.x += -hingeX; // 门扇中心落在洞口中心（洞口从铰链向另一侧延展）
   hinge.add(leaf);
+
+  const isBath = spec.materialKey === 'frostedGlass';
+  // 双面 L 形执手：中心离地 1.05m，拨杆朝门扇内伸。
+  // 卫生间门自由侧是 0.10m 加宽锁边料，底座装在其中心（距边 0.05m），始终落在金属框料上；
+  // 实心门板维持距边 0.07m。卫生间门另加指示旋钮，灰色金属门带长条锁面板。
+  const handleInset = isBath ? 0.05 : 0.07;
+  hinge.add(createLeverHandleSet(materials.stainlessBrushed, {
+    x: -side * (w - handleInset), y: 1.05, leafT: t,
+    leverDir: side,
+    lockPlate: spec.materialKey === 'metalDoor',
+    indicator: isBath,
+    accent: isBath ? materials.bathDoorMetal : undefined,
+    scale: w < 0.8 ? 0.9 : 1,
+  }));
 
   const defaultOpen = spec.openAngle ?? (Math.PI / 2) * 0.85;
   const parts: InteractiveObject[] = [markInteractive(hinge, 'door', defaultOpen)];
@@ -915,6 +1020,12 @@ export function createExteriorSwingDoor(
 
   leaf.position.x += -hingeX; // 门扇中心落洞口中心（自铰链向另一侧延展）
   hinge.add(leaf);
+
+  // 外门双面执手 + 长条锁面板：自由侧距边 7cm、中心离地 1.05m
+  hinge.add(createLeverHandleSet(materials.stainlessBrushed, {
+    x: -side * (w - 0.07), y: 1.05, leafT: t,
+    leverDir: side, lockPlate: true,
+  }));
 
   const parts: InteractiveObject[] = [markInteractive(hinge, 'door', openAngle)];
   // 默认开启，展示朝外开的朝向（点击可关上）

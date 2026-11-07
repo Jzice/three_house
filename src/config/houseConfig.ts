@@ -985,15 +985,16 @@ export function getWindows(floor: FloorConfig): WindowSpec[] {
   return [...WINDOWS, backWin(STAIR_BACK_WINDOW.f2)];
 }
 
-/** 内门：卧室/杂物间用灰色木门，卫生间用磨砂玻璃门（位置取各门洞中心；尺寸均为绝对米数） */
+/** 内门：卧室/杂物间用灰色木门，卫生间用「哑光灰漆金属框（与后门同色）+ 上48%磨砂玻璃/下52%金属板」门（位置取各门洞中心；尺寸均为绝对米数） */
 export const INTERIOR_DOORS: InteriorDoorSpec[] = [
   // 卧室1：西墙 x=1.20 门洞（z≈1.2）；朝室内（+x）开，开至 90° 后门扇平行并贴靠北墙
   { w: 0.9, x: 1.2, y: 0, z: 1.2, rotY: -Math.PI / 2, materialKey: 'wood', openAngle: Math.PI / 2, id: 'door-bed1', absolute: true },
   // 杂物间：南墙 z=-1.50 门洞（x≈1.8，随纵墙东移；墙沿 x 延展）
   { w: 0.8, x: 1.8, y: 0, z: -1.5, rotY: 0, materialKey: 'wood', id: 'door-store', absolute: true },
   // 卫生间：西墙 x=2.50 门洞（靠北段，z∈[-1.15,-0.45]，中心 -0.8；墙沿 z 延展）
-  // 铰链在北侧（hingeSide:1），门扇朝室内（+x）开；玻璃门带白色边框
-  { w: 0.7, x: 2.5, y: 0, z: -0.8, rotY: Math.PI / 2, materialKey: 'frostedGlass', hingeSide: 1, id: 'door-bath', absolute: true },
+  // 铰链在北侧（hingeSide:1），门扇朝室内（+x）开；
+  // 门扇为哑光灰漆金属框（与后门同色）+ 上48%磨砂玻璃/下52%金属板，门套同款 bathDoorMetal
+  { w: 0.7, x: 2.5, y: 0, z: -0.8, rotY: Math.PI / 2, materialKey: 'frostedGlass', frameMaterial: 'bathDoorMetal', hingeSide: 1, id: 'door-bath', absolute: true },
 ];
 
 // ==========================================================

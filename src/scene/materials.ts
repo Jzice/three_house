@@ -286,6 +286,81 @@ function createBlackMarbleTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** 程序化生成哑光灰漆金属细喷砂颗粒贴图：底色近白、低对比深浅散点，
+ *  与 `color: 0x707478` 相乘后仍保持后门同款灰调，只多一层细腻颗粒。 */
+function createSandblastedMetalTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，喷砂金属贴图生成失败');
+
+  let seed = 11072026;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  ctx.fillStyle = '#f8f9f9';
+  ctx.fillRect(0, 0, S, S);
+  // 细密喷砂颗粒：浅深两色低对比散点，不形成可见网格或方向性拉丝
+  for (let i = 0; i < 14000; i++) {
+    ctx.fillStyle = rand() > 0.5
+      ? `rgba(255,255,255,${0.10 + rand() * 0.20})`
+      : `rgba(96,102,108,${0.05 + rand() * 0.12})`;
+    const r = 0.6 + rand() * 1.4;
+    ctx.fillRect(rand() * S, rand() * S, r, r);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/** 程序化生成卫生间磨砂玻璃竖向压花（长虹）贴图：渐变边缘竖条 + 细密磨砂噪点，
+ *  底色近白，与 `frostedGlass` 的浅灰基色相乘后只留下低对比明暗起伏。 */
+function createFrostedRibTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，磨砂压花贴图生成失败');
+
+  let seed = 6112026;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  ctx.fillStyle = '#f8f9fa';
+  ctx.fillRect(0, 0, S, S);
+  // 竖向长虹条纹：每 16px 一条，渐变边缘避免硬边；在 0.56m 宽玻璃上约 1.75cm 一道
+  const pitch = 16;
+  for (let x = 0; x < S; x += pitch) {
+    const grad = ctx.createLinearGradient(x, 0, x + pitch, 0);
+    grad.addColorStop(0, 'rgba(190,198,204,0)');
+    grad.addColorStop(0.35, 'rgba(190,198,204,0.22)');
+    grad.addColorStop(0.65, 'rgba(255,255,255,0.28)');
+    grad.addColorStop(1, 'rgba(190,198,204,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, 0, pitch, S);
+  }
+  // 细密磨砂颗粒打散条纹的规则感
+  for (let i = 0; i < 6000; i++) {
+    ctx.fillStyle = rand() > 0.5
+      ? `rgba(255,255,255,${0.10 + rand() * 0.16})`
+      : `rgba(150,160,168,${0.04 + rand() * 0.10})`;
+    const r = 0.6 + rand() * 1.6;
+    ctx.fillRect(rand() * S, rand() * S, r, r);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 /** 程序化生成深色花岗岩过门石贴图（细密矿粒 + 少量浅色矿脉），整块石材无砖缝 */
 function createGraniteTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -477,13 +552,22 @@ export function createMaterials(): MaterialMap {
     wood: new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.7, metalness: 0.0 }),
     // 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边
     metalDoor: new THREE.MeshStandardMaterial({ color: 0x707478, roughness: 0.5, metalness: 0.35 }),
+    // 卫生间门专用：与后门完全同色同参数，只多一层程序化细喷砂颗粒。
+    // 后门 / 3F 正面门 / 两处门槛仍共用纯色 metalDoor，不受贴图影响。
+    bathDoorMetal: new THREE.MeshStandardMaterial({
+      color: 0x707478,
+      map: createSandblastedMetalTexture(),
+      roughness: 0.5,
+      metalness: 0.35,
+    }),
     // 深灰仿铜门体/门框（一层入户门基底与套线）：沉稳炭灰带微铜，哑光金属感
     doorDark: new THREE.MeshStandardMaterial({ color: 0x2c2c30, roughness: 0.5, metalness: 0.55 }),
     // 金铜色装饰与五金（一层入户门描线/角饰/拉手/锁/格棂）：偏金，强反射
     bronze: new THREE.MeshStandardMaterial({ color: 0xb8863b, roughness: 0.35, metalness: 0.7 }),
-    // 磨砂玻璃门（卫生间）
+    // 磨砂玻璃（卫生间门专用）：竖向压花贴图，透明度 / 粗糙度沿用既有观感
     frostedGlass: new THREE.MeshStandardMaterial({
       color: 0xe8eef2,
+      map: createFrostedRibTexture(),
       transparent: true,
       opacity: 0.5,
       metalness: 0.0,
@@ -494,6 +578,14 @@ export function createMaterials(): MaterialMap {
       color: 0x2a2a2c,
       roughness: 0.45,
       metalness: 0.6,
+    }),
+    // 枪灰色（深冷灰带蓝调）：原卫生间门专用，v0.5.26 起门体改为与后门同色，此键保留备用。
+    // 比 blackAluminum 亮一档且 metalness 更低（0.4 vs 0.6）——高金属度会压掉漫反射、
+    // 基色在室内光下发黑，降 metalness 让枪灰更显色。
+    gunmetal: new THREE.MeshStandardMaterial({
+      color: 0x59636f,
+      roughness: 0.45,
+      metalness: 0.4,
     }),
     // 院子铺装：卵石碎拼
     paving: new THREE.MeshStandardMaterial({

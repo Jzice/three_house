@@ -20,12 +20,17 @@ export type MaterialKey =
   | 'copper'
   | 'glass'
   | 'wood'
+  /** 卫生间门磨砂玻璃：浅灰半透 + 竖向压花贴图（当前仅卫生间门使用） */
   | 'frostedGlass'
   /** 黑色（炭黑）铝合金：2F 阳台推拉门框料与门套 */
   | 'blackAluminum'
+  /** 枪灰色（深冷灰带蓝调）：原卫生间门专用，现保留备用 */
+  | 'gunmetal'
   | 'paving'
   /** 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边 */
   | 'metalDoor'
+  /** 卫生间门专用金属：与后门 metalDoor 同色同参数 + 细喷砂颗粒贴图（框 / 下板 / 锁边料 / 门套） */
+  | 'bathDoorMetal'
   /** 深灰仿铜门体/门框：一层入户门基底与套线 */
   | 'doorDark'
   /** 金铜色描线/角饰/拉手/锁面板/格棂：一层入户门装饰与五金 */
@@ -256,9 +261,9 @@ export interface InteriorDoorSpec {
   z: number;
   /** 容器绕 Y 轴旋转：墙沿 z 延展用 π/2，墙沿 x 延展用 0 */
   rotY: number;
-  /** 门扇材质：木门 / 磨砂玻璃门 / 灰色金属门 */
+  /** 门扇材质：木门 / 卫生间门（磨砂玻璃 + 哑光灰漆金属框）/ 灰色金属门 */
   materialKey: 'wood' | 'frostedGlass' | 'metalDoor';
-  /** 门套（门框）材质，缺省 wood；3F 正面门整扇统一 metalDoor */
+  /** 门套（门框）材质，缺省 wood；3F 正面门整扇统一 metalDoor、卫生间门统一 bathDoorMetal */
   frameMaterial?: MaterialKey;
   /** 门扇高度，默认 2.1m（门头下方） */
   h?: number;
