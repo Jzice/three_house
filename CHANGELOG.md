@@ -2,6 +2,39 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.35] - 2026-11-07
+
+### 改动
+
+- **2F/3F 阳台栏杆与 1F/2F 窗框统一为后门同款灰色金属**：`createBalcony()` 的顶扶手 / 底横杆 / 密排细栏条 / 间隔加粗立柱 / 柱顶球形饰（4 处 `railingGray`）改用 `metalDoor`（`0x707478`，roughness 0.5 / metalness 0.35，纯色无贴图）；`createInteractiveWindow` / `createLowerSashWindow` / `createTwoRowSashWindow` 的窗框料（外框四边、竖梃、横梃、窗扇细边，共 12 处 `copper`）同样改用 `metalDoor`。挑台板（`floor` / `paint`）、窗玻璃（`glass`）、窗台与窗上墙（`wall`）不变。
+- **窗平开执手与后门把手同源**：三类窗共 3 处 `createCasementHandle` 由 `copper` 改为 `stainlessBrushed`（缎面不锈钢，与 1F 后门 `createLeverHandleSet` 一致），形成灰框 + 银五金；后门自身材质未动。
+- **3F 后墙窗一并统一**：`createTwoRowSashWindow` 为 2F/3F 楼梯间后墙窗共用的构造函数，按确认在 builder 内统一替换，3F 那扇后墙窗也由棕铜变中灰，避免为单扇窗引入按层选材质的分支。
+- `copper` / `railingGray` 两键改后无构件引用，按 `gunmetal` 的既有做法保留在材质字典与 `MaterialKey` 中备用，并同步注释；`metalDoor` / `stainlessBrushed` 的用途注释补齐。注释中「细铜边」统一改为「细金属边」。
+- 不变：2F 阳台推拉门框（`blackAluminum`）、3F 正面推拉窗（`pvc`）、楼梯扶手 / 3F 梯口护栏、1F 入户门与内门、门槛与过门石、2D 门窗图例色；门窗尺寸 / 开合角度 / 交互阈值、2D 数据均未动（纯材质替换，不涉及配置层）。
+- **修复环境面板时间进度条与显示时间不同步**：`EnvironmentSnapshot` 新增 `localMinutes` / `localDate`，由 `environment.getSnapshot()` 按当前生效时钟（`live` 或 `manualMs`）与站点时区换算，作为时间轴、显示文字、日期框、场景太阳时刻的唯一真值源。`envPanel` 新增 `syncTimeFromSnapshot()`，在每次快照回调与面板创建完成时统一回填三者（创建时 `onSnapshot` 尚未绑定，故主动取一次 `env.getSnapshot()`）。跟随实时开启时滑块保持 `disabled` 不可拖、位置仍随实时推进；关闭跟随实时会随环境时钟对齐到当下真实时刻；持久化 `live: true` 刷新后滑块不再停在旧的手动值。手动拖时间 / 改日期不再先 `setLive(false)` 产生中间态，`setManualLocalDate` 自身即切回手动，避免中间快照把用户所选日期覆盖成今天；日期框聚焦时跳过回写以免打断输入。不改太阳算法、天气 / 降水、三种视图与门窗交互、持久化字段结构。
+
+- **环境面板布局整理**：`envPanel.ts` 把 `LOCATION 地点` / `SUNLIGHT 日照` 两个分区标题改为与城市下拉 / 日期框同行的行内提示（左侧色条保留），并把「房屋正面朝向」整行移到面板第 2 行（城市选择之后、日期之前，与地点同属场地属性组）。`style.css` 新增 `.env-row-head`（标题行不留上边距、两端对齐）、`.env-sec-title-inline`（去掉标题下边距）、`.env-row-spread`（右侧控件贴右）与统一的 `.env-field`（`box-sizing: border-box`、132px 宽），替换原 `.env-select` / `.env-select-inline` / `.env-date` 三套宽度不一的全宽与 92px 样式；地点 / 日期 / 朝向 / 天气模式四个控件右边缘对齐，天气模式下拉不再紧挨文字靠左。`WEATHER 天气` 标题、时间轴（滑条 + `12:00`，不加标签）、云量强度行、罗盘与读数保持原样；所有控件 id / 文案 / 交互逻辑 / 持久化结构未动。
+
+- **3F 屋顶檐口与外墙颜色统一**：核对后确认屋面板侧面 / 女儿墙与外墙本就同为 `wall`（`0xe0e0e0`），截图里那圈深灰来自低角度平视时太阳偏 `+x`、朝 `+z` 的檐口背光，而作为参照的大片 `+x` 外墙受光。按确认采用局部补光：`types.ts` / `materials.ts` 新增 `eave`（同色同粗糙度 + `emissive` 背光补偿）；`roof.ts` 屋面板四个侧面与女儿墙四个竖直侧面改用 `eave`，板顶 `wall`、板底 `paint`、女儿墙压顶 `wall` 均不变；`main.ts` 在 `weatherFx` 接管后按 `userData.eaveCompensate` 收集全部实例（含克隆体），每帧按 `sun.intensity` 设 `emissiveIntensity`、按 `sun.color` 同步色温，夜间太阳强度为 0 时自动归零。`EAVE_GAIN = 0.2` 由截图取样标定。不改全局光照、不动 3F 阳台挑台板。
+
+- **顶部工具栏第 4 个「屋顶」按钮图标改为完整房子**：原「人字形折线 + 底边横线」的空心描边换成上方等腰实心三角（屋顶）+ 下方单个空心矩形（房身）。三角 `M2 9 L12 2.5 L22 9 Z` 底边宽 20，比矩形 `x=4` / 宽 16 每侧出檐 2；两者几何间距 3.5（三角 2px 同色描边 + 矩形 2px 描边 → 视觉空白约 1.5px），沿用 1F~3F 叠层块「互不共边」的分离风格；三角高 6.5、矩形高 9，整体描边外沿 `y≈1.5..22.5`、中心 12，与前三个按钮一样在 24×24 画布内垂直居中。`#btn-floor-4` 补 `btn-floor` class 以复用 `.slab` 空心描边；`style.css` 新增 `.roof` 常驻 `#000` 实心（与 1F~3F 的实心顶块同一套标识语言，提示该层视点在屋顶），`#btn-floor-4.active .roof` 随 `currentColor` 反白，保证蓝底选中态清晰。仅改图标与注释，按钮行为 / `title` / `aria-label` / `setActiveFloor()` 高亮逻辑均未动。
+
+### 同步
+
+- `package.json` / `package-lock.json` 版本 0.5.34 → 0.5.35。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1159.7 KB、CDN 版 285.2 KB）；产物自检 `dist/` 仅两个 html、离线版无外链、CDN 版 1 条 importmap。
+- 静态核对：`materials.copper` / `materials.railingGray` 在 `src/` 中已无引用，窗框料 12 处 + 栏杆杆件 4 处均为 `metalDoor`，窗执手 3 处为 `stainlessBrushed`；改动文件 linter 0 错误。
+- dev 目视确认：1F / 2F / 3F 上帝视角下窗框与阳台栏杆呈与 3F 正面门（原本即 `metalDoor`）一致的中灰哑光金属；2F 阳台推拉门仍为炭黑铝合金、3F 正面推拉窗仍为白色塑钢，与「不改相邻构件」的确认一致。2D 平面图与第一人称模式切换正常，控制台除既有 `favicon.ico` 404 外无运行时错误。门窗几何与开合逻辑未改动。
+- 时间轴同步专项：`npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1160.0 KB、CDN 版 285.4 KB）。playwright-cli DOM 核对：默认 720 / `12:00` / 当天日期一致；开启「跟随实时」后滑块 = 实时分钟且 `disabled=true`、文字同为 `22:17`；模拟时间前进 2 分钟，滑块 1338 → 1340、文字 `22:18` → `22:20`（持续随动）；关闭跟随实时后对齐到当下 `22:18`；手动拖到 08:30 与改日期 `2026-01-15` 均保持滑块 / 文字 / 日期 / localStorage 一致；持久化 `live: true` 刷新后仍跟随实时。控制台 0 错误。
+- 面板布局专项：`npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1160.0 KB、CDN 版 285.5 KB）。playwright-cli 截图与几何核对：行序为「地点+城市 → 房屋朝向 → 日照+日期 → 时间轴 → 跟随实时 / 实时光照 → 罗盘 → 实时天气 → 天气模式 → 云量」；`#env-city` / `#env-front` / `#env-date` / `#env-precip-mode` 在常规宽度与 500px 窄屏下右边缘分别同为 1250 / 477、宽度均为 132px；日期在 132px 内完整显示，「自定义经纬度…」下拉与展开后的经纬度输入正常。交互回归：切换内置城市与自定义经纬度、改朝向、切天气模式（雨量滑块 `max=100`）、改日期与拖时间轴（`08:30`）均正常，上一轮的时间轴同步逻辑不受影响；控制台 0 错误。
+
+- 屋顶檐口专项：`npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1161.0 KB、CDN 版 286.5 KB）；产物自检 `dist/` 仅两个 html、离线版无外链、CDN 版 1 条 importmap。playwright-cli 锁定低角度复现机位取样：补偿后檐口 `#A49C92`、受光外墙 `#A0998F`（RGB 差 4/3/3），深灰带消除且色相同为暖灰，未补偿的同朝向背光立面为 `#7B7874`；02:00 夜间 `sun.intensity=0` 时 5 个 eave 实例 `emissiveIntensity` 全为 0，不发亮；俯视上帝视角无过曝白边；改动文件 linter 0 错误。
+
+- 屋顶按钮图标专项：`npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1161.0 KB、CDN 版 286.5 KB）；改动文件 linter 0 错误。playwright-cli DOM / 计算样式核对：三角 `d="M2 9 L12 2.5 L22 9 Z"`（底边宽 20）、矩形 `x=4 y=12.5 w=16 h=9`，几何间距 3.5（视觉空白约 1.5px，与 1F~3F 叠层块一致）；默认态三角 `fill = rgb(0,0,0)`、矩形 `fill = none`，加 `.active`（等待 0.2s 过渡）后三角 `rgb(255,255,255)`、按钮底色 `#2980b9`。默认态 / 选中态整页截图与放大截图目视确认：三角每侧出檐 2、屋顶与房身分离且不共边，仍是完整房子形象，蓝底白图标清晰；按钮行为 / 文案 / 三种模式未动。
+
 ## [0.5.34] - 2026-11-07
 
 ### 改动

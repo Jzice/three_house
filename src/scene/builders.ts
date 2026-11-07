@@ -347,6 +347,11 @@ export function createSlidingGlassDoor(
  * 窗框/窗扇型材：单一薄型材（约 7cm 深）靠外墙（局部 +z = 室外法线方向）齐平，
  * 室内侧留深窗台/窗套（reveal）。只呈现一圈框，无重影。
  * 窗框与玻璃覆盖整个洞口，窗洞其余墙厚为实心墙 reveal，不透光。
+ *
+ * 材质（v0.5.35 起）：`createInteractiveWindow` / `createLowerSashWindow` /
+ * `createTwoRowSashWindow` 的框料（外框、竖/横梃、窗扇细边）统一用 `metalDoor`
+ * （与 1F 北墙后门同款中灰哑光漆金属），平开执手用 `stainlessBrushed`
+ * （与后门把手同源）；玻璃仍为 `glass`，3F 正面推拉窗另用白色塑钢 `pvc`。
  */
 const FRAME_FD = 0.07;                              // 窗框薄型材深度（真实断桥铝约 60~70 系列）
 const SASH_D = 0.06;                                // 可开启窗扇薄型材深度
@@ -386,7 +391,7 @@ export function createInteractiveWindow(
     [frameT + OV, h + OV * 2, w / 2 + (OV - frameT) / 2, 0],
   ];
   for (const [bw, bh, bx, by] of frameBars) {
-    addFrameBar(container, bw, bh, bx, by, materials.copper);
+    addFrameBar(container, bw, bh, bx, by, materials.metalDoor);
   }
 
   // 窗扇
@@ -408,12 +413,12 @@ export function createInteractiveWindow(
   // 两道竖向分隔
   const vOffsets = [sideW + vT / 2, sideW + vT + centerW + vT / 2];
   for (const vx of vOffsets) {
-    const v = new THREE.Mesh(new THREE.BoxGeometry(vT, h, SASH_D), materials.copper);
+    const v = new THREE.Mesh(new THREE.BoxGeometry(vT, h, SASH_D), materials.metalDoor);
     v.position.x = vx;
     windowSash.add(v);
   }
   // 自由侧扇框（贴在玻璃右缘，铰链仍在左缘）
-  const freeEdge = new THREE.Mesh(new THREE.BoxGeometry(edgeT, h, SASH_D), materials.copper);
+  const freeEdge = new THREE.Mesh(new THREE.BoxGeometry(edgeT, h, SASH_D), materials.metalDoor);
   freeEdge.position.x = innerW - edgeT / 2;
   windowSash.add(freeEdge);
 
@@ -423,7 +428,7 @@ export function createInteractiveWindow(
     [sideW + vT + centerW + vT + rightSideW / 2, rightSideW],
   ];
   for (const [hx, bw] of hBars) {
-    const hBar = new THREE.Mesh(new THREE.BoxGeometry(bw, hT, SASH_D), materials.copper);
+    const hBar = new THREE.Mesh(new THREE.BoxGeometry(bw, hT, SASH_D), materials.metalDoor);
     hBar.position.set(hx, 0.3, 0);
     windowSash.add(hBar);
   }
@@ -433,7 +438,7 @@ export function createInteractiveWindow(
   windowSash.add(glass);
 
   // 平开窗 7 字执手：装在自由侧扇框中心、只朝室内侧（-z），拨杆悬在玻璃前方
-  windowSash.add(createCasementHandle(materials.copper, {
+  windowSash.add(createCasementHandle(materials.stainlessBrushed, {
     x: innerW - edgeT / 2, y: 0, leafT: SASH_D, leverDir: -1,
   }));
 
@@ -453,7 +458,7 @@ export function createInteractiveWindow(
 /**
  * 大窗（1.8×1.8）：仅左右两列的下格可开，其余为固定玻璃；两枚小平开窗扇各自绕外缘竖边向室外开。
  * 固定件：外框、两根通高竖梃、两道横梃（左右侧列各一）、上部两侧玻璃、中列整块玻璃——固定不动。
- * 可开启件：左下格 / 右下格各一枚小平开窗扇（玻璃 + 自身一圈细铜边），扇体自铰链向格内延伸，
+ * 可开启件：左下格 / 右下格各一枚小平开窗扇（玻璃 + 自身一圈细金属边），扇体自铰链向格内延伸，
  * 枢轴分别在左列左缘 / 右列右缘（即各自外缘）；沿局部 +z（室外法线）朝室外开，不牵动窗框框梁。
  */
 export function createLowerSashWindow(
@@ -466,8 +471,8 @@ export function createLowerSashWindow(
   const vT = 0.035; // 竖梃宽
   const hT = 0.04; // 横梃高
   const centerW = 0.54; // 中列宽
-  const sashT = 0.025; // 小窗扇自身细铜边宽
-  const sashD = SASH_D; // 小窗扇自身细铜边厚（薄型材，居中嵌于洞口，开合时仍嵌在洞口内）
+  const sashT = 0.025; // 小窗扇自身细金属边宽
+  const sashD = SASH_D; // 小窗扇自身细金属边厚（薄型材，居中嵌于洞口，开合时仍嵌在洞口内）
   const deg = (d: number): number => THREE.MathUtils.degToRad(d);
 
   const innerW = w - frameT * 2;
@@ -494,15 +499,15 @@ export function createLowerSashWindow(
     [frameT + OV, h + OV * 2, w / 2 + (OV - frameT) / 2, 0],
   ];
   for (const [bw, bh, bx, by] of frameBars) {
-    addFrameBar(frame, bw, bh, bx, by, materials.copper);
+    addFrameBar(frame, bw, bh, bx, by, materials.metalDoor);
   }
   // 两根通高竖梃（左右侧列与中列的分隔；开窗后仍在原位，网格不断）
   for (const mx of [xL + sideW + vT / 2, xR - sideW - vT / 2]) {
-    addFrameBar(frame, vT, innerH, mx, 0, materials.copper);
+    addFrameBar(frame, vT, innerH, mx, 0, materials.metalDoor);
   }
   // 左右侧列各一道横梃（将侧列分为上下两格；中列为整块，不分隔）
   for (const hx of [xL + sideW / 2, xR - sideW / 2]) {
-    addFrameBar(frame, sideW, hT, hx, barY, materials.copper);
+    addFrameBar(frame, sideW, hT, hx, barY, materials.metalDoor);
   }
 
   // 固定玻璃（上左 / 中列整块 / 上右）：不参与开合，仅作采光
@@ -531,7 +536,7 @@ export function createLowerSashWindow(
     const sash = new THREE.Group();
     sash.position.set(pivotX, (cellTop + cellBot) / 2, FRAME_Z);
     const edge = (ew: number, eh: number, ex: number, ey: number): void => {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.copper);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.metalDoor);
       b.position.set(ex, ey, 0);
       sash.add(b);
     };
@@ -545,8 +550,8 @@ export function createLowerSashWindow(
     );
     glass.position.set((dir * pw) / 2, 0, 0);
     sash.add(glass);
-    // 下格小平开窗执手：底板落在自由侧细铜边中心（宽 0.025m），拨杆朝格内悬在玻璃前方
-    sash.add(createCasementHandle(materials.copper, {
+    // 下格小平开窗执手：底板落在自由侧细金属边中心（宽 0.025m），拨杆朝格内悬在玻璃前方
+    sash.add(createCasementHandle(materials.stainlessBrushed, {
       x: dir * (pw - sashT / 2), y: 0, leafT: sashD,
       leverDir: -dir, scale: 0.85,
     }));
@@ -575,10 +580,10 @@ export function createLowerSashWindow(
  * 楼梯间后墙窗（1.1m 宽）：上下 2 行、上行固定亮窗；下行按 1:1 等分左右两格，
  * 左半为一枚可平开扇、右半为固定玻璃，替代原「3 列」大窗。
  * - 固定件：外框四边 + 一根通长中横梃（分出上/下两行）+ 上行整块固定玻璃 + 下行右格固定玻璃；
- * - 可开启件：下行左格一枚平开窗（玻璃 + 自身一圈细铜边），铰链在窗口左外缘、向室外开，
+ * - 可开启件：下行左格一枚平开窗（玻璃 + 自身一圈细金属边），铰链在窗口左外缘、向室外开，
  *   点击按 0°→45°→60°→90° 循环，与 createLowerSashWindow 的多级开合档位一致。
  * 下行 1:1 分界处有一根固定竖中框（与中横梃同款、挂在 frame 上），开扇打开后仍留在原位；
- * 右格不再单独造细铜边（曾因 frame 组与 FRAME_Z 错层产生"浮空窗页"），
+ * 右格不再单独造细金属边（曾因 frame 组与 FRAME_Z 错层产生"浮空窗页"），
  * 其四边由外框右立边 / 中横梃 / 外框下边 / 分界竖中框围合。
  */
 export function createTwoRowSashWindow(
@@ -589,8 +594,8 @@ export function createTwoRowSashWindow(
   const { w, h, x, y, z, rotY } = spec;
   const frameT = 0.04;   // 外框料宽
   const hT = 0.04;       // 中横梃高
-  const sashT = 0.025;   // 下行窗扇自身细铜边宽
-  const sashD = SASH_D;  // 下行窗扇自身细铜边厚
+  const sashT = 0.025;   // 下行窗扇自身细金属边宽
+  const sashD = SASH_D;  // 下行窗扇自身细金属边厚
   const deg = (d: number): number => THREE.MathUtils.degToRad(d);
 
   const innerW = w - frameT * 2;
@@ -617,10 +622,10 @@ export function createTwoRowSashWindow(
     [frameT + OV, h + OV * 2, w / 2 + (OV - frameT) / 2, 0],
   ];
   for (const [bw, bh, bx, by] of frameBars) {
-    addFrameBar(frame, bw, bh, bx, by, materials.copper);
+    addFrameBar(frame, bw, bh, bx, by, materials.metalDoor);
   }
   // 中横梃：通长，把洞口分成上下两行（开窗后仍在原位，网格不断）
-  addFrameBar(frame, innerW, hT, 0, barY, materials.copper);
+  addFrameBar(frame, innerW, hT, 0, barY, materials.metalDoor);
 
   // 上行固定玻璃
   const upperGlass = new THREE.Mesh(
@@ -636,7 +641,7 @@ export function createTwoRowSashWindow(
   const addEdge = (
     grp: THREE.Group, ew: number, eh: number, ex: number, ey: number,
   ): void => {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.copper);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(ew, eh, sashD), materials.metalDoor);
     b.position.set(ex, ey, 0);
     grp.add(b);
   };
@@ -646,10 +651,10 @@ export function createTwoRowSashWindow(
   // 挂在 frame 上、位于 FRAME_Z 平面，不随开扇转动：开扇打开后仍在原位、网格不断。
   // 左右两块玻璃各让出半个框宽，避免闭合时开扇自由侧边与中框共面闪烁。
   const mullionHalf = frameT / 2;
-  addFrameBar(frame, frameT, ph, boundary, lc, materials.copper);
+  addFrameBar(frame, frameT, ph, boundary, lc, materials.metalDoor);
 
   // —— 右半固定玻璃（非交互）——
-  // 固定格不再单独造细铜边：那些边条曾落在局部 z=0，而玻璃/外框/中横梃在 FRAME_Z 平面，
+  // 固定格不再单独造细金属边：那些边条曾落在局部 z=0，而玻璃/外框/中横梃在 FRAME_Z 平面，
   // 错层约 0.10m 会在斜视时形成一片"浮空窗页"。玻璃四边由外框右立边 / 中横梃 /
   // 外框下边 / 分界竖中框围合。
   const fixedX0 = boundary + mullionHalf;
@@ -675,8 +680,8 @@ export function createTwoRowSashWindow(
   );
   sashGlass.position.set(pw / 2, 0, 0);
   sash.add(sashGlass);
-  // 下行平开扇执手：底板落在自由侧细铜边中心（宽 0.025m）、室内侧；扇格较小故缩至 0.75
-  sash.add(createCasementHandle(materials.copper, {
+  // 下行平开扇执手：底板落在自由侧细金属边中心（宽 0.025m）、室内侧；扇格较小故缩至 0.75
+  sash.add(createCasementHandle(materials.stainlessBrushed, {
     x: pw - sashT / 2, y: 0, leafT: sashD,
     leverDir: -1, scale: 0.75,
   }));

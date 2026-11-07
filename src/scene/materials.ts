@@ -546,8 +546,22 @@ export function createMaterials(): MaterialMap {
   // 楼梯等共用此基础材质，保留默认平铺密度；楼板会在 buildHouse 中按尺寸重设
   tileTex.repeat.set(3, 3);
 
+  // 屋顶檐口背光补偿：与外墙同色同粗糙度，额外按太阳主光强度补一层自发光，
+  // 抵消「太阳偏 +x 侧时，+z 朝向的檐口明显暗于受光外墙」的观感差。
+  // emissiveIntensity 由 main.ts 每帧驱动，emissive 颜色同步跟随太阳色温；
+  // 夜间 sun.intensity=0 时自动归零，不会发亮。此处 emissive 仅为初值。
+  const eave = new THREE.MeshStandardMaterial({
+    color: 0xe0e0e0,
+    roughness: 0.9,
+    emissive: 0xe0e0e0,
+    emissiveIntensity: 0,
+  });
+  // 标记供装配后统一收集；weatherFx 克隆屋面板材质时会复制 userData，克隆体同样被驱动
+  eave.userData.eaveCompensate = true;
+
   return {
     wall: new THREE.MeshStandardMaterial({ color: 0xe0e0e0, roughness: 0.9 }),
+    eave,
     floor: floorTile,
     // 楼梯踏面 / 踢面：暖米白切割瓷砖（保留环境反射但压低强度，避免过亮与室内基调脱节）
     stair: new THREE.MeshStandardMaterial({
@@ -581,9 +595,10 @@ export function createMaterials(): MaterialMap {
       metalness: 0.72,
       envMapIntensity: 1.0,
     }),
-    // 阳台栏杆：深灰色金属
+    // 深灰阳台栏杆 / 棕铜窗框：v0.5.35 起两类构件统一改用 metalDoor（与 1F 后门同色）。
+    // 按 gunmetal 的既有做法保留在字典中备用，当前无构件引用。
     railingGray: new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.5, metalness: 0.5 }),
-    // 白色塑钢（推拉窗框）
+    // 白色塑钢（3F 正面推拉窗框）
     pvc: new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.55, metalness: 0.0 }),
     // 白色乳胶漆：各层内墙、天花板、承重柱统一使用（哑光、非金属）
     paint: new THREE.MeshStandardMaterial({ color: 0xf6f6f4, roughness: 0.95, metalness: 0.0 }),
@@ -601,10 +616,11 @@ export function createMaterials(): MaterialMap {
     }),
     // 灰色木门（卧室 / 杂物间）
     wood: new THREE.MeshStandardMaterial({ color: 0x8a8276, roughness: 0.7, metalness: 0.0 }),
-    // 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边
+    // 灰色哑光漆金属（0x707478）：1F 北墙后门门扇 / 门框 / 门套 / 门槛，
+    // v0.5.35 起同时用于 2F/3F 阳台栏杆杆件与 1F/2F（含 3F 后墙）窗框料。
     metalDoor: new THREE.MeshStandardMaterial({ color: 0x707478, roughness: 0.5, metalness: 0.35 }),
-    // 卫生间门专用：与后门完全同色同参数，只多一层程序化细喷砂颗粒。
-    // 后门 / 3F 正面门 / 两处门槛仍共用纯色 metalDoor，不受贴图影响。
+    // 卫生间门专用：与 metalDoor 完全同色同参数，只多一层程序化细喷砂颗粒。
+    // 后门 / 3F 正面门 / 门槛 / 栏杆 / 窗框仍共用纯色 metalDoor，不受贴图影响。
     bathDoorMetal: new THREE.MeshStandardMaterial({
       color: 0x707478,
       map: createSandblastedMetalTexture(),

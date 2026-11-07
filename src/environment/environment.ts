@@ -257,6 +257,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
     return {
       location,
       clock,
+      // 时间轴 / 显示时间 / 日期框的唯一真值源：由当前生效时钟（live 或 manualMs）按站点时区换算
+      localMinutes: utcToLocalMinutes(utc, location.tz),
+      localDate: localDateISO(utc, location.tz),
       weather,
       solar: { azimuth: solar.azimuth, elevation: solar.elevation },
       sunriseMin: Number.isNaN(times.sunrise) ? NaN : utcToLocalMinutes(times.sunrise, location.tz),
@@ -361,6 +364,12 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       metaSky.dispose();
     },
   };
+}
+
+/** 当前生效时刻在站点本地时区的日期（YYYY-MM-DD）：live / 手动共用，供 UI 日期框同源显示 */
+function localDateISO(utcMs: number, tzHours: number): string {
+  const d = new Date(utcMs + tzHours * 3600000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
 /** 本地当天 12:00（正午）对应的 UTC 毫秒：默认固定日照基准 */

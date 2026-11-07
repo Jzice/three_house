@@ -24,6 +24,10 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
 /* 楼层图标：默认空心块，.on 为实心块（实心块标记该按钮对应的楼层，即最上一层） */
 .btn-floor .slab { fill: none; stroke: currentColor; }
 .btn-floor .slab.on { fill: currentColor; stroke: none; }
+/* 屋顶按钮：三角屋顶常驻黑色实心（与 1F~3F 的实心顶块同一套标识语言），
+   下方矩形房身沿用 .slab 空心描边；选中时三角随 currentColor 反白，保证蓝底上清晰 */
+#btn-floor-4 .roof { fill: #000; stroke: #000; }
+#btn-floor-4.active .roof { fill: currentColor; stroke: currentColor; }
 .btn-measure:hover { background: #d33b2c; color: white; }
 .btn-measure.active { background: #b3271c; color: white; }
 
@@ -178,12 +182,7 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: #8A9099;
     padding-left: 8px; border-left: 2px solid var(--bar, #2980B9); margin-bottom: 8px;
 }
-.env-select {
-    width: 100%; padding: 7px 8px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px;
-    background: rgba(255, 255, 255, 0.85); font-size: 13px; color: #2C3238;
-}
 .env-row-orient { justify-content: space-between; }
-.env-select-inline { width: 92px; flex: 0 0 auto; padding: 5px 6px; font-size: 12px; }
 .env-custom { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .env-geo { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6B737C; }
 .env-geo input { width: 90px; padding: 5px 6px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 6px; font-size: 12px; }
@@ -191,10 +190,19 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
 .env-err { color: #C33B32; font-size: 11px; }
 
 .env-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.env-date { flex: 1; padding: 6px 8px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px; background: rgba(255, 255, 255, 0.85); font-size: 12px; }
 .env-time { flex: 1; }
 .env-time-label { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
 .env-row-live { justify-content: space-between; }
+/* 分区标题与输入同行：标题不再独占一行、左侧色条保留；选项行的右侧控件统一贴右 */
+.env-row-head, .env-row-spread { justify-content: space-between; }
+.env-row.env-row-head { margin-top: 0; }
+.env-sec-title-inline { margin-bottom: 0; flex: 0 0 auto; }
+/* 行内输入控件统一宽度，保证地点 / 日期 / 朝向 / 天气模式的右边缘对齐 */
+.env-field {
+    box-sizing: border-box; width: 132px; flex: 0 0 auto;
+    padding: 5px 6px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px;
+    background: rgba(255, 255, 255, 0.85); font-size: 12px; color: #2C3238;
+}
 .env-live-label { font-size: 12px; color: #6B737C; }
 .env-switch { width: 40px; height: 22px; border-radius: 11px; border: none; background: #D5D9DE; position: relative; cursor: pointer; transition: background 0.2s; }
 .env-switch.on { background: #2980B9; }

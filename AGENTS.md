@@ -145,7 +145,61 @@ Select-String -Path dist/index.cdn.html -Pattern 'importmap'                  # 
 
 涉及交互/视觉的改动，还需起 `npm run dev` 手动确认三种模式与门窗开合正常。**目前没有自动化测试**，不要假定有测试兜底。
 
-## 8. 相关文档
+提交与发布（版本号 / CHANGELOG / tag / 推送）照 §8 的固定流程执行。
+
+## 8. 提交与发布规范
+
+> 只有用户明确要求「提交」「发版」「发布新版本」时才执行本节；普通改动不要自动 commit、打 tag 或 push。发版按下面的固定流程做，**不需要重新探索仓库配置**。
+
+### 8.1 版本号与必须同步的内容
+
+- 版本线为 `0.5.x`（语义化版本），tag 名 `v0.5.x`，与 `package.json` 的 `version` 一致；历史 tag 都是**附注标签**（`git cat-file -t` 返回 `tag`）。以最新 tag 的 patch +1 为下一版本（历史上因多轮改动合并发布存在跳号，如 0.5.30 → 0.5.33）。
+- 每次发版必须同时具备这 4 项：
+  1. `package.json` 的 `version`；
+  2. `package-lock.json` 的**两处** `version`（顶层 + `packages[""].version`）；
+  3. `CHANGELOG.md` 顶部新增 `## [0.5.x] - YYYY-MM-DD`，沿用 Keep a Changelog，按「改动 / 同步 / 验证」记录（含配置数值与 typecheck / build 结果）；
+  4. 提交信息与 tag 注释统一为 `v0.5.x：改动摘要（含累积改动说明）`。
+- **若工作区里已写好目标版本的 CHANGELOG 条目与版本号**（常见：上一轮开发已顺手改完），直接沿用该版本，不要再递增、不要重复追加条目；只补齐缺的部分。
+
+### 8.2 发版前固定检查
+
+```powershell
+git fetch origin --tags
+git status --short --branch                              # 确认无分叉、无遗漏的功能改动
+git --no-pager log -5 --oneline --decorate              # 确认提交风格与累积改动
+git tag --sort=-v:refname | Select-Object -First 5      # 确定下一版本号
+```
+
+```bash
+npm run typecheck     # 必须 0 错误
+npm run build:all     # 两种单文件产物都要生成成功
+```
+
+产物自检照 §7 的三条 PowerShell 命令：`dist/` 只有两个 html、离线版无 `unpkg|importmap|src="/assets"`、CDN 版恰好 1 条 importmap。构建日志里的 `"abs" is imported ... but never used` 来自 `metaverse-sky`，是既有告警，可忽略。涉及交互/视觉的改动还要按 §7 起 `npm run dev` 目视确认。
+
+### 8.3 提交 → 打标签 → 推送（顺序固定）
+
+```bash
+git add 文件A 文件B ...                 # 占位示例：只列本次实际改动的文件，不要用 git add -A
+git commit -m "v0.5.x：改动摘要"
+git tag -a v0.5.x -m "v0.5.x：改动摘要"
+git push origin main                    # 先推 main
+git push origin v0.5.x                  # 再推 tag
+```
+
+- `origin` 的 URL 有两个值（`git@github.com:Jzice/three_house.git` 与 `git@gitee.com:justice/three_house.git`），一次 `git push origin ...` 会**同时推 GitHub 与 Gitee**；另有名为 `gitee` 的独立 remote，正常发版不必单独推。
+- 先 `main` 后 `tag`：`push main` 触发 Pages 构建，`push v*` 触发 Release，这样 tag 触发的 Release 与 Pages 部署都基于已同步的最新提交。
+- 工作流事实（无需再读文件确认）：`.github/workflows/release.yml` 由 `v*` tag 触发，执行 `npm ci && npm run build:all`，用 `softprops/action-gh-release` 创建 Release 并附 `dist/index.html`、`dist/index.cdn.html`，自动生成 Release Notes；`.github/workflows/deploy-pages.yml` 由 `push main` / `release: published` / `workflow_dispatch` 触发，把 `dist/` 部署到 Pages，两者共用 `concurrency: pages` 不冲突。
+- **不要提交 `dist/`**：产物由 CI 自行构建，`dist/` 与 `node_modules/` 已 gitignore，也不许手工编辑产物。
+- 本地临时文件不要进提交：`.gitignore` 有 `dev.log` / `devlog.txt` / `verify2_*.png`，但**没有** `.dev.log`，所以 `git add -A` 会误带它；只 `git add` 明确文件。
+
+### 8.4 发布后确认
+
+- 当前环境**未安装 `gh` CLI**，无法查询 Actions 结果（若已安装可用 `gh run list --limit 3`）；推送成功 ≠ Release/Pages 构建成功，需到 `https://github.com/Jzice/three_house/actions` 与 `https://github.com/Jzice/three_house/releases/tag/v0.5.x` 确认产物附件与部署。
+- 若工作流失败，修完后**递增一个新版本**重走完整流程，不要 force push 或删改已发布的 tag。
+- 只改文档 / 规范（如本节）的提交不算发版，除非用户明确要求。
+
+## 9. 相关文档
 
 | 文档 | 内容 |
 | --- | --- |
@@ -157,11 +211,11 @@ Select-String -Path dist/index.cdn.html -Pattern 'importmap'                  # 
 | [docs/sky-engine-evaluation.md](docs/sky-engine-evaluation.md) | 环境层迁 WebGPU + metaverse-sky 的选型对照（Eanpa vs metaverse-sky）、可行性结论、被打破的约束 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录（改动请同步追加） |
 
-## 9. 专业领域知识（装修 / 室内设计 / 3D 建模）
+## 10. 专业领域知识（装修 / 室内设计 / 3D 建模）
 
 当你需要新增构件、调整户型、添加家具或做视觉/交互设计时，应基于以下行业常识做判断，而不是凭"看起来差不多"。本项目的可视化本质是**真实房屋的 1:1 数字孪生**，所有数值都要贴近现实规范。
 
-### 9.1 房屋装修与施工规范
+### 10.1 房屋装修与施工规范
 
 - **层高与净高**：本项目 `H = 3.5` 为建筑层高（楼板到楼板）。装修后净高需扣除吊顶（约 0.1~0.3）、地暖/找平（约 0.05~0.1）、地板（约 0.01~0.02）。门头、窗上墙由 `header()` 推导，改 `H` 会自动联动（见 §4）。
 - **墙体性质**：承重墙 / 剪力墙不可拆改，轻质隔墙（如石膏板、加气块）才可变动。本项目墙体仅以 `BoxSpec` 建模，**没有任何结构校验**，改墙/拆墙前需人工确认是否为结构墙，切勿在代码里"随手删墙"。
@@ -171,7 +225,7 @@ Select-String -Path dist/index.cdn.html -Pattern 'importmap'                  # 
   - 窗上墙高度 = `H - 窗台高 - 窗高`，已由推导函数生成，不要手写死数值。
 - **装修工序语境**：拆改 → 水电 → 泥瓦（贴砖 / 找平）→ 木工（吊顶 / 柜体）→ 油漆 → 安装（门窗 / 洁具 / 灯具）。涉及标注、交互或说明文字时，应贴合这一真实顺序。
 
-### 9.2 室内设计基础（人体工程学）
+### 10.2 室内设计基础（人体工程学）
 
 关键尺寸（单位 m，与项目单位一致），用于核对家具 / 空间是否合理：
 
@@ -187,7 +241,7 @@ Select-String -Path dist/index.cdn.html -Pattern 'importmap'                  # 
 - **采光通风**：主要房间（客厅 / 主卧）宜朝南 / 东南采光；厨卫需自然通风或强排，本项目 `-z` 为北侧楼梯间侧、`+z` 为南侧入户门侧（见 §4 坐标约定），朝向判断要一致。
 - **色彩与材质**：本项目材质在 `materials.ts` 统一注册（`MaterialKey`），新增材质必须同步实现，并遵循"配置即建模"（§4）。
 
-### 9.3 3D 建模约定（贴合本项目）
+### 10.3 3D 建模约定（贴合本项目）
 
 - **单位统一**：全部以**米**为单位（与真实装修尺寸一致），不要混用 cm / 像素 / 毫米，避免比例失真（门的 0.9 宽 vs 墙的 0.2 厚是同量级）。
 - **坐标系**：`y = 0` 地面，`+y` 向上；原点在房屋平面中心，`x ∈ [-4.62, 4.62]`、`z ∈ [-5.12, 5.12]`（见 §4）。避免把物体放到 `y < 0` 的地下，除非刻意做下沉地台。

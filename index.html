@@ -7,9 +7,12 @@
 </head>
 <body>
     <div id="ui-container">
-        <!-- 楼层：叠层图标，实心块标记该按钮对应的楼层（最上一块），下方各层空心；
-             三个图标共用同一套几何：矩形 16×5、x=4（垂直对齐）、层间距 2.5（等距），
-             且每个图标整体在 24×24 画布内垂直居中（与按钮正中对齐） -->
+        <!-- 楼层：前三个为叠层图标，实心块标记该按钮对应的楼层（最上一块），下方各层空心；
+             三个图标共用同一套几何：矩形 16×5、x=4（垂直对齐）、层间距 2.5（等距，实心块不描边、
+             空心块 2px 描边 → 视觉空白约 1.5px），各块互不共边。
+             第四个为屋顶：三角底边 x=2..22（宽 20）比矩形 x=4..20（宽 16）每侧出檐 2；
+             两者几何间距 3.5（视觉空白同为约 1.5px），延续分离风格；三角高 6.5、矩形高 9，
+             整体描边外沿 y≈1.5..22.5、中心 12，与前三个按钮一样在 24×24 画布内垂直居中 -->
         <button id="btn-floor-1" class="btn btn-floor" title="1F" aria-label="1F">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
                 <rect class="slab on" x="4" y="9.5" width="16" height="5" rx="1"/>
@@ -28,10 +31,10 @@
                 <rect class="slab" x="4" y="17" width="16" height="5" rx="1"/>
             </svg>
         </button>
-        <button id="btn-floor-4" class="btn" title="屋顶" aria-label="屋顶">
+        <button id="btn-floor-4" class="btn btn-floor" title="屋顶" aria-label="屋顶">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">
-                <path d="M3 17 L12 7 L21 17"/>
-                <path d="M6 17 h12"/>
+                <path class="roof" d="M2 9 L12 2.5 L22 9 Z"/>
+                <rect class="slab" x="4" y="12.5" width="16" height="9" rx="1"/>
             </svg>
         </button>
 

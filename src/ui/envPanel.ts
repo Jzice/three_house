@@ -156,17 +156,34 @@ export function createEnvPanel(env: Environment): EnvPanel {
   ).join('');
   panel.innerHTML = `
     <div class="env-section">
-      <div class="env-sec-title" style="--bar:#2980B9">LOCATION 地点</div>
-      <select id="env-city" class="env-select">${cityOptions}<option value="custom">自定义经纬度…</option></select>
+      <div class="env-row env-row-head">
+        <div class="env-sec-title env-sec-title-inline" style="--bar:#2980B9">LOCATION 地点</div>
+        <select id="env-city" class="env-field">${cityOptions}<option value="custom">自定义经纬度…</option></select>
+      </div>
       <div id="env-custom" class="env-custom" style="display:none">
         <label class="env-geo">纬度<input id="env-lat" type="number" step="0.001" min="-85" max="85"> <span>°N</span></label>
         <label class="env-geo">经度<input id="env-lon" type="number" step="0.001" min="-180" max="180"> <span>°E</span></label>
         <div id="env-geo-err" class="env-err" style="display:none">经纬度超出范围</div>
       </div>
+      <div class="env-row env-row-orient">
+        <span class="env-live-label">房屋正面朝向</span>
+        <select id="env-front" class="env-field">
+          <option value="0">北</option>
+          <option value="45">东北</option>
+          <option value="90">东</option>
+          <option value="135">东南</option>
+          <option value="180">南</option>
+          <option value="225">西南</option>
+          <option value="270">西</option>
+          <option value="315">西北</option>
+        </select>
+      </div>
     </div>
     <div class="env-section">
-      <div class="env-sec-title" style="--bar:#F2B85B">SUNLIGHT 日照</div>
-      <div class="env-row"><input id="env-date" type="date" class="env-date"></div>
+      <div class="env-row env-row-head">
+        <div class="env-sec-title env-sec-title-inline" style="--bar:#F2B85B">SUNLIGHT 日照</div>
+        <input id="env-date" type="date" class="env-field">
+      </div>
       <div class="env-row">
         <input id="env-time" type="range" min="0" max="1439" step="1" class="env-time">
         <span id="env-time-label" class="env-time-label">--:--</span>
@@ -178,19 +195,6 @@ export function createEnvPanel(env: Environment): EnvPanel {
       <div class="env-row env-row-live">
         <span class="env-live-label">实时光照</span>
         <button id="env-light" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
-      </div>
-      <div class="env-row env-row-orient">
-        <span class="env-live-label">房屋正面朝向</span>
-        <select id="env-front" class="env-select env-select-inline">
-          <option value="0">北</option>
-          <option value="45">东北</option>
-          <option value="90">东</option>
-          <option value="135">东南</option>
-          <option value="180">南</option>
-          <option value="225">西南</option>
-          <option value="270">西</option>
-          <option value="315">西北</option>
-        </select>
       </div>
       <div class="env-row env-row-compass">
         <div class="env-compass">
@@ -210,9 +214,9 @@ export function createEnvPanel(env: Environment): EnvPanel {
         <span class="env-live-label">实时天气</span>
         <button id="env-wx-enable" class="env-switch" role="switch" aria-checked="false"><span class="env-knob"></span></button>
       </div>
-      <div class="env-row env-row-weather">
+      <div class="env-row env-row-weather env-row-spread">
         <span class="env-live-label">天气模式</span>
-        <select id="env-precip-mode" class="env-select env-select-inline">
+        <select id="env-precip-mode" class="env-field">
           <option value="clear" selected>晴（关）</option>
           <option value="rain">雨</option>
           <option value="snow">雪</option>
@@ -292,6 +296,23 @@ export function createEnvPanel(env: Environment): EnvPanel {
   refreshBtn.disabled = true; // 关闭时禁用刷新按钮
 
   const wxMain = panel.querySelector('.env-wx-main') as HTMLElement;
+
+  /**
+   * 时间轴 / 显示时间 / 日期框统一以环境层快照的「当前生效本地时刻」为准。
+   * 跟随实时开启时滑块虽 disabled 不可拖，位置仍由这里随实时推进；手动拖动会立即下发
+   * setManualLocalDate，随后的同步快照与滑块值相同，不会打断拖动。
+   */
+  function syncTimeFromSnapshot(s: EnvironmentSnapshot): void {
+    const min = Math.floor(s.localMinutes);
+    const label = formatMin(min);
+    if (timeLabel.textContent !== label) timeLabel.textContent = label;
+    if (timeInput.value !== String(min)) timeInput.value = String(min);
+    // 用户正在编辑日期框时不回写，避免打断输入；失焦后的下一次快照会补齐。
+    if (document.activeElement !== dateInput) {
+      currentDate = s.localDate;
+      if (dateInput.value !== s.localDate) dateInput.value = s.localDate;
+    }
+  }
 
   // ---- 开关 UI 状态同步（供事件与开机恢复共用，避免重复样式代码） ----
   function setLiveUI(on: boolean): void {
@@ -431,20 +452,19 @@ export function createEnvPanel(env: Environment): EnvPanel {
       }
     }
 
-    // 日期 + 时间轴
+    // 日期 + 时间轴（滑块先回填持久值，最终由末尾 syncTimeFromSnapshot 按环境时钟统一对齐）
     if (typeof s.date === 'string') {
       dateInput.value = s.date;
       currentDate = s.date;
     }
     if (typeof s.minutes === 'number') {
       timeInput.value = String(s.minutes);
-      timeLabel.textContent = formatMin(s.minutes);
     }
 
-    // 跟随实时
+    // 跟随实时：live 时切实时时钟；手动时 setManualLocalDate 本身会把时钟切回手动。
     setLiveUI(Boolean(s.live));
-    env.setLive(Boolean(s.live));
-    if (!s.live) env.setManualLocalDate(currentDate, Number(timeInput.value));
+    if (s.live) env.setLive(true);
+    else env.setManualLocalDate(currentDate, Number(timeInput.value));
 
     // 房屋正面朝向
     if (typeof s.front === 'number') {
@@ -526,7 +546,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
   dateInput.addEventListener('change', () => {
     currentDate = dateInput.value || todayISO();
     setLiveUI(false);
-    env.setLive(false);
+    // setManualLocalDate 会把时钟切回手动；不再先 setLive(false)，避免中间快照把所选日期覆盖成今天
     env.setManualLocalDate(currentDate, Number(timeInput.value));
     saveSettings();
   });
@@ -534,15 +554,15 @@ export function createEnvPanel(env: Environment): EnvPanel {
   timeInput.addEventListener('input', () => {
     const minutes = Number(timeInput.value);
     timeLabel.textContent = formatMin(minutes);
-    // 拖动时间轴即进入手动模式
+    // 拖动时间轴即进入手动模式；setManualLocalDate 同时把环境时钟切回手动
     if (live) setLiveUI(false);
-    env.setLive(false);
     env.setManualLocalDate(currentDate, minutes);
     saveSettings();
   });
 
   liveBtn.addEventListener('click', () => {
     setLiveUI(!live);
+    // 关闭跟随时环境时钟停在当下真实时刻，随后的同步快照会把滑块 / 文字 / 日期一并对齐
     env.setLive(live);
     saveSettings();
   });
@@ -621,6 +641,10 @@ export function createEnvPanel(env: Environment): EnvPanel {
     applyPrecipMode('none');
   }
 
+  // 面板创建完成后按环境层当前时钟对齐一次：覆盖默认 12:00 与开机恢复
+  // （含 live=true 时滑块需直接跟随实时）。此时 onSnapshot 尚未绑定，不能依赖回调。
+  syncTimeFromSnapshot(env.getSnapshot());
+
   let lastToggleIcon = '';
   /** 顶部按钮图标变更时才重写 innerHTML，避免快照频繁刷新导致 SVG 重绘闪烁 */
   function setToggleIcon(html: string): void {
@@ -636,13 +660,8 @@ export function createEnvPanel(env: Environment): EnvPanel {
         citySel.value = s.location.id;
       }
 
-      // 时间显示
-      let shownMin: number;
-      if (s.clock.live) {
-        shownMin = (Date.now() / 60000 + s.location.tz * 60) % 1440;
-        if (shownMin < 0) shownMin += 1440;
-        if (live) timeLabel.textContent = formatMin(shownMin);
-      }
+      // 时间轴 / 显示时间 / 日期框同步（live 时滑块禁用但位置仍随实时推进）
+      syncTimeFromSnapshot(s);
 
       // 太阳罗盘与高度
       const azDeg = (s.solar.azimuth * 180) / Math.PI;

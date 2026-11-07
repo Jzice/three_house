@@ -8,6 +8,7 @@ import { D, T_EXT, TILE_SIZE, W } from '../config/houseConfig';
  * - 长度与南墙一致，两端再各外延 `sideExtend`
  * - 栏杆参考欧式护栏样式：顶部扶手 + 底部横杆 + 密排细栏条 +
  *   间隔加粗立柱（柱头高出扶手、顶端球形饰）
+ * - 杆件统一用 `metalDoor`（与 1F 北墙后门同款中灰哑光漆金属），挑台板仍为地砖 / 乳胶漆
  */
 export function createBalcony(
   spec: BalconyConfig,
@@ -99,7 +100,7 @@ export function createBalcony(
       const t = i / n;
       const bal = new THREE.Mesh(
         new THREE.BoxGeometry(balT, barH, balT),
-        materials.railingGray,
+        materials.metalDoor,
       );
       bal.position.set(x0 + (x1 - x0) * t, bottomRailY + barH / 2, z0 + (z1 - z0) * t);
       bal.castShadow = true;
@@ -115,7 +116,7 @@ export function createBalcony(
     const pz = Number(zs);
     const post = new THREE.Mesh(
       new THREE.BoxGeometry(postT, postH, postT),
-      materials.railingGray,
+      materials.metalDoor,
     );
     post.position.set(px, floorTopY + postH / 2, pz);
     post.castShadow = true;
@@ -124,7 +125,7 @@ export function createBalcony(
 
     const finial = new THREE.Mesh(
       new THREE.SphereGeometry(finialR, 16, 12),
-      materials.railingGray,
+      materials.metalDoor,
     );
     finial.position.set(px, floorTopY + postH + finialR * 0.6, pz);
     finial.castShadow = true;
@@ -150,7 +151,7 @@ function addRail(
   const dz = z1 - z0;
   const len = Math.hypot(dx, dz);
   if (len < 1e-6) return;
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(len, t, t), materials.railingGray);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(len, t, t), materials.metalDoor);
   rail.position.set((x0 + x1) / 2, y, (z0 + z1) / 2);
   // 局部 +x 轴旋转到线段方向（绕 Y 轴旋转 θ 后 +x → (cosθ, 0, -sinθ)）
   rail.rotation.y = Math.atan2(-dz, dx);

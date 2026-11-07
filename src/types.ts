@@ -6,19 +6,23 @@ export type ViewMode = 'tps' | 'fps' | '2d';
 /** 材质字典的键，由 materials.ts 统一生产 */
 export type MaterialKey =
   | 'wall'
+  /** 屋顶檐口（屋面板四周侧面 + 女儿墙）：外墙色 + 随太阳强度变化的自发光背光补偿 */
+  | 'eave'
   | 'floor'
   | 'stair'
   | 'railing'
+  /** 深灰阳台栏杆：v0.5.35 起改用 metalDoor，此键保留备用 */
   | 'railingGray'
   /** 不锈钢（银色高金属）：扶手装饰圆钮 / 底座 / 端头球头 */
   | 'stainless'
-  /** 拉丝不锈钢（缎面银灰，纯材质参数无贴图）：门拉手 / 执手 / 锁具五金 */
+  /** 拉丝不锈钢（缎面银灰，纯材质参数无贴图）：门拉手 / 窗平开执手 / 锁具五金 */
   | 'stainlessBrushed'
   /** 银白细微拉丝不锈钢（程序化细纹贴图）：楼梯扶手 4 根连续钢丝与柱身半圆铆钉专用 */
   | 'railWire'
   | 'pvc'
   /** 白色乳胶漆：各层内墙、天花板、承重柱统一使用 */
   | 'paint'
+  /** 棕铜窗框：v0.5.35 起窗框改用 metalDoor，此键保留备用 */
   | 'copper'
   | 'glass'
   | 'wood'
@@ -29,7 +33,7 @@ export type MaterialKey =
   /** 枪灰色（深冷灰带蓝调）：原卫生间门专用，现保留备用 */
   | 'gunmetal'
   | 'paving'
-  /** 灰色金属门（1F 北墙后门）：哑光灰漆金属面板 + 同款门框包边 */
+  /** 灰色哑光漆金属：1F 北墙后门（门扇/框/套/门槛）+ 2F/3F 阳台栏杆 + 1F/2F 窗框料 */
   | 'metalDoor'
   /** 卫生间门专用金属：与后门 metalDoor 同色同参数 + 细喷砂颗粒贴图（框 / 下板 / 锁边料 / 门套） */
   | 'bathDoorMetal'
@@ -554,6 +558,10 @@ export interface LightingParams {
 export interface EnvironmentSnapshot {
   location: SiteLocation;
   clock: ClockState;
+  /** 当前生效时刻在站点本地时区的当日分钟数（0~1439）：live 时为实时，否则由 manualMs 换算 */
+  localMinutes: number;
+  /** 当前生效时刻在站点本地时区的日期（YYYY-MM-DD），供 UI 日期框与手动设定保持同源 */
+  localDate: string;
   weather: WeatherSnapshot;
   /** 当前太阳位置（真实经纬度，自北顺时针；未做"正面朝西"换算） */
   solar: { azimuth: number; elevation: number };
