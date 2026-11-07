@@ -47,6 +47,8 @@ export function createBalcony(
   slab.position.set(0, floorTopY - spec.slabT / 2, slabZ);
   slab.castShadow = true;
   slab.receiveShadow = true;
+  // 阳台楼板（顶面）：雪天积雪覆盖、雨天湿亮
+  slab.userData.weatherExposed = 'balcony-floor';
   group.add(slab);
 
   // ---- 栏杆（三面：外沿 + 两端；内沿与墙相接不设） ----
@@ -101,6 +103,7 @@ export function createBalcony(
       );
       bal.position.set(x0 + (x1 - x0) * t, bottomRailY + barH / 2, z0 + (z1 - z0) * t);
       bal.castShadow = true;
+      bal.userData.weatherExposed = 'balcony-rail'; // 栏杆：雪天被雪染白
       group.add(bal);
     }
   }
@@ -116,6 +119,7 @@ export function createBalcony(
     );
     post.position.set(px, floorTopY + postH / 2, pz);
     post.castShadow = true;
+    post.userData.weatherExposed = 'balcony-rail'; // 栏杆立柱：雪天被雪染白
     group.add(post);
 
     const finial = new THREE.Mesh(
@@ -124,6 +128,7 @@ export function createBalcony(
     );
     finial.position.set(px, floorTopY + postH + finialR * 0.6, pz);
     finial.castShadow = true;
+    finial.userData.weatherExposed = 'balcony-rail'; // 柱顶球形饰：雪天被雪染白
     group.add(finial);
   }
 
@@ -150,5 +155,6 @@ function addRail(
   // 局部 +x 轴旋转到线段方向（绕 Y 轴旋转 θ 后 +x → (cosθ, 0, -sinθ)）
   rail.rotation.y = Math.atan2(-dz, dx);
   rail.castShadow = true;
+  rail.userData.weatherExposed = 'balcony-rail'; // 栏杆：雪天被雪染白
   group.add(rail);
 }

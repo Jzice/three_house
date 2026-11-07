@@ -283,7 +283,12 @@ export function createMetaSky(opts: {
     camera: opts.camera,
     light: opts.sun,
     clouds: true,
-    precipitation: true,
+    // 库自带的降水粒子用 PointsNodeMaterial（TSL 节点材质），在本工程 three 0.185 +
+    // WebGPURenderer 下实测 GPU 侧不出粒子（drawRange 有值、uTime 每帧推进，但画面
+    // 无任何粒子，且伴随 "Draw with a vertex count of 0" 警告）。关闭它，改由下方
+    // 自研的 PointsMaterial 粒子承担雨/雪/冰雹动画（WebGPURenderer 对标准材质自动
+    // 转换，天空穹顶 / 云层正是这样渲染的，可靠性已被本工程验证）。
+    precipitation: false,
   });
   // 天穹材质默认受 scene.fog 影响：天穹半径 450m，远超雾近距，会被雾色整体漂白
   // （连头顶都发白）。天空颜色由大气散射决定，必须排除在场景雾之外；
@@ -428,6 +433,48 @@ export function createMetaSky(opts: {
   sunGlow.renderOrder = 5; // 最后绘制：霞光层之上
   opts.scene.add(sunGlow);
 
+  // ---- 自研降水粒子（雨/雪/冰雹动画的实际渲染者，见构造参数 precipitation:false 注释）----
+  // 围绕相机的垂直柱形域内循环下落：组每帧对齐相机位置，粒子在局部坐标里下落，
+  // 落出下边界即回到顶部并重掷水平位置。数量按降水强度用 drawRange 控制，
+  // 不透明度随强度缓动（切换类型/开关时平滑过渡，与 2D 面板的降水下拉同源）。
+  const PRECIP_COUNT = 3500;
+  const PRECIP_HALF_W = 28; // 粒子柱水平半宽（m）：覆盖上帝视角与近景视野
+  const PRECIP_HALF_H = 20; // 粒子柱垂直半高（m）：相机上 20m 到下 20m 循环
+  const PRECIP_PROFILES = {
+    rain: { color: 0xaecbe0, size: 0.07, opacity: 0.55, speed: 14, sway: 0.12 },
+    snow: { color: 0xf6fbff, size: 0.17, opacity: 0.9, speed: 1.6, sway: 0.55 },
+    hail: { color: 0xdfe9f2, size: 0.11, opacity: 0.8, speed: 20, sway: 0.05 },
+  } as const;
+  type PrecipProfileKey = Exclude<PrecipKind, 'none'>;
+  const precipGeo = new THREE.BufferGeometry();
+  const precipPos = new Float32Array(PRECIP_COUNT * 3);
+  const precipPhase = new Float32Array(PRECIP_COUNT); // 各粒子漂移相位，避免整体同步摆动
+  for (let i = 0; i < PRECIP_COUNT; i++) {
+    precipPos[i * 3] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
+    precipPos[i * 3 + 1] = (Math.random() * 2 - 1) * PRECIP_HALF_H;
+    precipPos[i * 3 + 2] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
+    precipPhase[i] = Math.random() * Math.PI * 2;
+  }
+  precipGeo.setAttribute('position', new THREE.BufferAttribute(precipPos, 3));
+  precipGeo.setDrawRange(0, 0);
+  const precipMat = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.1,
+    transparent: true,
+    opacity: 0,
+    sizeAttenuation: true,
+    depthWrite: false,
+    fog: false,
+  });
+  const precip = new THREE.Points(precipGeo, precipMat);
+  precip.frustumCulled = false;
+  precip.visible = false;
+  precip.renderOrder = 6; // 天空覆盖层(≤5)之后，深度测试仍被房屋正常遮挡
+  opts.scene.add(precip);
+  let precipType: PrecipKind = 'none';
+  let precipTarget = 0; // 目标强度 0..1（setPrecipitation 写入）
+  let precipLevel = 0;  // 当前缓动强度（update 内指数逼近目标）
+
   let cloudCoverage = 0;
   let sunY = 0.5;
   const veilDayColor = new THREE.Color(0xdde3ea);
@@ -490,6 +537,8 @@ export function createMetaSky(opts: {
       hazeMat,
       dawnMat,
       sunGlowMat,
+      precip,
+      precipMat,
     };
   }
 
@@ -523,6 +572,14 @@ export function createMetaSky(opts: {
       });
     },
     setPrecipitation(type, intensity) {
+      precipType = type;
+      precipTarget = type === 'none' ? 0 : intensity;
+      const prof = type === 'none' ? null : PRECIP_PROFILES[type];
+      if (prof) {
+        precipMat.color.setHex(prof.color);
+        precipMat.size = prof.size;
+      }
+      // 库链路保持下发，库内天空状态与外部一致（其粒子已关闭，不再参与渲染）
       sky.setPrecipitation({ type, intensity });
     },
     setWind(deg, speed) {
@@ -554,6 +611,36 @@ export function createMetaSky(opts: {
       dawn.position.copy(haze.position);
       // 暖光晕始终位于相机指向太阳的方向上
       sunGlow.position.copy(_camPos).addScaledVector(_sunDir, SUN_GLOW_DISTANCE);
+
+      // ---- 自研降水粒子推进 ----
+      // 强度指数缓动（约 1.2s 时间常数），与表面积雪/积水的过渡节奏一致
+      precipLevel += (precipTarget - precipLevel) * (1 - Math.exp(-dt / 1.2));
+      if (precipTarget === 0 && precipLevel < 0.02) {
+        precip.visible = false;
+      } else {
+        precip.visible = true;
+        // 组跟随相机：粒子柱始终罩住视点（上帝视角拉远/第一人称移动都有效）
+        precip.position.copy(_camPos);
+        const prof: (typeof PRECIP_PROFILES)[PrecipProfileKey] =
+          precipType === 'none' ? PRECIP_PROFILES.rain : PRECIP_PROFILES[precipType];
+        precipMat.opacity = prof.opacity * Math.min(precipLevel, 1);
+        const count = Math.floor(PRECIP_COUNT * Math.min(precipLevel, 1));
+        precipGeo.setDrawRange(0, count);
+        const t = now / 1000;
+        for (let i = 0; i < count; i++) {
+          const j = i * 3;
+          let y = precipPos[j + 1] - prof.speed * dt;
+          if (y < -PRECIP_HALF_H) {
+            y += PRECIP_HALF_H * 2; // 落出下边界：回到顶部并重掷水平位置
+            precipPos[j] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
+            precipPos[j + 2] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
+          }
+          precipPos[j + 1] = y;
+          // 雪片明显左右漂移、雨丝几乎垂直（sway 已按类型区分）
+          precipPos[j] += Math.sin(t * 1.7 + precipPhase[i]) * prof.sway * dt;
+        }
+        (precipGeo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      }
     },
     dispose() {
       opts.scene.remove(skirt);
@@ -578,6 +665,9 @@ export function createMetaSky(opts: {
       opts.scene.remove(sunGlow);
       sunGlowMat.map?.dispose();
       sunGlowMat.dispose();
+      opts.scene.remove(precip);
+      precipGeo.dispose();
+      precipMat.dispose();
       sky.dispose();
     },
   };

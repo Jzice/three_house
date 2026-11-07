@@ -221,7 +221,9 @@ export function mapWeatherToSky(w: WeatherSnapshot, override: PrecipKind | null)
   }
   // 降水量（mm）换算为 0..1 强度，封顶 5mm
   const fromData = clamp(w.precipitation / 5, 0, 1);
-  const precipIntensity = precipType === 'none' ? 0 : Math.max(fromData, override ? 0.7 : 0);
+  // 手动选择雨/雪/冰雹时给满强度 1.0：粒子数量与不透明度拉满，积雪/积水也到满档——
+  // 用户在面板里主动选了降水，就是要"看得出来"的明显效果；跟随实况时仍按真实降水量弱化。
+  const precipIntensity = precipType === 'none' ? 0 : Math.max(fromData, override ? 1 : 0);
   return {
     coverage: clamp(w.cloudCover / 100, 0, 1),
     precipType,

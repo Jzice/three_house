@@ -64,6 +64,8 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
     ]);
     pave.position.set(sx, paveH / 2, sz);
     pave.receiveShadow = true;
+    // 院子铺装（顶面）：雪天积雪覆盖、雨天积水湿亮
+    pave.userData.weatherExposed = 'yard';
     group.add(pave);
   }
 
@@ -87,6 +89,8 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   );
   trapezoid.rotation.x = -Math.PI / 2; // 形状 y → 世界 -z，挤出 → 世界 +y
   trapezoid.receiveShadow = true;
+  // 后院梯形铺装（顶面）：雪天积雪覆盖、雨天积水湿亮
+  trapezoid.userData.weatherExposed = 'yard';
   group.add(trapezoid);
 
   // 各侧围墙高度：南/东矮墙、西/北 2m
@@ -102,6 +106,8 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
     wall.rotation.y = rotY;
     wall.castShadow = true;
     wall.receiveShadow = true;
+    // 院子围墙（室外立面）：雪天被雪染白
+    wall.userData.weatherExposed = 'wall';
     group.add(wall);
   };
 
@@ -159,6 +165,8 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
     s.position.set(xc, h / 2, stepZ);
     s.castShadow = true;
     s.receiveShadow = true;
+    // 院门台阶（顶面）：纳入院子积雪/湿亮范围
+    s.userData.weatherExposed = 'yard';
     group.add(s);
   }
 

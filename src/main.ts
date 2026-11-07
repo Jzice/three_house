@@ -6,6 +6,7 @@ import { buildHouse } from './scene/buildHouse';
 import { createMaterials } from './scene/materials';
 import { createSceneContext, createLights, handleResize } from './scene/sceneSetup';
 import { createEnvironment } from './environment/environment';
+import { createWeatherFx } from './environment/weatherFx';
 import { createFloorplan2D } from './floorplan/floorplan2d';
 import { createUI } from './ui/ui';
 import { attachKeyboard, attachPointerInteraction, createKeyState } from './view/interaction';
@@ -65,6 +66,11 @@ function bootstrap(): void {
   // ---- 两层楼房：按 FLOORS 分别装配（每层独立根节点） ----
   const floors = FLOORS.map((f) => buildHouse(materials, f));
   floors.forEach((fr) => ctx.scene.add(fr.root));
+
+  // 天气表面特效：把降水（雨/雪/冰雹）映射到室外几何的积雪/积水表现，
+  // 与 envPanel「降水动画」下拉、metaverse-sky 的粒子同源。
+  // 必须在房屋（屋顶/阳台/院子）装配并加入场景之后创建，才能收集到这些带标记的室外 mesh。
+  const weatherFx = createWeatherFx(ctx.scene, env);
 
   // ---- 视角（按层保存模式/相机；第三/第一人称由 viewState 控制可见性） ----
   const view = createViewManager(
@@ -276,6 +282,8 @@ function bootstrap(): void {
     // 环境层：实时推进时间与天气，按太阳/天气驱动光照。
     // 2D 模式仅推进状态、不重建天空（回到 3D 立即重建），尊重既有"2D 跳过渲染"约束。
     env.update(mode !== '2d');
+    // 天气表面特效：积雪/积水（雨/雪粒子由 metaverse-sky 另行渲染）
+    weatherFx.update(mode !== '2d');
 
     if (mode !== '2d') {
       for (const f of floors) if (f.root.visible) updateInteractables(f.interactables);

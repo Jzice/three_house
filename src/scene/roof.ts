@@ -34,6 +34,8 @@ export function createRoof(
   slab.position.set(cx, baseY + spec.slabT / 2, cz);
   slab.castShadow = false;
   slab.receiveShadow = false;
+  // 室外水平顶面：雪天积雪覆盖、雨天湿亮（由 weatherFx 接管材质 + 雪壳）
+  slab.userData.weatherExposed = 'roof';
   group.add(slab);
 
   // 女儿墙：沿板四周布置
