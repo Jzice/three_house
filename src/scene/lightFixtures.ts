@@ -1,0 +1,614 @@
+import * as THREE from 'three';
+import {
+  LAMP_COLOR,
+  LAMP_GEOMETRY,
+  type LampSpec,
+  type SwitchSpec,
+  type LightSwitchHitData,
+} from '../config/lightingConfig';
+
+/**
+ * 全屋灯具与开关面板的程序化建模。
+ *
+ * - 全部几何用 Three 内置几何体 / 极坐标自定义 BufferGeometry / Canvas 程序化贴图生成，
+ *   不引入任何外部资源（单文件离线发布约束）。
+ * - 非发光部件共享模块级材质与几何缓存；**发光材质逐盏独立 clone**，
+ *   避免一盏开关把同材质其它灯一起点亮。
+ * - 灯具 Group 的原点＝天花板底面（世界 y = floor.baseY + spec.y），几何一律向 -y 悬挂。
+ * - 灯具 mesh 不标 `weatherExposed`，避免 weatherFx 换材质后破坏开关状态。
+ */
+
+/**
+ * 开灯时发光材质的自发光强度。
+ * 灯罩距自身点光源仅十余厘米（decay=2），若同时保留乳白基色与高 emissive 会整片饱和成纯白，
+ * 丢失褶皱 / 回字光带 / 金环等层次。故开灯时把基色插值压暗，亮度交给不受光照影响的自发光，
+ * 点光源继续负责照亮房间，三者互不串扰。
+ */
+const GLOW_ON = 1.25;
+/** 关灯：常态乳白灯罩 */
+const SHADE_OFF = new THREE.Color(0xf0e5d2);
+/** 开灯：压暗基色，避免被近距点光源打爆；自发光另提供暖白亮度 */
+const SHADE_LIT = new THREE.Color(0x6a5a44);
+/** 开关指示点开灯时的自发光强度 */
+const INDICATOR_ON = 1.6;
+
+// ==========================================================
+// 共享材质（非发光部件）
+// ==========================================================
+const MAT = {
+  /** 黑金细框 / 挑臂：哑光深灰金属 */
+  dark: new THREE.MeshStandardMaterial({ color: 0x2b2b30, metalness: 0.72, roughness: 0.38 }),
+  /** 金铜压边 / 拉丝五金 */
+  gold: new THREE.MeshStandardMaterial({ color: 0xc8a45c, metalness: 0.82, roughness: 0.3 }),
+  /** 乳白灯体 / 吸顶盘 */
+  white: new THREE.MeshStandardMaterial({ color: 0xf6f3ea, metalness: 0.05, roughness: 0.52 }),
+  /** 极简黑细边（方形回字灯） */
+  edge: new THREE.MeshStandardMaterial({ color: 0x23262a, metalness: 0.45, roughness: 0.4 }),
+  /** 花灯枝干与叶片：青绿 */
+  green: new THREE.MeshStandardMaterial({ color: 0x4f7c58, metalness: 0.08, roughness: 0.62 }),
+  /** 吊扇灯半透弧叶 */
+  blade: new THREE.MeshStandardMaterial({
+    color: 0xf2f5f7, metalness: 0.05, roughness: 0.3,
+    transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
+  }),
+  /**
+   * 86 型枪灰面板 / 按键：中深枪灰（哑光 PVD 质感），按键同色系亮一档保留层次。
+   * 冷灰蓝低强度自发光让深色面板在夜间仍呈现固有色、可被找到，又不会泛暖褐或刺眼；
+   * 强度按线性亮度换算，约为 0.05~0.08，与深色底板的固有亮度相当。
+   */
+  plate: new THREE.MeshStandardMaterial({
+    color: 0x464c55, emissive: 0x8a95a5, emissiveIntensity: 0.22, metalness: 0.25, roughness: 0.58,
+  }),
+  key: new THREE.MeshStandardMaterial({
+    color: 0x585f69, emissive: 0x96a1b2, emissiveIntensity: 0.2, metalness: 0.25, roughness: 0.5,
+  }),
+  /** 射线拾取用的透明放大命中盒 */
+  hit: new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+  }),
+};
+
+// ==========================================================
+// 程序化贴图（Canvas，无外部资源）
+// ==========================================================
+let woodTexCache: THREE.CanvasTexture | null = null;
+let inkTexCache: THREE.CanvasTexture | null = null;
+
+/** 原木纹：暖棕底 + 细密波纹年轮 */
+function woodTexture(): THREE.CanvasTexture {
+  if (woodTexCache) return woodTexCache;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  if (g) {
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#9a6a3e');
+    grad.addColorStop(0.5, '#b78450');
+    grad.addColorStop(1, '#8d5f38');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    g.lineWidth = 1;
+    for (let i = 0; i < 46; i++) {
+      const y = i * 5.6 + Math.sin(i * 0.7) * 2.2;
+      g.strokeStyle = i % 3 === 0 ? 'rgba(72,42,20,0.24)' : 'rgba(226,182,128,0.16)';
+      g.beginPath();
+      g.moveTo(0, y);
+      for (let x = 0; x <= 256; x += 8) {
+        g.lineTo(x, y + Math.sin(x * 0.045 + i * 0.55) * 2.4);
+      }
+      g.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  woodTexCache = tex;
+  return tex;
+}
+
+/** 淡墨山水纹：乳白底 + 远山淡影与水波细线（新中式灯罩） */
+function inkTexture(): THREE.CanvasTexture {
+  if (inkTexCache) return inkTexCache;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d');
+  if (g) {
+    g.fillStyle = '#f7f2e6';
+    g.fillRect(0, 0, 256, 128);
+    g.fillStyle = 'rgba(96,112,118,0.13)';
+    for (let k = 0; k < 3; k++) {
+      g.beginPath();
+      g.moveTo(0, 84 + k * 8);
+      for (let x = 0; x <= 256; x += 6) {
+        const y = 78 + k * 9 - Math.abs(Math.sin(x * 0.018 + k * 1.7)) * (26 - k * 5);
+        g.lineTo(x, y);
+      }
+      g.lineTo(256, 128);
+      g.lineTo(0, 128);
+      g.closePath();
+      g.fill();
+    }
+    g.strokeStyle = 'rgba(90,104,110,0.10)';
+    g.lineWidth = 1;
+    for (let i = 0; i < 8; i++) {
+      const y = 100 + i * 3.5;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(256, y + Math.sin(i) * 1.5);
+      g.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  inkTexCache = tex;
+  return tex;
+}
+
+// ==========================================================
+// 几何缓存（同类灯复用，减少内存）
+// ==========================================================
+const geoCache = new Map<string, THREE.BufferGeometry>();
+function cached<T extends THREE.BufferGeometry>(key: string, make: () => T): T {
+  const hit = geoCache.get(key);
+  if (hit) return hit as T;
+  const geo = make();
+  geoCache.set(key, geo);
+  return geo;
+}
+
+/** 逐盏独立的发光材质：关灯为常态乳白，开灯均匀暖白自发光 */
+function glowMaterial(spec: LampSpec, map?: THREE.Texture): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xf0e5d2),
+    emissive: new THREE.Color(spec.color ?? LAMP_COLOR),
+    emissiveIntensity: 0,
+    map: map ?? null,
+    emissiveMap: map ?? null,
+    metalness: 0,
+    roughness: 0.72,
+    side: THREE.DoubleSide,
+  });
+}
+
+/** 挂一个 mesh 到父节点；灯具一律不投影、不接收阴影 */
+function add(
+  parent: THREE.Object3D,
+  geo: THREE.BufferGeometry,
+  mat: THREE.Material,
+  x = 0, y = 0, z = 0,
+): THREE.Mesh {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  m.castShadow = false;
+  m.receiveShadow = false;
+  parent.add(m);
+  return m;
+}
+
+/** 圆角矩形 Shape：中心在原点，w 沿 x、d 沿 z（局部 y 对应世界 z） */
+function roundedRect(w: number, d: number, r: number): THREE.Shape {
+  const s = new THREE.Shape();
+  const x = -w / 2;
+  const y = -d / 2;
+  const rr = Math.max(0.002, Math.min(r, w / 2 - 0.001, d / 2 - 0.001));
+  s.moveTo(x + rr, y);
+  s.lineTo(x + w - rr, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + rr);
+  s.lineTo(x + w, y + d - rr);
+  s.quadraticCurveTo(x + w, y + d, x + w - rr, y + d);
+  s.lineTo(x + rr, y + d);
+  s.quadraticCurveTo(x, y + d, x, y + d - rr);
+  s.lineTo(x, y + rr);
+  s.quadraticCurveTo(x, y, x + rr, y);
+  s.closePath();
+  return s;
+}
+
+/** 圆角矩形环（带洞），用于回字光带 / 黑细边 */
+function roundedRing(w: number, d: number, r: number, band: number): THREE.Shape {
+  const s = roundedRect(w, d, r);
+  s.holes.push(roundedRect(w - 2 * band, d - 2 * band, Math.max(0.002, r - band)));
+  return s;
+}
+
+/** 把 XY 平面的 ShapeGeometry 转成水平朝下的面片（法向 -y，室内抬头可见） */
+function flatShape(shape: THREE.Shape, y: number, mat: THREE.Material, parent: THREE.Object3D): THREE.Mesh {
+  const m = add(parent, new THREE.ShapeGeometry(shape, 12), mat, 0, y, 0);
+  m.rotation.x = Math.PI / 2;
+  return m;
+}
+
+// ==========================================================
+// 六类灯具
+// ==========================================================
+
+/** 圆形吸顶灯：超薄圆盘 + 深色细边 + 均匀发光面；damp 为卫生间防潮款 */
+function buildCeiling(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+  const cfg = LAMP_GEOMETRY.ceiling;
+  const r = spec.radius;
+  const body = cached(`ceil-body-${r}`, () => new THREE.CylinderGeometry(r, r, cfg.bodyH, 32));
+  add(parent, body, MAT.white, 0, -cfg.bodyH / 2, 0);
+
+  const rim = cached(`ceil-rim-${r}`, () => new THREE.TorusGeometry(r - cfg.rimEdge / 2, cfg.rimEdge / 2, 8, 32));
+  const rimMesh = add(parent, rim, MAT.edge, 0, -cfg.bodyH + 0.002, 0);
+  rimMesh.rotation.x = Math.PI / 2;
+
+  const panelR = Math.max(0.02, r - cfg.rimEdge * 2);
+  const panel = cached(`ceil-panel-${r}`, () => new THREE.CylinderGeometry(panelR, panelR, cfg.panelH, 32));
+  const gm = glowMaterial(spec);
+  glow.push(gm);
+  add(parent, panel, gm, 0, -cfg.bodyH - cfg.panelH / 2, 0);
+
+  if (spec.damp) {
+    // 防潮款：外圈再加一道密封胶圈，视觉上与普通款区分
+    const seal = cached(`ceil-seal-${r}`, () => new THREE.TorusGeometry(r - 0.006, 0.006, 8, 32));
+    const sm = add(parent, seal, MAT.dark, 0, -cfg.bodyH - 0.004, 0);
+    sm.rotation.x = Math.PI / 2;
+  }
+}
+
+/** 新中式多头吊灯：黑金挑臂放射 + 6 枚鼓形乳白罩（淡墨山水纹、上下金压环）+ 中心荷叶 */
+function buildChandelier(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+  const cfg = LAMP_GEOMETRY.chandelier;
+  const scale = spec.radius / cfg.armRadius;
+  const armR = spec.radius;
+  const shadeR = cfg.shadeR * scale;
+  const shadeH = cfg.shadeH * scale;
+  const stemTop = -spec.drop;
+
+  const canopy = cached('chand-canopy', () => new THREE.CylinderGeometry(cfg.canopyR, cfg.canopyR, cfg.canopyH, 24));
+  add(parent, canopy, MAT.dark, 0, -cfg.canopyH / 2, 0);
+  const stem = cached(`chand-stem-${spec.drop}`, () => new THREE.CylinderGeometry(cfg.stemR, cfg.stemR, spec.drop, 12));
+  add(parent, stem, MAT.dark, 0, -spec.drop / 2, 0);
+
+  const shadeProfile = [
+    new THREE.Vector2(shadeR * 0.78, 0),
+    new THREE.Vector2(shadeR, shadeH * 0.5),
+    new THREE.Vector2(shadeR * 0.78, shadeH),
+  ];
+  const shadeGeo = cached(`chand-shade-${shadeR}`, () => new THREE.LatheGeometry(shadeProfile, 20));
+  const ringGeo = cached(`chand-ring-${shadeR}`, () => new THREE.TorusGeometry(shadeR * 0.99, cfg.goldRingH, 8, 20));
+  const gm = glowMaterial(spec, inkTexture());
+  glow.push(gm);
+
+  for (let i = 0; i < cfg.armCount; i++) {
+    const th = (i / cfg.armCount) * Math.PI * 2;
+    const cx = Math.cos(th);
+    const cz = Math.sin(th);
+    const shadeY = stemTop - 0.06;
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, stemTop, 0),
+      new THREE.Vector3(cx * armR * 0.55, stemTop - 0.08, cz * armR * 0.55),
+      new THREE.Vector3(cx * armR, shadeY, cz * armR),
+    ]);
+    add(parent, new THREE.TubeGeometry(curve, 10, cfg.armTube, 6, false), MAT.dark);
+    add(parent, shadeGeo, gm, cx * armR, shadeY - shadeH, cz * armR);
+    const top = add(parent, ringGeo, MAT.gold, cx * armR, shadeY, cz * armR);
+    top.rotation.x = Math.PI / 2;
+    const bottom = add(parent, ringGeo, MAT.gold, cx * armR, shadeY - shadeH, cz * armR);
+    bottom.rotation.x = Math.PI / 2;
+  }
+
+  // 中心荷叶：压扁球 + 金色花心
+  const leaf = cached('chand-leaf', () => new THREE.SphereGeometry(cfg.centerLeafR, 16, 10));
+  const lm = add(parent, leaf, MAT.gold, 0, stemTop - 0.02, 0);
+  lm.scale.set(1, 0.24, 1);
+}
+
+/** 花灯：青绿吸顶盘 + 链条 + 6 朵喇叭花罩 + 弯枝与叶片 */
+function buildFlower(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+  const cfg = LAMP_GEOMETRY.flower;
+  const scale = spec.radius / 0.38;
+  const ring = cfg.bloomRing * scale;
+  const bloomR = cfg.bloomR * scale;
+  const bloomH = cfg.bloomH * scale;
+  const bloomY = cfg.bloomY * scale - 0.02;
+  const hubY = -spec.drop;
+
+  const canopy = cached('flower-canopy', () => new THREE.CylinderGeometry(cfg.canopyR, cfg.canopyR, cfg.canopyH, 20));
+  add(parent, canopy, MAT.green, 0, -cfg.canopyH / 2, 0);
+  const chain = cached(`flower-chain-${spec.drop}`, () => new THREE.CylinderGeometry(0.006, 0.006, spec.drop, 8));
+  add(parent, chain, MAT.gold, 0, -spec.drop / 2, 0);
+
+  const bloomProfile = [
+    new THREE.Vector2(0.012, bloomH),
+    new THREE.Vector2(bloomR * 0.30, bloomH * 0.74),
+    new THREE.Vector2(bloomR * 0.62, bloomH * 0.32),
+    new THREE.Vector2(bloomR, 0),
+  ];
+  const bloomGeo = cached(`flower-bloom-${bloomR}`, () => new THREE.LatheGeometry(bloomProfile, 20));
+  const gm = glowMaterial(spec);
+  glow.push(gm);
+  const leafGeo = cached('flower-leaf', () => new THREE.SphereGeometry(1, 10, 8));
+
+  for (let i = 0; i < cfg.bloomCount; i++) {
+    const th = (i / cfg.bloomCount) * Math.PI * 2;
+    const cx = Math.cos(th);
+    const cz = Math.sin(th);
+    const bx = cx * ring;
+    const bz = cz * ring;
+    // 弯枝：从中心吊点向外挑到花蒂
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, hubY, 0),
+      new THREE.Vector3(bx * 0.45, hubY + 0.06, bz * 0.45),
+      new THREE.Vector3(bx, bloomY + bloomH, bz),
+    ]);
+    add(parent, new THREE.TubeGeometry(curve, 8, 0.007, 6, false), MAT.green);
+    add(parent, bloomGeo, gm, bx, bloomY, bz);
+    // 叶片
+    const leaf = add(parent, leafGeo, MAT.green, bx * 0.72, hubY + 0.05, bz * 0.72);
+    leaf.scale.set(cfg.leafLen * 0.55, 0.012, cfg.leafLen * 0.28);
+    leaf.rotation.y = th;
+  }
+  for (let i = 0; i < cfg.leafCount; i++) {
+    const th = (i / cfg.leafCount) * Math.PI * 2;
+    const leaf = add(parent, leafGeo, MAT.green, Math.cos(th) * 0.10, hubY + 0.02, Math.sin(th) * 0.10);
+    leaf.scale.set(cfg.leafLen * 0.42, 0.010, cfg.leafLen * 0.22);
+    leaf.rotation.y = th + 0.4;
+  }
+}
+
+/** 吊扇灯：白色圆盘灯体 + 细金边 + 4 片半透弧叶 */
+function buildCeilingFan(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+  const cfg = LAMP_GEOMETRY.ceilingFan;
+  const r = spec.radius;
+  const topY = -spec.drop;
+
+  const canopy = cached('fan-canopy', () => new THREE.CylinderGeometry(cfg.canopyR, cfg.canopyR, cfg.canopyH, 20));
+  add(parent, canopy, MAT.white, 0, -cfg.canopyH / 2, 0);
+  const stem = cached(`fan-stem-${spec.drop}`, () => new THREE.CylinderGeometry(cfg.stemR, cfg.stemR, spec.drop, 12));
+  add(parent, stem, MAT.white, 0, -spec.drop / 2, 0);
+
+  const body = cached(`fan-body-${r}`, () => new THREE.CylinderGeometry(r, r, cfg.bodyH, 40));
+  add(parent, body, MAT.white, 0, topY - cfg.bodyH / 2, 0);
+  const rim = cached(`fan-rim-${r}`, () => new THREE.TorusGeometry(r - cfg.rimR, cfg.rimR, 8, 40));
+  const rimMesh = add(parent, rim, MAT.gold, 0, topY - cfg.bodyH + 0.002, 0);
+  rimMesh.rotation.x = Math.PI / 2;
+
+  const gm = glowMaterial(spec);
+  glow.push(gm);
+  const disc = cached(`fan-disc-${r}`, () => new THREE.CircleGeometry(r - 0.018, 40));
+  const discMesh = add(parent, disc, gm, 0, topY - cfg.bodyH - 0.003, 0);
+  discMesh.rotation.x = Math.PI / 2;
+
+  const bladeLen = cfg.bladeLen * (r / cfg.bodyR);
+  const bladeGeo = cached(`fan-blade-${bladeLen}`, () => {
+    const g = new THREE.PlaneGeometry(bladeLen, cfg.bladeW, 10, 2);
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      const t = (pos.getX(i) + bladeLen / 2) / bladeLen;
+      pos.setZ(i, Math.sin(t * Math.PI) * 0.012 + t * 0.018);
+    }
+    g.computeVertexNormals();
+    return g;
+  });
+  for (let i = 0; i < cfg.bladeCount; i++) {
+    const pivot = new THREE.Group();
+    pivot.rotation.y = (i / cfg.bladeCount) * Math.PI * 2;
+    const blade = add(pivot, bladeGeo, MAT.blade, bladeLen / 2 + r * 0.55, cfg.bladeY, 0);
+    blade.rotation.x = -Math.PI / 2;
+    parent.add(pivot);
+  }
+}
+
+/**
+ * 贝壳褶皱吸顶灯：原木纹圆背板 + 极坐标自定义 BufferGeometry 的放射褶罩
+ * （外缘半径按 cos(petalCount·θ) 起伏成花瓣边、罩面按 sin(foldCount·θ) 细密褶皱）+ 中心金环与铆点。
+ */
+function buildShell(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+  const cfg = LAMP_GEOMETRY.shell;
+  const r = spec.radius;
+  const backR = r * (cfg.backR / cfg.shadeR);
+  const wood = new THREE.MeshStandardMaterial({
+    color: 0xffffff, map: woodTexture(), metalness: 0.04, roughness: 0.62,
+  });
+  const back = cached(`shell-back-${backR}`, () => new THREE.CylinderGeometry(backR, backR, cfg.backH, 48));
+  add(parent, back, wood, 0, -cfg.backH / 2, 0);
+
+  const NR = 14;
+  const NT = 160;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= NR; i++) {
+    const t = i / NR;
+    for (let j = 0; j <= NT; j++) {
+      const th = (j / NT) * Math.PI * 2;
+      const petal = 1 + cfg.petalAmp * Math.cos(cfg.petalCount * th) * t * t * t;
+      const fold = Math.sin(cfg.foldCount * th) * t;
+      const rr = r * t * petal;
+      const y = -cfg.backH - cfg.shadeDrop * t + cfg.foldAmp * fold;
+      pos.push(Math.cos(th) * rr, y, Math.sin(th) * rr);
+      uv.push(j / NT, t);
+    }
+  }
+  for (let i = 0; i < NR; i++) {
+    for (let j = 0; j < NT; j++) {
+      const a = i * (NT + 1) + j;
+      const b = a + 1;
+      const c = a + NT + 1;
+      const d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const shadeGeo = cached(`shell-shade-${r}`, () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  });
+  const gm = glowMaterial(spec);
+  glow.push(gm);
+  add(parent, shadeGeo, gm);
+
+  const ring = cached(`shell-ring-${r}`, () => new THREE.TorusGeometry(cfg.ringR, cfg.ringTube, 8, 24));
+  const ringMesh = add(parent, ring, MAT.gold, 0, -cfg.backH - 0.004, 0);
+  ringMesh.rotation.x = Math.PI / 2;
+  const capGeo = cached('shell-cap', () => new THREE.CircleGeometry(cfg.ringR * 0.72, 20));
+  const cap = add(parent, capGeo, MAT.white, 0, -cfg.backH - 0.006, 0);
+  cap.rotation.x = Math.PI / 2;
+  const studGeo = cached('shell-stud', () => new THREE.SphereGeometry(0.005, 6, 6));
+  for (let i = 0; i < cfg.studCount; i++) {
+    const th = (i / cfg.studCount) * Math.PI * 2;
+    add(parent, studGeo, MAT.gold,
+      Math.cos(th) * (cfg.ringR + 0.014), -cfg.backH - 0.006, Math.sin(th) * (cfg.ringR + 0.014));
+  }
+}
+
+/** 方形回字吸顶灯：圆角矩形细黑框 + 双层回字暖白光带 + 中央乳白发光面板 */
+function buildRectPanel(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+  const cfg = LAMP_GEOMETRY.rectPanel;
+  const w = spec.w ?? 1.0;
+  const d = spec.d ?? 0.6;
+  const base = cached(`rect-base-${w}-${d}`, () => new THREE.BoxGeometry(w, cfg.frameH, d));
+  add(parent, base, MAT.white, 0, -cfg.frameH / 2, 0);
+
+  const gm = glowMaterial(spec);
+  glow.push(gm);
+  const y0 = -cfg.frameH - 0.002;
+  // 外圈细黑边
+  flatShape(roundedRing(w, d, cfg.cornerR, cfg.frameEdge), y0, MAT.edge, parent);
+  // 外圈回字光带
+  const ow = w - 2 * cfg.outerInset;
+  const od = d - 2 * cfg.outerInset;
+  flatShape(roundedRing(ow, od, cfg.cornerR - cfg.outerInset, cfg.bandW), y0 - 0.002, gm, parent);
+  // 内圈回字光带（旋转 180° 的错位感由尺寸缩放体现，保持同心更贴近参考图）
+  const iw = ow * cfg.innerScale;
+  const id = od * cfg.innerScale;
+  flatShape(roundedRing(iw, id, cfg.cornerR * cfg.innerScale, cfg.bandW * 0.85), y0 - 0.004, gm, parent);
+  // 中央乳白发光面板
+  const pw = iw - 2 * cfg.bandW;
+  const pd = id - 2 * cfg.bandW;
+  flatShape(roundedRect(pw, pd, cfg.cornerR * cfg.innerScale - cfg.bandW), y0 - 0.006, gm, parent);
+}
+
+// ==========================================================
+// 对外句柄
+// ==========================================================
+export interface LampHandle {
+  spec: LampSpec;
+  group: THREE.Group;
+  /** 逐盏独立的发光材质（开灯时同时提亮） */
+  glow: THREE.MeshStandardMaterial[];
+  /** 局部照明点光源（不投影，可见性由状态中枢限流） */
+  light: THREE.PointLight;
+  /** t∈[0,1]：自发光与点光源强度插值 */
+  setGlow(t: number): void;
+}
+
+export interface SwitchHandle {
+  spec: SwitchSpec;
+  group: THREE.Group;
+  /** 可射线拾取的透明放大命中盒 */
+  hitObjects: THREE.Object3D[];
+  /** 按键视觉状态（微倾 + 暖色指示） */
+  setKeyOn(index: number, on: boolean): void;
+}
+
+/** 创建一盏灯：Group 原点位于天花板底（世界坐标），几何向下悬挂 */
+export function createLamp(spec: LampSpec, floorBaseY: number): LampHandle {
+  const group = new THREE.Group();
+  group.name = `lamp-${spec.id}`;
+  group.position.set(spec.x, floorBaseY + spec.y, spec.z);
+
+  const glow: THREE.MeshStandardMaterial[] = [];
+  switch (spec.kind) {
+    case 'chandelier':
+      buildChandelier(spec, glow, group);
+      break;
+    case 'flower':
+      buildFlower(spec, glow, group);
+      break;
+    case 'ceilingFan':
+      buildCeilingFan(spec, glow, group);
+      break;
+    case 'shell':
+      buildShell(spec, glow, group);
+      break;
+    case 'rectPanel':
+      buildRectPanel(spec, glow, group);
+      break;
+    default:
+      buildCeiling(spec, glow, group);
+      break;
+  }
+
+  const light = new THREE.PointLight(spec.color ?? LAMP_COLOR, 0, spec.distance ?? 4.5, 2);
+  // 光源置于灯罩下方约 0.55m：decay=2 时若贴着灯罩（0.12m）会形成刺眼的中心白斑并抹平造型，
+  // 下移后照度分布柔和，仍能照亮地面 / 墙面。
+  light.position.set(0, -(spec.drop + 0.55), 0);
+  light.castShadow = false;
+  light.visible = false;
+  group.add(light);
+
+  const peak = spec.intensity ?? 1.2;
+  return {
+    spec,
+    group,
+    glow,
+    light,
+    setGlow(t: number): void {
+      const k = t < 0 ? 0 : t > 1 ? 1 : t;
+      for (const m of glow) {
+        m.color.lerpColors(SHADE_OFF, SHADE_LIT, k);
+        m.emissiveIntensity = k * GLOW_ON;
+      }
+      light.intensity = k * peak;
+    },
+  };
+}
+
+/** 创建 86 型开关面板：贴墙内表面、双联按键各自独立命中与状态指示 */
+export function createSwitch(spec: SwitchSpec, floorBaseY: number): SwitchHandle {
+  const cfg = LAMP_GEOMETRY.switch;
+  const group = new THREE.Group();
+  group.name = `switch-${spec.id}`;
+  group.position.set(spec.x, floorBaseY + spec.y, spec.z);
+  group.rotation.y = spec.rotY;
+
+  const plate = cached('sw-plate', () => new THREE.BoxGeometry(cfg.plateW, cfg.plateH, cfg.plateT));
+  add(group, plate, MAT.plate);
+
+  const n = Math.max(1, spec.keys.length);
+  const cell = (cfg.plateW - 0.010) / n;
+  const keyW = Math.min(cfg.keyW, cell - 0.006);
+  const hitObjects: THREE.Object3D[] = [];
+  const keyMeshes: THREE.Mesh[] = [];
+  const indicators: THREE.MeshStandardMaterial[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const kx = -cfg.plateW / 2 + 0.005 + (i + 0.5) * cell;
+    const key = add(group, new THREE.BoxGeometry(keyW, cfg.keyH, cfg.keyT), MAT.key,
+      kx, 0, cfg.plateT / 2 + cfg.keyT / 2);
+    keyMeshes.push(key);
+
+    const indMat = new THREE.MeshStandardMaterial({
+      color: 0xfff2d6, emissive: new THREE.Color(LAMP_COLOR), emissiveIntensity: 0, roughness: 0.4,
+    });
+    indicators.push(indMat);
+    add(group, new THREE.SphereGeometry(0.0032, 8, 6), indMat,
+      kx, -cfg.keyH / 2 + 0.009, cfg.plateT / 2 + cfg.keyT + 0.002);
+
+    const hit = add(group,
+      new THREE.BoxGeometry(cell, cfg.hitH, cfg.hitT), MAT.hit,
+      kx, 0, cfg.plateT / 2 + cfg.hitT / 2);
+    const data: LightSwitchHitData = { kind: 'light-switch', switchId: spec.id, keyIndex: i };
+    hit.userData = { ...data };
+    hitObjects.push(hit);
+  }
+
+  return {
+    spec,
+    group,
+    hitObjects,
+    setKeyOn(index: number, on: boolean): void {
+      const m = indicators[index];
+      const key = keyMeshes[index];
+      if (m) m.emissiveIntensity = on ? INDICATOR_ON : 0;
+      if (key) key.rotation.x = on ? -0.06 : 0;
+    },
+  };
+}

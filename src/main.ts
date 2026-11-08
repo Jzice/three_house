@@ -14,6 +14,8 @@ import { attachKeyboard, attachPointerInteraction, createKeyState } from './view
 import { createViewManager, updateInteractables } from './view/viewState';
 import { createTouchControls } from './view/touchControls';
 import { createEnvPanel } from './ui/envPanel';
+import { createLightController } from './lighting/lightController';
+import { createLightPanel } from './ui/lightPanel';
 import { Game } from './game/game';
 import type { EnvironmentSnapshot, InteractiveObject, WalkRect } from './types';
 
@@ -122,6 +124,7 @@ function bootstrap(): void {
     // 走楼梯自动切层：同步按钮高亮与 2D / 小地图
     (floor) => {
       ui.setActiveFloor(floor);
+      lightPanel.setActiveFloor(floor);
       const mode = view.getMode();
       if (mode === '2d' || mode === 'fps') floorplan.draw();
       if (mode === 'fps') syncMinimapBtn();
@@ -223,6 +226,7 @@ function bootstrap(): void {
     onSwitchFloor: (floor) => {
       view.setActiveFloor(floor);
       ui.setActiveFloor(floor);
+      lightPanel.setActiveFloor(floor);
       // 2D 全屏图与第一人称小地图都随当前楼层自动切换
       const mode = view.getMode();
       if (mode === '2d' || mode === 'fps') floorplan.draw();
@@ -283,6 +287,15 @@ function bootstrap(): void {
   const envPanel = createEnvPanel(env);
   envSnapshotSink = (s) => envPanel.update(s);
 
+  // ---- 全屋照明：状态中枢 + 灯光面板（3D 墙上开关与 UI 面板共用同一状态源） ----
+  // 必须在 createEnvPanel 之后创建：灯光面板依赖右上环境按钮实现两面板互斥显示。
+  const lighting = createLightController(
+    floors.flatMap((f) => f.lamps),
+    floors.flatMap((f) => f.switches),
+  );
+  const lightPanel = createLightPanel(lighting);
+  lightPanel.setActiveFloor(view.activeFloor);
+
   // ---- 输入 ----
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
@@ -297,6 +310,18 @@ function bootstrap(): void {
     },
     // 游戏模式激活时，门窗点击语义交给 game 层，此处早退
     () => game.isActive(),
+    // 3D 开关拾取：只收集当前可见楼层的命中盒，门窗与开关合并为一次射线求交
+    {
+      getHitObjects: () => {
+        const list: THREE.Object3D[] = [];
+        for (const f of floors) {
+          if (!f.root.visible) continue;
+          for (const s of f.switches) list.push(...s.hitObjects);
+        }
+        return list;
+      },
+      onToggle: (switchId, keyIndex) => lighting.toggleBySwitch(switchId, keyIndex),
+    },
   );
 
   // 触屏虚拟摇杆（仅触屏设备启用；桌面端返回 isTouch=false，getMove 恒为 {0,0}）
@@ -394,6 +419,13 @@ function bootstrap(): void {
     env.update(mode !== '2d');
     // 天气表面特效：积雪/积水（雨/雪粒子由 metaverse-sky 另行渲染）
     weatherFx.update(mode !== '2d');
+
+    // 全屋照明：发光插值 + 节流写盘 + 点光源限流。
+    // 3D 模式一律只让「活动楼层」的点光源生效：fps 下所有楼层 root 都可见，若按可见楼层过滤
+    // 等于不隔离，低楼层点光源（castShadow=false）会穿过楼板照亮高层的屋檐 / 墙面 / 灯罩，形成漏光；
+    // tps 与 fps 统一同一规则，2D 传空集合只推进灯状态、不启用任何点光源。
+    lighting.update(dt);
+    lighting.syncVisibility(mode === '2d' ? [] : [view.activeFloor], ctx.camera.position);
 
     // 游戏模式每帧推进（内部在未激活时早退）
     if (gameActive) game.update(dt, movingKeys);

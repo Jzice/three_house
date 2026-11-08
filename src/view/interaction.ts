@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { InteractiveObject, KeyState } from '../types';
+import type { LightSwitchHitData } from '../config/lightingConfig';
 import type { SceneContext } from '../scene/sceneSetup';
 import type { ViewState } from './viewState';
 import { PITCH_LIMIT } from './viewState';
@@ -55,9 +56,22 @@ export function attachKeyboard(keys: KeyState, getState: () => ViewState): void 
 }
 
 /**
+ * 3D 开关拾取的可选接入：不传该参数时，门窗点击行为与既有版本完全一致。
+ * 开关不进 `interactables`，避免被 `updateInteractables()` 按旋转插值、
+ * 也避免用门扇的 isOpen 布尔语义去表达双联 / 双控 / 分组。
+ */
+export interface LightingPick {
+  /** 当前可见楼层的开关命中盒（透明放大盒） */
+  getHitObjects: () => THREE.Object3D[];
+  /** 命中某面板按键后回调照明状态中枢 */
+  onToggle: (switchId: string, keyIndex: number) => void;
+}
+
+/**
  * 3D 画布上的指针交互：
  * - FPS 模式下拖拽转动视角
  * - 位移小于阈值时视为点击，射线拾取"当前活动层"的门窗并切换开合
+ * - 可选接入 3D 开关：门窗与开关合并为一次射线求交，按最近命中分派
  */
 export function attachPointerInteraction(
   ctx: SceneContext,
@@ -65,6 +79,8 @@ export function attachPointerInteraction(
   getInteractables: () => InteractiveObject[],
   /** 游戏模式激活时返回 true，此时本函数所有处理早退（输入交给 game 层） */
   isGameActive?: () => boolean,
+  /** 可选：3D 开关拾取（不传则门窗行为零变化） */
+  lighting?: LightingPick,
 ): void {
   const { camera, renderer } = ctx;
   const canvas = renderer.domElement;
@@ -99,17 +115,32 @@ export function attachPointerInteraction(
     camera.quaternion.setFromEuler(euler);
   }
 
-  /** 单指轻点：射线拾取当前活动层门窗并切换开合 */
+  /** 单指轻点：门窗与 3D 开关合并为一次射线求交，按最近命中分派 */
   function pick(e: PointerEvent): void {
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
 
-    // 只命中当前活动层的门窗，避免穿透到隐藏楼层
-    const intersects = raycaster.intersectObjects(getInteractables(), true);
+    // 只命中当前活动层的门窗与开关，避免穿透到隐藏楼层
+    const doors = getInteractables();
+    const switches = lighting?.getHitObjects() ?? [];
+    const targets: THREE.Object3D[] = switches.length > 0 ? [...doors, ...switches] : doors;
+    const intersects = raycaster.intersectObjects(targets, true);
     if (intersects.length === 0) return;
 
-    let obj: THREE.Object3D | null = intersects[0].object;
+    const first = intersects[0].object;
+    // 最近命中若是开关命中盒，沿父链取开关数据并交给状态中枢，不再进入门窗开合逻辑
+    let swObj: THREE.Object3D | null = first;
+    while (swObj && (swObj.userData as Partial<LightSwitchHitData>).kind !== 'light-switch') {
+      swObj = swObj.parent;
+    }
+    if (swObj) {
+      const data = swObj.userData as LightSwitchHitData;
+      lighting?.onToggle(data.switchId, data.keyIndex);
+      return;
+    }
+
+    let obj: THREE.Object3D | null = first;
     while (obj && !obj.userData.isInteractive) {
       obj = obj.parent;
     }

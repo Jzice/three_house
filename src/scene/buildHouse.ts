@@ -16,6 +16,8 @@ import {
   WALL_TOP_GUARD,
   BACK_DOOR,
 } from '../config/houseConfig';
+import { lampsOfFloor, switchesOfFloor } from '../config/lightingConfig';
+import { createLamp, createSwitch, type LampHandle, type SwitchHandle } from './lightFixtures';
 import {
   createBox,
   createExteriorSwingDoor,
@@ -40,6 +42,10 @@ export interface HouseResult {
   interactables: InteractiveObject[];
   /** 本层天花板组（= 上层楼板 / 屋顶板底面），仅第一人称处于该层时可见 */
   ceiling: THREE.Group;
+  /** 本层灯具句柄：交给状态中枢逐盏控制发光与点光源 */
+  lamps: LampHandle[];
+  /** 本层 3D 开关面板句柄：命中体交给指针拾取，按键视觉由状态中枢同步 */
+  switches: SwitchHandle[];
 }
 
 /**
@@ -182,6 +188,22 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
   }
   root.add(ceiling);
 
+  // ---- 全屋灯具 / 3D 开关 ----
+  // 一律挂在 floor.root（绝不进 ceiling 组，该组在上帝视角下隐藏），
+  // 保证 tps 俯视与 fps 抬头都能看到灯具；门廊不另建吊顶板，廊灯直接贴既有结构板底。
+  const lamps: LampHandle[] = [];
+  for (const spec of lampsOfFloor(floor.index)) {
+    const handle = createLamp(spec, floor.baseY);
+    root.add(handle.group);
+    lamps.push(handle);
+  }
+  const switches: SwitchHandle[] = [];
+  for (const spec of switchesOfFloor(floor.index)) {
+    const handle = createSwitch(spec, floor.baseY);
+    root.add(handle.group);
+    switches.push(handle);
+  }
+
   // 可交互窗（按层抬升；推拉窗走滑动逻辑、3 列大窗走下方小窗格对开、楼梯间后墙走 2 行单扇）
   for (const spec of getWindows(floor)) {
     const builder =
@@ -255,7 +277,7 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
     root.add(buildStairHandrail(materials, floor));
   }
 
-  return { root, interactables, ceiling };
+  return { root, interactables, ceiling, lamps, switches };
 }
 
 
