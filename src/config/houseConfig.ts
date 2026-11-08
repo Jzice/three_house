@@ -909,7 +909,11 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
         const slabX0 = -wallHalfX - spec.sideExtend;
         const slabX1 = wallHalfX + spec.sideExtend;
         const zOuter = D / 2 + spec.width;
-        return { x0: slabX0, x1: slabX1, z0: D / 2, z1: zOuter };
+        // z0 取阳台板内沿：3F 大阳台 frontDepth≠0（板自正面墙 z=0.38 起铺），
+        // 否则 [D/2-0.08, D/2] 这条横贯面宽的 32cm 带无任何区域覆盖，形成走不过去的空气墙；
+        // 2F frontDepth 为 0，z0 即 D/2，与推拉门外皮衔接，不受影响。
+        const zInner = D / 2 - (spec.frontDepth ?? 0);
+        return { x0: slabX0, x1: slabX1, z0: zInner, z1: zOuter };
       })()
     : null;
 
