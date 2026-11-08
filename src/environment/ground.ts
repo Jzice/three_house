@@ -116,6 +116,8 @@ export function createGround(): GroundLayer {
   mesh.receiveShadow = true;
   mesh.name = 'ground';
   mesh.frustumCulled = false; // 跟随相机且巨大，关闭视锥剔除避免误剔
+  // 室外大草地：由 weatherFx 接管季节变色（春夏绿/秋黄/冬枯）+ 雪壳/湿亮（与院子一致）
+  mesh.userData.weatherExposed = 'grass';
 
   return {
     mesh,

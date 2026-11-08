@@ -798,7 +798,7 @@ export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
  * - **房屋内部**：外墙内皮再内缩 0.08m（与旧的 FPS_LIMIT_X/Z 一致，避免贴墙）；
  * - **门洞通道**：1F 入户门/后门、2F 阳台推拉门，通道带 id 对应可交互门，门关闭时不可通行；
  * - **院子/阳台**：1F 院落，2F/3F 阳台（开门可达）；东北角按斜围墙内侧半平面裁剪；
- * - **院外有界地面**：1F 可走出院子到外侧地面（围墙仅视觉、不阻挡）；
+ * - **院外有界地面**：1F 可经东侧院门走出院子到外侧地面（围墙参与第一人称碰撞、不可穿墙，仅院门缺口可通行）；
  * - **墙体碰撞**：solids 为墙/柱脚印（门洞已挖空），gaps 为门洞缺口（关门阻拦、开门放行）。
  */
 export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
@@ -926,11 +926,10 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
     y: s.topY,
   }));
   // ---- 楼板挖空区（梯井 / 两跑夹缝）：与 getFloorSlabs 的 STAIR_VOID 同源 ----
-  // 2F/3F 在 STAIR_VOID 不铺楼板，但区内仍有本层 / 相邻层的楼梯踏面可站立，
-  // 故登记为「挖空区 + 楼梯面白名单」：落在挖空区且不在任何楼梯面上即禁止进入。
-  const voids: WalkRect[] = floor.index === 0
-    ? []
-    : [{ x0: STAIR_VOID.x0, x1: STAIR_VOID.x1, z0: STAIR_VOID.z0, z1: STAIR_VOID.z1 }];
+  // 各楼层均在 STAIR_VOID 登记为「挖空区 + 楼梯面白名单」：区内落在楼梯踏面上方可站立 / 上下楼，
+  // 其余（梯底空腔、两跑夹缝）禁止进入 —— 既防止 2F/3F 坠井，也防止 1F 从楼梯后侧横穿到前侧。
+  // 梯段实体为斜面底挤出体（见 stairs.ts），梯底本就实心，故封堵与可见模型一致、不会误挡可站区域。
+  const voids: WalkRect[] = [{ x0: STAIR_VOID.x0, x1: STAIR_VOID.x1, z0: STAIR_VOID.z0, z1: STAIR_VOID.z1 }];
   const stairKeep: WalkRect[] = [];
   for (let f = floor.index - 1; f <= floor.index + 1; f++) {
     if (f < 0 || f >= FLOORS.length) continue;
@@ -980,6 +979,25 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   if (balconyRect) yard.push(balconyRect); // 1F 无阳台，通常为 null
   // 东北斜围墙：西北角直角段东端 → 东北端，院内在其西南侧
   const slope = { ax: xWest + rearStraight, az: zNorth, bx: xEast, bz: rearEastZ };
+
+  // 院子围墙碰撞足迹（与 yard.ts 的 addFence 中心/朝向完全一致）：
+  // 第一人称不可穿墙；仅东侧院门（z ∈ [gateNorth, …] 缺口）保留，可正常出院到 outside 地面。
+  // 用 rails（线段缓冲带）表达，half = 玩家半径 + 墙厚半，使玩家恰好停在墙面、可贴墙滑动。
+  const fenceT = y.fenceT;
+  const fenceHalf = 0.25 + fenceT / 2; // 0.25 与 viewState.PLAYER_R 保持一致
+  const gzGate = y.gateZ ?? 0;
+  const gateHalfW = y.gateW / 2;
+  const gateNorth = gzGate - gateHalfW; // 东墙北段南端 = 院门北界，其南为院门缺口
+  // 西墙（前/后院西墙与西院中段墙连成一线，整条）
+  rails.push({ x0: xWest + fenceT / 2, z0: zNorth, x1: xWest + fenceT / 2, z1: zSouth - fenceT, half: fenceHalf });
+  // 南墙（整条矮墙）
+  rails.push({ x0: xWest, z0: zSouth - fenceT / 2, x1: xEast, z1: zSouth - fenceT / 2, half: fenceHalf });
+  // 北墙直角段（西 → 斜边起点）
+  rails.push({ x0: xWest, z0: zNorth + fenceT / 2, x1: xWest + rearStraight, z1: zNorth + fenceT / 2, half: fenceHalf });
+  // 北墙斜段（斜边东北端 → 东北角）
+  rails.push({ x0: xWest + rearStraight, z0: zNorth, x1: xEast, z1: rearEastZ, half: fenceHalf });
+  // 东墙（院门北侧；院门缺口 z ∈ [gateNorth, …] 不布设，可通行）
+  rails.push({ x0: xEast - fenceT / 2, z0: rearEastZ, x1: xEast - fenceT / 2, z1: gateNorth, half: fenceHalf });
 
   return { inside, doors, yard, slope, rails, voids, stairKeep, yardTopY: y.paveH, solids, gaps, thresholds, outside, freeRoam };
 }

@@ -18,7 +18,7 @@
 import { MetaverseSky } from 'metaverse-sky';
 import * as THREE from 'three';
 import type { DirectionalLight } from 'three';
-import type { PrecipKind } from '../types';
+import type { PrecipKind, PrecipCoverage } from '../types';
 import {
   CLOUD_NIGHT_COLOR,
   CLOUD_RENDER_NIGHT_COLOR,
@@ -51,6 +51,8 @@ export interface MetaSkyHandle {
   setClouds(coverage01: number, opacity?: number, dayCloudColor?: number): void;
   /** 降水类型与强度 0..1（雨/雪/冰雹动画，type='none' 即无降水） */
   setPrecipitation(type: PrecipKind, intensity01: number): void;
+  /** 降水粒子覆盖范围：'near' 近场（默认）/ 'far' 近可视范围 */
+  setPrecipCoverage(mode: PrecipCoverage): void;
   /** 风向（度，自北顺时针）与相对风速 0..1（驱动降水随风飘移） */
   setWind(degrees: number, speed01: number): void;
   /** 大气浑浊度 / 瑞利散射（天气→氛围基调） */
@@ -437,9 +439,20 @@ export function createMetaSky(opts: {
   // 围绕相机的垂直柱形域内循环下落：组每帧对齐相机位置，粒子在局部坐标里下落，
   // 落出下边界即回到顶部并重掷水平位置。数量按降水强度用 drawRange 控制，
   // 不透明度随强度缓动（切换类型/开关时平滑过渡，与 2D 面板的降水下拉同源）。
-  const PRECIP_COUNT = 3500;
-  const PRECIP_HALF_W = 28; // 粒子柱水平半宽（m）：覆盖上帝视角与近景视野
-  const PRECIP_HALF_H = 20; // 粒子柱垂直半高（m）：相机上 20m 到下 20m 循环
+  const PRECIP_COUNT = 7000; // 粒子缓冲上限（'far' 模式用满）
+  /**
+   * 降水粒子覆盖范围预设：柱子跟随相机，水平半宽/垂直半高决定覆盖邻域，max 为同强度下参与
+   * 渲染的粒子数（越大越密、开销越高）。near（默认，B 模式）覆盖院子外邻域；far（C 模式）
+   * 扩到近可视范围，最沉浸但开销最大。setPrecipCoverage 可在运行时热切换。
+   */
+  const PRECIP_PRESETS = {
+    near: { halfW: 45, halfH: 22, max: 4500 },
+    far: { halfW: 120, halfH: 45, max: 7000 },
+  } as const;
+  // 当前生效的柱体半宽/半高与最大粒子数（随 setPrecipCoverage 变更）
+  let precipHalfW: number = PRECIP_PRESETS.near.halfW;
+  let precipHalfH: number = PRECIP_PRESETS.near.halfH;
+  let precipMax: number = PRECIP_PRESETS.near.max;
   const PRECIP_PROFILES = {
     rain: { color: 0xaecbe0, size: 0.07, opacity: 0.55, speed: 14, sway: 0.12 },
     snow: { color: 0xf6fbff, size: 0.17, opacity: 0.9, speed: 1.6, sway: 0.55 },
@@ -450,9 +463,9 @@ export function createMetaSky(opts: {
   const precipPos = new Float32Array(PRECIP_COUNT * 3);
   const precipPhase = new Float32Array(PRECIP_COUNT); // 各粒子漂移相位，避免整体同步摆动
   for (let i = 0; i < PRECIP_COUNT; i++) {
-    precipPos[i * 3] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
-    precipPos[i * 3 + 1] = (Math.random() * 2 - 1) * PRECIP_HALF_H;
-    precipPos[i * 3 + 2] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
+    precipPos[i * 3] = (Math.random() * 2 - 1) * precipHalfW;
+    precipPos[i * 3 + 1] = (Math.random() * 2 - 1) * precipHalfH;
+    precipPos[i * 3 + 2] = (Math.random() * 2 - 1) * precipHalfW;
     precipPhase[i] = Math.random() * Math.PI * 2;
   }
   precipGeo.setAttribute('position', new THREE.BufferAttribute(precipPos, 3));
@@ -582,6 +595,21 @@ export function createMetaSky(opts: {
       // 库链路保持下发，库内天空状态与外部一致（其粒子已关闭，不再参与渲染）
       sky.setPrecipitation({ type, intensity });
     },
+    setPrecipCoverage(mode) {
+      const p = PRECIP_PRESETS[mode] ?? PRECIP_PRESETS.near;
+      const sx = p.halfW / precipHalfW;
+      const sy = p.halfH / precipHalfH;
+      // 已布点的粒子按新比例缩放，平滑迁移到新柱体范围（不必重建缓冲）
+      for (let i = 0; i < PRECIP_COUNT; i++) {
+        precipPos[i * 3] *= sx;
+        precipPos[i * 3 + 1] *= sy;
+        precipPos[i * 3 + 2] *= sx;
+      }
+      (precipGeo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      precipHalfW = p.halfW;
+      precipHalfH = p.halfH;
+      precipMax = p.max;
+    },
     setWind(deg, speed) {
       sky.setWind(deg, speed);
     },
@@ -624,16 +652,16 @@ export function createMetaSky(opts: {
         const prof: (typeof PRECIP_PROFILES)[PrecipProfileKey] =
           precipType === 'none' ? PRECIP_PROFILES.rain : PRECIP_PROFILES[precipType];
         precipMat.opacity = prof.opacity * Math.min(precipLevel, 1);
-        const count = Math.floor(PRECIP_COUNT * Math.min(precipLevel, 1));
+        const count = Math.floor(precipMax * Math.min(precipLevel, 1));
         precipGeo.setDrawRange(0, count);
         const t = now / 1000;
         for (let i = 0; i < count; i++) {
           const j = i * 3;
           let y = precipPos[j + 1] - prof.speed * dt;
-          if (y < -PRECIP_HALF_H) {
-            y += PRECIP_HALF_H * 2; // 落出下边界：回到顶部并重掷水平位置
-            precipPos[j] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
-            precipPos[j + 2] = (Math.random() * 2 - 1) * PRECIP_HALF_W;
+          if (y < -precipHalfH) {
+            y += precipHalfH * 2; // 落出下边界：回到顶部并重掷水平位置
+            precipPos[j] = (Math.random() * 2 - 1) * precipHalfW;
+            precipPos[j + 2] = (Math.random() * 2 - 1) * precipHalfW;
           }
           precipPos[j + 1] = y;
           // 雪片明显左右漂移、雨丝几乎垂直（sway 已按类型区分）

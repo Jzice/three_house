@@ -496,6 +496,9 @@ export type WeatherKind =
 /** 实时降水动画类型（由 metaverse-sky 渲染：雨 / 雪 / 冰雹；none 即无降水） */
 export type PrecipKind = 'none' | 'rain' | 'snow' | 'hail';
 
+/** 降水粒子覆盖范围：near=近场（默认，覆盖院子外邻域）；far=近可视范围（最沉浸、开销最大） */
+export type PrecipCoverage = 'near' | 'far';
+
 /** 一次天气实况快照（Open-Meteo current 字段，或断网降级值） */
 export interface WeatherSnapshot {
   kind: WeatherKind;

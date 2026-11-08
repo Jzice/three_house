@@ -22,6 +22,7 @@ import type {
   SiteLocation,
   WeatherSnapshot,
   PrecipKind,
+  PrecipCoverage,
 } from '../types';
 import { DEFAULT_LOCATION, FALLBACK_WEATHER, FRONT_AZIMUTH_DEG } from '../config/siteConfig';
 import {
@@ -76,6 +77,8 @@ export interface Environment {
   setShadowEnabled(enabled: boolean): void;
   /** 设置天气模式覆盖（晴/雨/雪/冰雹；null 表示跟随实况）；intensity 0~1 为程度（晴时为云量比例，其余为降水强度） */
   setWeatherOverride(kind: PrecipKind | null, intensity: number): void;
+  /** 设置降水粒子覆盖范围：'near' 近场（默认）/ 'far' 近可视范围 */
+  setPrecipCoverage(mode: PrecipCoverage): void;
   getSnapshot(): EnvironmentSnapshot;
   /**
    * 每帧推进。render3D=false（2D 模式）时仍推进状态（回到 3D 时无重建负担）；
@@ -320,6 +323,9 @@ export function createEnvironment(opts: EnvironmentOptions): Environment {
       precipIntensityOverride = clamp01(intensity);
       recompute();
       emitSnapshot(true);
+    },
+    setPrecipCoverage(mode) {
+      metaSky.setPrecipCoverage(mode);
     },
     setFrontAzimuth(deg) {
       frontAzimuthDeg = deg;

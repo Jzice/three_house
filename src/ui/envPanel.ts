@@ -8,7 +8,7 @@
  * 面板与右上圆形按钮整体由本模块创建并注入 body，沿用现有白底磨砂极简语言。
  */
 import type { Environment } from '../environment/environment';
-import type { EnvironmentSnapshot, SiteLocation, WeatherKind, PrecipKind } from '../types';
+import type { EnvironmentSnapshot, SiteLocation, WeatherKind, PrecipKind, PrecipCoverage } from '../types';
 import { BUILTIN_LOCATIONS, DEFAULT_LOCATION, FRONT_AZIMUTH_DEG, makeCustomLocation } from '../config/siteConfig';
 import { WEATHER_TEXT } from '../environment/weather';
 
@@ -109,6 +109,8 @@ interface PersistedSettings {
   precipRainI: number;
   precipSnowI: number;
   precipHailI: number;
+  /** 降水粒子覆盖范围：'near' 近场（默认）/ 'far' 近可视范围 */
+  precipCoverage?: 'near' | 'far';
   /** @deprecated 旧版单字段，仅用于迁移读取 */
   precip?: string;
 }
@@ -223,6 +225,13 @@ export function createEnvPanel(env: Environment): EnvPanel {
           <option value="hail">冰雹</option>
         </select>
       </div>
+      <div class="env-row env-row-weather env-row-spread">
+        <span class="env-live-label">降水覆盖</span>
+        <select id="env-precip-cover" class="env-field">
+          <option value="near" selected>近场</option>
+          <option value="far">全场</option>
+        </select>
+      </div>
       <div class="env-row env-row-weather" id="env-intensity-row">
         <span class="env-live-label" id="env-intensity-label">云量</span>
         <input id="env-intensity" class="env-range" type="range" min="0" max="30" step="1" value="10" />
@@ -270,6 +279,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
   const visEl = el<HTMLElement>(panel, 'env-vis');
   const animEl = el<HTMLElement>(panel, 'env-anim');
   const precipModeSel = el<HTMLSelectElement>(panel, 'env-precip-mode');
+  const precipCoverSel = el<HTMLSelectElement>(panel, 'env-precip-cover');
   const intensitySlider = el<HTMLInputElement>(panel, 'env-intensity');
   const intensityLabel = el<HTMLElement>(panel, 'env-intensity-label');
   const intensityVal = el<HTMLElement>(panel, 'env-intensity-val');
@@ -293,6 +303,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
   let clearCloud = 0.1; // 晴云量比例 0~1（碧空↔薄云）
   let rainI = 0.5, snowI = 0.5, hailI = 0.5; // 降水强度 0~1（默认中档）
   let curKind: PrecipKind | null = 'none'; // 当前天气模式类型（'none'=晴）
+  let precipCover: PrecipCoverage = 'near'; // 降水粒子覆盖范围（默认近场）
   refreshBtn.disabled = true; // 关闭时禁用刷新按钮
 
   const wxMain = panel.querySelector('.env-wx-main') as HTMLElement;
@@ -404,6 +415,7 @@ export function createEnvPanel(env: Environment): EnvPanel {
       precipRainI: rainI,
       precipSnowI: snowI,
       precipHailI: hailI,
+      precipCoverage: precipCover,
     };
     if (isCustom) {
       const lat = Number(latInput.value);
@@ -491,6 +503,11 @@ export function createEnvPanel(env: Environment): EnvPanel {
     // 实时天气开启时由 setWeatherUI 显示「实时」并隐藏滑块，不在此覆盖下拉；
     // 关闭时恢复手动选择并下发（回到上次各类型程度）。
     if (!weatherOn) applyPrecipMode(kind);
+
+    // 降水粒子覆盖范围（默认近场）
+    precipCover = s.precipCoverage === 'far' ? 'far' : 'near';
+    precipCoverSel.value = precipCover;
+    env.setPrecipCoverage(precipCover);
   }
 
   function applyCustomGeo(): void {
@@ -600,6 +617,13 @@ export function createEnvPanel(env: Environment): EnvPanel {
     const kind: PrecipKind = v === 'clear' ? 'none' : (v as PrecipKind);
     applyPrecipMode(kind);
     saveSettings(); // 持久化天气模式选择
+  });
+
+  // 降水粒子覆盖范围：近场 / 全场，仅切换粒子柱范围（与雨雪类型无关）
+  precipCoverSel.addEventListener('change', () => {
+    precipCover = precipCoverSel.value === 'far' ? 'far' : 'near';
+    env.setPrecipCoverage(precipCover);
+    saveSettings();
   });
 
   // 程度滑块：实时调整云量（晴）或降水强度（雨/雪/冰雹）

@@ -11,7 +11,7 @@ import type {
   WalkRect,
 } from '../types';
 import type { SceneContext } from '../scene/sceneSetup';
-import { VIEW, FLOORS, W, D, getFpsWalkArea, getStairSurface, stairHeightAt, GROUND_Y } from '../config/houseConfig';
+import { VIEW, FLOORS, W, D, STAIR, getFpsWalkArea, getStairSurface, stairHeightAt, GROUND_Y } from '../config/houseConfig';
 
 /** 全局视角状态（所有楼层共用同一套）：模式 + 上帝/第一人称相机与朝向 */
 export interface ViewState {
@@ -66,6 +66,10 @@ const EYE_SMOOTH_TAU = 0.09;
 const STAIR_MATCH_LIMIT = 1.0;
 /** 第一人称玩家半径（米）：墙体碰撞按此缓冲外扩，贴墙可滑动、不可穿入 */
 const PLAYER_R = 0.25;
+/** 第一人称玩家身体高度（米）：用于「梯下净空」判定，超过则梯下不可穿行 */
+const PLAYER_BODY_H = 1.8;
+/** 楼梯实体板厚度方向偏移：斜底 soffit = 鼻沿线 cont − (cladT + soffitDrop)（与 stairs.ts 一致） */
+const STAIR_SOFFIT_DROP = STAIR.cladT + STAIR.soffitDrop;
 /** 小地图显隐的本地存储键（仅存用户改动的 UI 状态） */
 const MINIMAP_STORAGE_KEY = 'house-minimap-visible';
 
@@ -422,7 +426,7 @@ export function createViewManager(
       let px = camera.position.x;
       let pz = camera.position.z;
       // 落点不合法（墙内 / 栏杆内 / 悬空）则回退到该层默认出生点
-      if (!isWalkable(walkAreas[floor], px, pz, inRect(walkAreas[floor].inside, px, pz))) {
+      if (!isWalkable(walkAreas[floor], px, pz, inRect(walkAreas[floor].inside, px, pz), camera.position.y - FPS_EYE_Y)) {
         px = VIEW.fpsPos[0];
         pz = VIEW.fpsPos[2];
       }
@@ -465,14 +469,25 @@ export function createViewManager(
    * 墙体/承重柱（area.solids）恒阻挡（按玩家半径外扩）；门洞缺口（area.gaps）仅关门时阻挡，开门放行。
    * @param fromInside 本次移动前人是否位于屋内（屋内 → 门洞需开门；门洞/院内 → 门洞可通行）
    */
-  function isWalkable(area: FpsWalkArea, x: number, z: number, fromInside: boolean): boolean {
+  function isWalkable(area: FpsWalkArea, x: number, z: number, fromInside: boolean, footY: number): boolean {
     if (area.freeRoam) return true; // 上层完全放开：穿墙/悬空均可
     // 栏杆障碍：在任一栏杆线段的缓冲带内一律不可行走（无论是否落在屋内矩形）
     for (const r of area.rails) {
       if (pointSegDist2D(x, z, r) < r.half) return false;
     }
-    // 楼板挖空区（梯井 / 两跑夹缝）：区内只允许站在楼梯行走面上，否则会坠落
-    if (area.voids.some((v) => inRect(v, x, z)) && !area.stairKeep.some((r) => inRect(r, x, z))) return false;
+    // 楼板挖空区（梯井 / 两跑夹缝）
+    if (area.voids.some((v) => inRect(v, x, z))) {
+      const slab = stairSlabAt(x, z, footY);
+      if (activeFloor === 0) {
+        // 1F：楼板满铺，挖空区并非真洞。仅当玩家身体（脚高→脚高+身高）与某一层楼梯
+        // 实体板（斜面底 soffit → 踏面 tread）相交、且无法踏上去时才阻挡：据此可「爬踏面」
+        // 「走梯下」，仅「穿过实心梯体」被挡。修复上版把整条梯下过道（厨房侧）误封的问题。
+        if (slab && footY < slab.tread - STAIR_MATCH_LIMIT && footY + PLAYER_BODY_H > slab.soffit + 0.02) return false;
+      } else {
+        // 2F/3F/屋顶：挖空区无楼板是真洞，仅允许站在标高匹配的踏面（防坠井 / 防横穿）。
+        if (!slab || Math.abs(slab.tread - footY) > STAIR_MATCH_LIMIT) return false;
+      }
+    }
     // 允许区域：屋内 / 门洞通道 / 院子(含阳台) / 院外有界地面
     const regionOk =
       inRect(area.inside, x, z) ||
@@ -497,6 +512,30 @@ export function createViewManager(
   }
 
   /**
+   * 取 (x,z) 处「离当前脚高最近」的楼梯实体板，返回其踏面顶 tread 与斜面底 soffit。
+   * soffit 与 stairs.ts 的斜底同源：soffit ≈ cont − (cladT + soffitDrop)。
+   * 挖空区放行：1F 按「身体与实体板相交」判定（可爬踏面 / 走梯下、挡实心梯体）；
+   * 2F/3F 按「踏面标高匹配」判定（防坠井 / 防横穿）。
+   */
+  function stairSlabAt(x: number, z: number, footY: number): { tread: number; soffit: number } | null {
+    let best: { tread: number; soffit: number } | null = null;
+    let bestDiff = Infinity;
+    for (const f of [activeFloor - 1, activeFloor, activeFloor + 1]) {
+      if (f < 0 || f >= FLOORS.length) continue;
+      const s = stairSurfaces[f];
+      if (!s) continue;
+      const hit = stairHeightAt(s, x, z);
+      if (!hit) continue;
+      const diff = Math.abs(hit.step - footY);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = { tread: hit.step, soffit: hit.cont - STAIR_SOFFIT_DROP };
+      }
+    }
+    return best;
+  }
+
+  /**
    * 非法落点救急：以当前位置为中心按半径递增、环形采样，找最近的合法点。
    * 仅在位置已非法时调用（正常漫游零开销），把卡在栏杆缓冲带 / 梯井夹缝里的玩家
    * 推出障碍，避免「只拒绝新点、不推出」造成两轴同时被拒、无法动弹。
@@ -506,13 +545,14 @@ export function createViewManager(
     x: number,
     z: number,
     fromInside: boolean,
+    footY: number,
   ): { x: number; z: number } | null {
     for (let r = 0.08; r <= 1.6; r += 0.08) {
       for (let k = 0; k < 16; k++) {
         const a = (k / 16) * Math.PI * 2;
         const nx = x + Math.cos(a) * r;
         const nz = z + Math.sin(a) * r;
-        if (isWalkable(area, nx, nz, fromInside)) return { x: nx, z: nz };
+        if (isWalkable(area, nx, nz, fromInside, footY)) return { x: nx, z: nz };
       }
     }
     return null;
@@ -610,8 +650,8 @@ export function createViewManager(
     // 立即校验并推回最近合法点，避免切层瞬间被卡在障碍带内。
     const area = walkAreas[floor];
     const fromInside = inRect(area.inside, camera.position.x, camera.position.z);
-    if (!isWalkable(area, camera.position.x, camera.position.z, fromInside)) {
-      const safe = nearestWalkable(area, camera.position.x, camera.position.z, fromInside);
+    if (!isWalkable(area, camera.position.x, camera.position.z, fromInside, camera.position.y - FPS_EYE_Y)) {
+      const safe = nearestWalkable(area, camera.position.x, camera.position.z, fromInside, camera.position.y - FPS_EYE_Y);
       camera.position.x = safe ? safe.x : VIEW.fpsPos[0];
       camera.position.z = safe ? safe.z : VIEW.fpsPos[2];
     }
@@ -640,10 +680,11 @@ export function createViewManager(
 
     const area = walkAreas[activeFloor];
     const fromInside = inRect(area.inside, camera.position.x, camera.position.z);
+    const footY = groundY;
     // 落点救急：若当前已处于非法位置（切层 / 历史存档 / 穿栏进入夹缝），先推回最近合法点。
     // 之后分轴判定只禁止「合法→非法」，允许「非法→合法」，玩家永远能自己走出来。
-    if (!isWalkable(area, camera.position.x, camera.position.z, fromInside)) {
-      const safe = nearestWalkable(area, camera.position.x, camera.position.z, fromInside);
+    if (!isWalkable(area, camera.position.x, camera.position.z, fromInside, footY)) {
+      const safe = nearestWalkable(area, camera.position.x, camera.position.z, fromInside, footY);
       camera.position.x = safe ? safe.x : VIEW.fpsPos[0];
       camera.position.z = safe ? safe.z : VIEW.fpsPos[2];
     }
@@ -651,24 +692,24 @@ export function createViewManager(
     if (fwd !== 0) {
       const step = fwd * FPS_SPEED;
       const nx = camera.position.x + tmpForward.x * step;
-      if (isWalkable(area, nx, camera.position.z, fromInside)) camera.position.x = nx;
+      if (isWalkable(area, nx, camera.position.z, fromInside, footY)) camera.position.x = nx;
       const nz = camera.position.z + tmpForward.z * step;
-      if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
+      if (isWalkable(area, camera.position.x, nz, fromInside, footY)) camera.position.z = nz;
     }
     if (strafe !== 0) {
       const step = strafe * FPS_SPEED;
       const nx = camera.position.x + tmpRight.x * step;
-      if (isWalkable(area, nx, camera.position.z, fromInside)) camera.position.x = nx;
+      if (isWalkable(area, nx, camera.position.z, fromInside, footY)) camera.position.x = nx;
       const nz = camera.position.z + tmpRight.z * step;
-      if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
+      if (isWalkable(area, camera.position.x, nz, fromInside, footY)) camera.position.z = nz;
     }
 
     // 滚轮 / 双指捏合写入的前进脉冲：沿视线方向一次性位移（正=前进），复用可行走判定
     if (fpsMoveImpulse !== 0) {
       const nx = camera.position.x + tmpForward.x * fpsMoveImpulse;
-      if (isWalkable(area, nx, camera.position.z, fromInside)) camera.position.x = nx;
+      if (isWalkable(area, nx, camera.position.z, fromInside, footY)) camera.position.x = nx;
       const nz = camera.position.z + tmpForward.z * fpsMoveImpulse;
-      if (isWalkable(area, camera.position.x, nz, fromInside)) camera.position.z = nz;
+      if (isWalkable(area, camera.position.x, nz, fromInside, footY)) camera.position.z = nz;
       fpsMoveImpulse = 0;
     }
 
