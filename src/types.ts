@@ -6,8 +6,6 @@ export type ViewMode = 'tps' | 'fps' | '2d';
 /** 材质字典的键，由 materials.ts 统一生产 */
 export type MaterialKey =
   | 'wall'
-  /** 屋顶檐口（屋面板四周侧面 + 女儿墙）：外墙色 + 随太阳强度变化的自发光背光补偿 */
-  | 'eave'
   | 'floor'
   | 'stair'
   | 'railing'

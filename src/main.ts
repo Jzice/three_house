@@ -84,25 +84,6 @@ function bootstrap(): void {
   // 必须在房屋（屋顶/阳台/院子）装配并加入场景之后创建，才能收集到这些带标记的室外 mesh。
   const weatherFx = createWeatherFx(ctx.scene, env);
 
-  // ---- 屋顶檐口背光补偿 ----
-  // 屋面板四个侧面与女儿墙用 eave 材质（外墙色 + emissive 补偿），强度随太阳主光变化：
-  // 太阳越强，朝向造成的明暗差越大，补偿越强；夜间 sun.intensity=0 时自动归零，不会发亮。
-  // weatherFx 会克隆屋面板材质（连带 userData 标记），故在特效接管之后收集，
-  // 用 Set 按实例去重，共享材质与克隆体一并纳入每帧驱动。
-  type EaveMat = {
-    emissiveIntensity: number;
-    emissive: { copy(c: unknown): unknown };
-    userData: { eaveCompensate?: boolean };
-  };
-  const eaveMats = new Set<EaveMat>();
-  floors[FLOORS.length - 1].root.getObjectByName('roof')?.traverse((o) => {
-    const m = (o as unknown as { material?: unknown }).material;
-    const list = (Array.isArray(m) ? m : m ? [m] : []) as EaveMat[];
-    for (const mat of list) if (mat?.userData?.eaveCompensate) eaveMats.add(mat);
-  });
-  /** 背光补偿系数：以太阳主光强为基准线性补偿，实测调到与受光外墙明度接近 */
-  const EAVE_GAIN = 0.2;
-
   // ---- 视角（按层保存模式/相机；第三/第一人称由 viewState 控制可见性） ----
   const view = createViewManager(
     ctx,
@@ -313,13 +294,6 @@ function bootstrap(): void {
     // 环境层：实时推进时间与天气，按太阳/天气驱动光照。
     // 2D 模式仅推进状态、不重建天空（回到 3D 立即重建），尊重既有"2D 跳过渲染"约束。
     env.update(mode !== '2d');
-    // 檐口补光跟随本帧太阳主光强度与色温（2D 模式也推进，回到 3D 时立即正确）：
-    // emissive 取太阳色，补的正是「受光面比背光面多出的那部分直射光」，色相与外墙同源
-    const eaveGain = EAVE_GAIN * lights.sun.intensity;
-    for (const m of eaveMats) {
-      m.emissive.copy(lights.sun.color);
-      m.emissiveIntensity = eaveGain;
-    }
     // 天气表面特效：积雪/积水（雨/雪粒子由 metaverse-sky 另行渲染）
     weatherFx.update(mode !== '2d');
 

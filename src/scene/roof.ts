@@ -20,17 +20,18 @@ export function createRoof(
   const cx = (x0 + x1) / 2;
   const cz = (z0 + z1) / 2;
 
-  // 屋面板（坐于墙顶，四周悬挑）：底面即 3F 天花板 → 白色乳胶漆；顶面沿用外墙色；
-  // 四周侧面改用 eave（外墙色 + 背光补偿）。低角度平视时太阳多在 +x 侧，+z 朝向的檐口
-  // 与同朝向正面墙一样背光，若不补偿会明显暗于受光的大片外墙，看起来像「换了一种颜色」。
+  // 屋面板（坐于墙顶，四周悬挑）：底面即 3F 天花板 → 白色乳胶漆；
+  // 顶面与四周侧面统一用外墙 wall，与下方外墙共用同一材质实例。
+  // 不再做按太阳强度的自发光补偿：常数补光在背光朝向会形成一圈恒定亮边，
+  // 各朝向的明暗差交由真实光照体现，随视角自然连续。
   // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]
   const slab = new THREE.Mesh(new THREE.BoxGeometry(w, spec.slabT, d), [
-    materials.eave,
-    materials.eave,
+    materials.wall,
+    materials.wall,
     materials.wall,
     materials.paint,
-    materials.eave,
-    materials.eave,
+    materials.wall,
+    materials.wall,
   ]);
   slab.position.set(cx, baseY + spec.slabT / 2, cz);
   slab.castShadow = false;
@@ -39,20 +40,20 @@ export function createRoof(
   slab.userData.weatherExposed = 'roof';
   group.add(slab);
 
-  // 女儿墙：沿板四周布置。仅四个竖直侧面用 eave 补偿背光；顶面朝上本就受光、
-  // 底面朝下不可见，两者保持外墙色，避免补光把压顶刷成过亮的白边。
+  // 女儿墙：沿板四周布置。四个竖直侧面与压顶全部用外墙 wall，
+  // 与屋面板侧面、下方外墙同源；顶面朝上受光更强是正常光影，不再额外补光。
   // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]
   const t = spec.parapetT;
   const py = baseY + spec.slabT + spec.parapetH / 2;
   const sideD = d - 2 * t;
   const parapet = (pw: number, pd: number, px: number, pz: number): THREE.Mesh => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(pw, spec.parapetH, pd), [
-      materials.eave,
-      materials.eave,
       materials.wall,
       materials.wall,
-      materials.eave,
-      materials.eave,
+      materials.wall,
+      materials.wall,
+      materials.wall,
+      materials.wall,
     ]);
     mesh.position.set(px, py, pz);
     mesh.castShadow = false;

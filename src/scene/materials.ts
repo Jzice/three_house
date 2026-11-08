@@ -546,22 +546,8 @@ export function createMaterials(): MaterialMap {
   // 楼梯等共用此基础材质，保留默认平铺密度；楼板会在 buildHouse 中按尺寸重设
   tileTex.repeat.set(3, 3);
 
-  // 屋顶檐口背光补偿：与外墙同色同粗糙度，额外按太阳主光强度补一层自发光，
-  // 抵消「太阳偏 +x 侧时，+z 朝向的檐口明显暗于受光外墙」的观感差。
-  // emissiveIntensity 由 main.ts 每帧驱动，emissive 颜色同步跟随太阳色温；
-  // 夜间 sun.intensity=0 时自动归零，不会发亮。此处 emissive 仅为初值。
-  const eave = new THREE.MeshStandardMaterial({
-    color: 0xe0e0e0,
-    roughness: 0.9,
-    emissive: 0xe0e0e0,
-    emissiveIntensity: 0,
-  });
-  // 标记供装配后统一收集；weatherFx 克隆屋面板材质时会复制 userData，克隆体同样被驱动
-  eave.userData.eaveCompensate = true;
-
   return {
     wall: new THREE.MeshStandardMaterial({ color: 0xe0e0e0, roughness: 0.9 }),
-    eave,
     floor: floorTile,
     // 楼梯踏面 / 踢面：暖米白切割瓷砖（保留环境反射但压低强度，避免过亮与室内基调脱节）
     stair: new THREE.MeshStandardMaterial({
