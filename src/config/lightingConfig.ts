@@ -3,15 +3,19 @@
  *
  * 坐标约定与 houseConfig 一致：单位为米、均为中心点；`x/z` 为房屋平面坐标，
  * `y` 为**相对本层完成面**（floor.baseY）的绝对米数，由 buildHouse 平移到世界坐标。
- * 灯具原点取「天花板底面」，几何一律向 -y 悬挂，故 `drop=0` 即吸顶安装。
+ * 灯具原点取「安装面底面」（天花板底 / 门廊结构板底 / 休息平台板底），
+ * 几何一律向 -y 悬挂，故 `drop=0` 即吸顶安装。
  *
  * 布位依据（专业装修设计口径）：
  * - 开关面板距地 1.30m、距门套边 0.15~0.20m、贴墙内表面，避开门窗开启弧线；
  * - 吊灯 / 花灯 / 吊扇灯灯底距完成面 ≥2.20m / ≥2.30m（餐厅上方避开 0.75m 台面）；
  * - 吸顶灯贴上层楼板底面；卫生间用防潮款；走廊灯按长度均布；
+ *   楼梯休息台下灯改贴平台板底，点光源有效半径收敛到 2m，避免净高不足处穿楼板漏光；
  * - 玄关、2F 大厅、卫生间设双联；楼梯灯由上下层开关双控（同一组灯、两个控制点），
  *   3F 梯口另设本地单控点；3F 半层四盏灯一灯一开关。
  */
+import { FLOORS, STAIR } from './houseConfig';
+
 /** 六类灯型 */
 export type LampKind = 'chandelier' | 'flower' | 'ceilingFan' | 'shell' | 'rectPanel' | 'ceiling';
 
@@ -28,7 +32,7 @@ export interface LampSpec {
   kind: LampKind;
   x: number;
   z: number;
-  /** 安装基准：天花板底（或门廊吊顶板底）相对本层完成面的标高 */
+  /** 安装基准：天花板底 / 门廊结构板底 / 休息平台板底，相对本层完成面的标高 */
   y: number;
   /** 吊杆长度（米）；吸顶灯为 0 */
   drop: number;
@@ -87,6 +91,12 @@ export interface LightGroup {
 
 /** 各层室内天花板底标高（相对本层完成面，米）= 上层楼板底 / 屋面板底 */
 export const CEILING_Y = [3.30, 2.80, 2.50] as const;
+
+/** 休息平台板底相对本层完成面的标高（米）= 平台顶面 platformH − 平台板厚 stepThickness，
+ * 与 `stairs.ts` 的平台箱体同源；无楼梯的楼层记为 0（不使用）。 */
+const PLATFORM_SOFFIT_Y = FLOORS.map((f) =>
+  f.stair ? f.stair.platformH - STAIR.stepThickness : 0,
+);
 
 /** 开关面板安装高度（相对本层完成面） */
 export const SWITCH_Y = 1.30;
@@ -238,38 +248,43 @@ function lamp(
 }
 
 /**
- * 逐灯坐标表（共 24 盏）。
- * 1F：进门大厅吊灯(-0.25,3.60)、西厅花灯(-2.60,2.60)、餐厅吊扇灯(-0.50,-1.01)；
- * 2F：大厅左厅贝壳灯(-3.00,1.63)、右厅方形回字灯(-0.50,1.63)；
- * 其余房间 / 楼梯走廊 / 三层正门门廊均布圆形吸顶灯。
+ * 逐灯坐标表（共 22 盏）。
+ * 1F：进门大厅吊灯(-0.25,3.60，吊杆 0.45)、西厅花灯(-2.60,3.60)、餐厅吊扇灯(-0.50,-1.01)；
+ * 2F：大厅左厅贝壳灯(-2.60,3.60)、右厅方形回字灯(-0.25,3.60)，与 1F 两主灯上下垂直对齐；
+ * 其余房间 / 三层正门门廊均布圆形吸顶灯；楼梯北段两盏移到休息平台中心(-3.25,-4.28)、
+ * 贴平台板底安装（y 取 PLATFORM_SOFFIT_Y），朝下照平台下空间。
  * 门廊灯直接贴既有结构板底（y 取 CEILING_Y 缺省值），不新增任何吊顶板 / 雨棚。
  */
 export const LAMPS: LampSpec[] = [
   // ---------------- 1F ----------------
-  lamp('1f-foyer-chandelier', 0, '1f-foyer', '进门大厅 · 新中式吊灯', 'chandelier', -0.25, 3.60, 0.44, { drop: 0.70 }),
-  lamp('1f-living-flower', 0, '1f-living', '西厅 · 花灯', 'flower', -2.60, 2.60, 0.38, { drop: 0.52 }),
+  lamp('1f-foyer-chandelier', 0, '1f-foyer', '进门大厅 · 新中式吊灯', 'chandelier', -0.25, 3.60, 0.44, { drop: 0.45 }),
+  lamp('1f-living-flower', 0, '1f-living', '西厅 · 花灯', 'flower', -2.60, 3.60, 0.38, { drop: 0.52 }),
   lamp('1f-dining-fan', 0, '1f-dining', '餐厅 · 吊扇灯', 'ceilingFan', -0.50, -1.01, 0.30, { drop: 0.50 }),
   lamp('1f-kitchen', 0, '1f-service', '厨房 · 吸顶灯', 'ceiling', -0.50, -3.88, 0.225),
   lamp('1f-store', 0, '1f-service', '杂物间 · 吸顶灯', 'ceiling', 2.85, -3.25, 0.225),
   lamp('1f-wash', 0, '1f-service', '洗漱过道 · 吸顶灯', 'ceiling', 1.75, -0.50, 0.15),
   lamp('1f-bath', 0, '1f-service', '卫生间 · 防潮吸顶灯', 'ceiling', 3.50, -0.50, 0.225, { damp: true }),
   lamp('1f-bed1', 0, '1f-bed', '卧室1 · 吸顶灯', 'ceiling', 2.85, 2.75, 0.225),
-  lamp('1f-stair-a', 0, '1f-stair', '楼梯走廊 · 北段', 'ceiling', -3.25, 0.30, 0.15),
-  lamp('1f-stair-b', 0, '1f-stair', '楼梯走廊 · 南段', 'ceiling', -3.25, 3.30, 0.15),
+  lamp('1f-stair-a', 0, '1f-stair', '休息台下 · 吸顶灯', 'ceiling', -3.25, -4.28, 0.15, {
+    y: PLATFORM_SOFFIT_Y[0], distance: 2.0,
+  }),
+  // 西厅已有花灯主灯，南段不再重复布圆形吸顶灯（2F 同位置同理）。
   // 门廊顶 = 2F 阳台板底（3.30m）；灯位正对入户双开门中心 x=-0.25、阳台中线 z=5.77。
   lamp('1f-porch', 0, '1f-porch', '正门门廊 · 吸顶灯', 'ceiling', -0.25, 5.77, 0.15, {
     porch: true, intensity: 0.9, distance: 3.6,
   }),
 
   // ---------------- 2F ----------------
-  lamp('2f-hall-left-shell', 1, '2f-living', '大厅·左厅 · 贝壳灯', 'shell', -3.00, 1.63, 0.30),
-  lamp('2f-hall-right-rect', 1, '2f-living', '大厅·右厅 · 方形回字灯', 'rectPanel', -0.50, 1.63, 0.50, { w: 1.00, d: 0.60 }),
+  lamp('2f-hall-left-shell', 1, '2f-living', '大厅·左厅 · 贝壳灯', 'shell', -2.60, 3.60, 0.30),
+  lamp('2f-hall-right-rect', 1, '2f-living', '大厅·右厅 · 方形回字灯', 'rectPanel', -0.25, 3.60, 0.50, { w: 1.00, d: 0.60 }),
   lamp('2f-backbed', 1, '2f-bed', '2层后卧 · 吸顶灯', 'ceiling', 1.25, -3.25, 0.225),
   lamp('2f-wash', 1, '2f-service', '洗漱过道 · 吸顶灯', 'ceiling', 1.75, -0.50, 0.15),
   lamp('2f-bath', 1, '2f-service', '卫生间 · 防潮吸顶灯', 'ceiling', 3.50, -0.50, 0.225, { damp: true }),
   lamp('2f-bed1', 1, '2f-bed', '卧室1 · 吸顶灯', 'ceiling', 2.85, 2.75, 0.225),
-  lamp('2f-stair-a', 1, '2f-stair', '楼梯走廊 · 北段', 'ceiling', -3.25, 0.30, 0.15),
-  lamp('2f-stair-b', 1, '2f-stair', '楼梯走廊 · 南段', 'ceiling', -3.25, 3.30, 0.15),
+  lamp('2f-stair-a', 1, '2f-stair', '休息台下 · 吸顶灯', 'ceiling', -3.25, -4.28, 0.15, {
+    y: PLATFORM_SOFFIT_Y[1], distance: 2.0,
+  }),
+  // 大厅左厅已有贝壳灯主灯，南段不再重复布圆形吸顶灯（1F 同位置同理）。
   // 门廊顶 = 3F 大阳台板底（2.80m）；灯位正对阳台推拉门中心 x=-0.20。
   lamp('2f-porch', 1, '2f-porch', '正门门廊 · 吸顶灯', 'ceiling', -0.20, 5.77, 0.15, {
     porch: true, intensity: 0.9, distance: 3.6,
@@ -286,9 +301,9 @@ export const LAMPS: LampSpec[] = [
   }),
 ];
 
-/** 楼梯灯组：上下层开关双控同一组灯 */
+/** 楼梯灯组：上下层开关双控同一组灯（南段两盏已按左厅主灯去重移除） */
 export const STAIR_LAMP_IDS = [
-  '1f-stair-a', '1f-stair-b', '2f-stair-a', '2f-stair-b', '3f-landing',
+  '1f-stair-a', '2f-stair-a', '3f-landing',
 ];
 
 /**
@@ -303,7 +318,7 @@ export const STAIR_LAMP_IDS = [
  * 卫生间开关贴门外洗漱过道侧 x=2.37、门洞南沿 -0.45 以南 0.18m 的实墙段（潮湿场所开关
  * 宜门外；铰链在北侧，门扇向卫生间内开，不扫过门右侧）；杂物间灯从卫生间双联拆出，
  * 单键装在杂物间内门洞东侧 0.18m 的南墙内面。3F 半层一灯一开关，四个单键面板各装到
- * 本区入口附近。
+ * 本区入口附近；正面门的两块面板并列在门洞西侧（画面右侧），中心距 0.10m。
  */
 export const SWITCHES: SwitchSpec[] = [
   // ---------------- 1F ----------------
@@ -377,13 +392,13 @@ export const SWITCHES: SwitchSpec[] = [
   },
   // ---------------- 3F：一灯一开关，四个单键面板 ----------------
   {
-    // 中间房间：正面门洞 x∈[-0.60,0.60] 西侧 0.18m，贴正面墙内面 0.38 朝室内
+    // 中间房间：正面门洞 x∈[-0.60,0.60] 西侧 0.18m，贴正面墙内面 0.38 朝室内；与门廊面板并列
     id: 'sw-3f-hall-a', floor: 2, x: -0.78, z: 0.37, y: SWITCH_Y, rotY: Math.PI,
     keys: [{ label: '3F 中间房间', controls: ['3f-hall-a'] }],
   },
   {
-    // 门廊：正面门洞东侧 0.18m，与中间房间开关分列门两侧
-    id: 'sw-3f-porch', floor: 2, x: 0.78, z: 0.37, y: SWITCH_Y, rotY: Math.PI,
+    // 门廊：从门洞东侧移到西侧，与中间房间开关并列（中心距 0.10m、86 面板间留 1.4cm 缝）
+    id: 'sw-3f-porch', floor: 2, x: -0.88, z: 0.37, y: SWITCH_Y, rotY: Math.PI,
     keys: [{ label: '门廊', controls: ['3f-porch'] }],
   },
   {
