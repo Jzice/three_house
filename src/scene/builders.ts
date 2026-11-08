@@ -925,12 +925,21 @@ export function createInteriorDoor(
   const w = spec.w;
   const h = spec.h ?? DOOR_INNER_H;
   const t = 0.045; // 门扇厚度（真实住宅内门约 4~4.5cm）
+  const isBath = spec.materialKey === 'frostedGlass';
 
   // 铰链放在门洞一侧立边（hingeSide：-1 负 x 侧 / +1 正 x 侧），门扇朝房间内开启
   const side = spec.hingeSide ?? -1;
   const hingeX = side * (w / 2);
+  const defaultOpen = spec.openAngle ?? (Math.PI / 2) * 0.85;
+  // 开门侧（局部 ±z）：门扇朝哪侧开，合页轴就落在哪侧墙皮；
+  // 门扇关闭时与该面墙皮齐平（不再嵌在墙厚正中），开门 90° 后平贴墙面。
+  const openSign = Math.sign(side * defaultOpen) || side;
+  const outerHalf = isBath ? (t + 0.01) / 2 : t / 2; // 门扇（含卫生间门框）外皮半厚
+  const hingeZ = openSign * (T_INT / 2); // 合页轴移到开门侧墙皮
+  const leafZ = -openSign * outerHalf;   // 门扇相对合页内收半个门厚 → 关门时外皮贴墙皮
+
   const hinge = new THREE.Group();
-  hinge.position.set(hingeX, 0, 0);
+  hinge.position.set(hingeX, 0, hingeZ);
 
   let leaf: THREE.Object3D;
   if (spec.materialKey === 'frostedGlass') {
@@ -944,9 +953,9 @@ export function createInteriorDoor(
     leaf = panel;
   }
   leaf.position.x += -hingeX; // 门扇中心落在洞口中心（洞口从铰链向另一侧延展）
+  leaf.position.z = leafZ;    // 门扇沿墙厚偏移到开门侧，关门时与那面墙皮齐平
   hinge.add(leaf);
 
-  const isBath = spec.materialKey === 'frostedGlass';
   // 双面 L 形执手：中心离地 1.05m，拨杆朝门扇内伸。
   // 卫生间门自由侧是 0.10m 加宽锁边料，底座装在其中心（距边 0.05m），始终落在金属框料上；
   // 实心门板维持距边 0.07m。卫生间门另加指示旋钮，灰色金属门带长条锁面板。
@@ -960,7 +969,6 @@ export function createInteriorDoor(
     scale: w < 0.8 ? 0.9 : 1,
   }));
 
-  const defaultOpen = spec.openAngle ?? (Math.PI / 2) * 0.85;
   const parts: InteractiveObject[] = [markInteractive(hinge, 'door', defaultOpen)];
   // 房门默认打开：初始即处于开启角度，点击可关上
   parts[0].userData.isOpen = true;
