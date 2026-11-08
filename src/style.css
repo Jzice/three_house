@@ -269,3 +269,182 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     #env-panel { max-height: 42vh; overflow-y: auto; }
     .env-row-compass { display: none; }
 }
+
+/* ============ 游戏模式按钮 ============ */
+.btn-game { background: #161C22; color: #37E0C8; }
+.btn-game:hover { background: #1d242b; transform: translateY(-2px); }
+.btn-game.active { background: #37E0C8; color: #0E1216; }
+
+/* ============ 游戏 HUD（深色玻璃拟态战术终端） ============ */
+.game-hud {
+    position: fixed; inset: 0; z-index: 200;
+    pointer-events: none;
+    font-family: 'DIN Next', 'PingFang-SC', system-ui, sans-serif;
+    color: #F2F5F7;
+    display: none;
+    user-select: none;
+}
+.game-hud * { pointer-events: none; }
+.game-hud button { pointer-events: auto; }
+
+/* 准星 */
+.gh-crosshair {
+    position: absolute; left: 50%; top: 50%; width: 24px; height: 24px;
+    transform: translate(-50%, -50%);
+    transition: transform 0.11s ease-out;
+}
+.gh-crosshair.fire { transform: translate(-50%, -50%) scale(1.35); }
+.gh-crosshair .ch-line {
+    position: absolute; background: rgba(242, 245, 247, 0.9);
+    box-shadow: 0 0 3px rgba(0,0,0,0.6);
+}
+.gh-crosshair .ch-t { left: 50%; top: 0; width: 2px; height: 7px; transform: translateX(-50%); }
+.gh-crosshair .ch-b { left: 50%; bottom: 0; width: 2px; height: 7px; transform: translateX(-50%); }
+.gh-crosshair .ch-l { top: 50%; left: 0; height: 2px; width: 7px; transform: translateY(-50%); }
+.gh-crosshair .ch-r { top: 50%; right: 0; height: 2px; width: 7px; transform: translateY(-50%); }
+.gh-crosshair .ch-dot { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; background: #F5A623; transform: translate(-50%, -50%); border-radius: 50%; }
+
+/* 命中标记 */
+.gh-hitmarker {
+    position: absolute; left: 50%; top: 50%; width: 22px; height: 22px;
+    transform: translate(-50%, -50%) rotate(45deg) scale(0.6);
+    opacity: 0;
+}
+.gh-hitmarker::before, .gh-hitmarker::after {
+    content: ''; position: absolute; left: 50%; top: 50%; background: #F2F5F7;
+    transform: translate(-50%, -50%);
+}
+.gh-hitmarker::before { width: 3px; height: 22px; }
+.gh-hitmarker::after { width: 22px; height: 3px; }
+.gh-hitmarker.show { animation: gh-hit 0.14s ease-out forwards; }
+.gh-hitmarker.head::before, .gh-hitmarker.head::after { background: #EA4335; }
+@keyframes gh-hit {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(0.5); }
+    40% { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(1.2); }
+}
+
+/* 任务面板 */
+.gh-tasks {
+    position: absolute; left: 15px; top: 70px; width: 200px;
+    background: rgba(14, 18, 22, 0.62); backdrop-filter: blur(12px) saturate(1.1);
+    -webkit-backdrop-filter: blur(12px) saturate(1.1);
+    border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px;
+    padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+.gh-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: #F2F5F7; margin-bottom: 8px; }
+.gh-task { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; border-radius: 6px; }
+.gh-task-dot { width: 8px; height: 8px; border-radius: 50%; background: #9AA6B2; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); }
+.gh-task-dot.done { background: #34C759; box-shadow: 0 0 8px #34C759; }
+.gh-task-name { flex: 1; color: #F2F5F7; }
+.gh-task-req { font-size: 11px; color: #F5A623; white-space: nowrap; }
+.gh-task.flash { animation: gh-taskflash 0.6s ease-out; }
+@keyframes gh-taskflash {
+    0% { background: rgba(245, 166, 35, 0.35); }
+    100% { background: transparent; }
+}
+
+/* 得分 */
+.gh-score {
+    position: absolute; right: 15px; top: 70px; text-align: right;
+}
+.gh-score-val { font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+.gh-score-label { font-size: 11px; color: #9AA6B2; letter-spacing: 0.1em; }
+.gh-combo {
+    margin-top: 4px; font-size: 16px; font-weight: 700; color: #F5A623;
+    opacity: 0; transform: scale(0.9); transition: all 0.15s; font-variant-numeric: tabular-nums;
+}
+.gh-combo.active { opacity: 1; transform: scale(1.08); }
+
+.gh-topright { position: absolute; right: 15px; top: 15px; display: flex; gap: 8px; }
+.gh-btn {
+    background: rgba(14, 18, 22, 0.62); color: #F2F5F7;
+    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: all 0.15s;
+}
+.gh-btn:hover { background: rgba(41, 128, 185, 0.6); border-color: #2980B9; }
+.gh-btn.off { opacity: 0.55; }
+.gh-btn.gh-primary { background: #2980B9; border-color: #2980B9; }
+.gh-btn.gh-primary:hover { background: #2f93d4; }
+.gh-btn.gh-exit:hover { background: rgba(234, 67, 53, 0.7); border-color: #EA4335; }
+
+/* 弹药 */
+.gh-ammo {
+    position: absolute; right: 15px; bottom: 15px; text-align: right; min-width: 130px;
+}
+.gh-ammo-text { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+.gh-ammo-text.empty { color: #EA4335; }
+.gh-reload-bar {
+    height: 4px; margin-top: 4px; background: #F5A623; border-radius: 2px; width: 0%; opacity: 0;
+    transition: opacity 0.1s; box-shadow: 0 0 8px #F5A623;
+}
+
+/* 快捷栏 */
+.gh-quickbar {
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; gap: 8px;
+}
+.gh-slot {
+    width: 52px; padding: 6px 4px; text-align: center;
+    background: rgba(14, 18, 22, 0.55); border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: all 0.15s; transform: translateY(0);
+    pointer-events: auto; cursor: pointer;
+}
+.gh-slot:hover { border-color: rgba(55, 224, 200, 0.6); }
+.gh-slot-num { font-size: 10px; color: #9AA6B2; }
+.gh-slot-name { font-size: 12px; color: #F2F5F7; font-weight: 600; }
+.gh-slot.active { border-color: #F5A623; transform: translateY(-3px); box-shadow: 0 0 12px rgba(245, 166, 35, 0.4); }
+.gh-slot.active .gh-slot-name { color: #F5A623; }
+
+/* 交互提示 */
+.gh-prompt {
+    position: absolute; left: 50%; bottom: 86px; transform: translateX(-50%);
+    background: rgba(14, 18, 22, 0.7); border: 1px solid rgba(55, 224, 200, 0.4);
+    color: #37E0C8; padding: 6px 14px; border-radius: 999px; font-size: 13px;
+    opacity: 0; transition: opacity 0.15s; white-space: nowrap;
+}
+
+/* 飘字 */
+.gh-floaters { position: absolute; inset: 0; }
+.gh-floater {
+    position: absolute; transform: translate(-50%, -50%);
+    font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8); animation: gh-float 1.1s ease-out forwards;
+}
+@keyframes gh-float {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    15% { opacity: 1; transform: translate(-50%, -60%) scale(1.1); }
+    100% { opacity: 0; transform: translate(-50%, -140%) scale(1); }
+}
+
+/* 暂停 / 结算 */
+.gh-pause {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(10, 13, 16, 0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.gh-pause.show { display: flex; }
+.gh-card {
+    background: rgba(20, 26, 32, 0.92); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px; padding: 22px 26px; width: 320px; text-align: center;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+.gh-card-title { font-size: 22px; font-weight: 700; color: #F2F5F7; margin-bottom: 14px; }
+.gh-help { text-align: left; font-size: 12px; color: #9AA6B2; margin-bottom: 16px; line-height: 1.7; }
+.gh-help-line { padding-left: 0; }
+.gh-card-row { display: flex; gap: 8px; justify-content: center; }
+.gh-card-row .gh-btn { flex: 1; padding: 10px; }
+
+/* 窄屏适配 */
+@media (max-width: 640px) {
+    .gh-tasks { width: 150px; left: 10px; top: 60px; padding: 8px 10px; }
+    .gh-score { right: 10px; top: 60px; }
+    .gh-score-val { font-size: 26px; }
+    .gh-ammo { right: 10px; bottom: 10px; }
+    .gh-ammo-text { font-size: 24px; }
+    .gh-slot { width: 42px; padding: 4px 2px; }
+    .gh-slot-name { font-size: 10px; }
+    .gh-quickbar { gap: 5px; bottom: 12px; }
+}

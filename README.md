@@ -101,7 +101,9 @@ house/
     ├── style.css
     ├── types.ts                  # 全局共享类型
     ├── config/
-    │   └── houseConfig.ts        # 户型全部尺寸与构件数据
+    │   ├── houseConfig.ts        # 户型全部尺寸与构件数据
+    │   ├── siteConfig.ts         # 默认地点 / 城市表 / 朝向换算
+    │   └── gameConfig.ts         # 游戏模式：道具 / 任务点 / 靶子 / 计分数值
     ├── scene/
     │   ├── sceneSetup.ts         # 场景 / 相机 / 渲染器 / 灯光 / OrbitControls
     │   ├── materials.ts          # 材质与程序化瓷砖贴图
@@ -113,8 +115,18 @@ house/
     │   └── interaction.ts        # 键盘 / 拖拽视角 / 射线拾取
     ├── floorplan/
     │   └── floorplan2d.ts        # 2D 平面图绘制、标注拖拽、测量
+    ├── environment/              # 环境层：太阳 / 天气 / 星空 / metaverse-sky / 雾
+    ├── game/                     # 游戏模式（叠加在 fps 之上）
+    │   ├── game.ts               # 编排：开关 / 输入 / 弹药 / 计分 / 任务
+    │   ├── gameTypes.ts          # 道具 / 任务 / 靶子 / 快照类型
+    │   ├── assets.ts             # 程序化贴图与游戏专用材质
+    │   ├── audio.ts              # WebAudio 合成音效
+    │   ├── viewmodel.ts          # 第一人称持握模型与动画
+    │   ├── ballistics.ts         # hitscan / 弹孔 / 曳光 / 火花
+    │   ├── props.ts              # 维修任务点与靶子
+    │   └── hud.ts                # 纯 DOM 战术 HUD
     └── ui/
-        └── ui.ts                 # 按钮绑定与状态同步
+        └── ui.ts                 # 按钮绑定与状态同步（含游戏模式按钮）
 ```
 
 ---

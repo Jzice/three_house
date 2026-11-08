@@ -42,6 +42,11 @@ export interface ViewManager {
   /** 当前小地图是否可见 */
   getMinimapVisible(): boolean;
   updateFpsMovement(keys: KeyState, touchMove?: TouchMove | null): void;
+  /**
+   * 应用视角偏移（第一人称）：由外部（游戏模式指针锁定 / 拖拽）调用，
+   * 直接改写全局视角的 fpsYaw/fpsPitch 并重建相机四元数。仅 fps 模式生效。
+   */
+  applyLook(dx: number, dy: number): void;
   /** 记录当前上帝视角相机到全局视角状态（切层时仅按楼层高差平移，不重置构图） */
   saveTpsView(): void;
   /** 当前活动楼层的模式 */
@@ -58,6 +63,8 @@ const FPS_EYE_Y = 1.6;
 let fpsMoveImpulse = 0;
 /** 俯仰角限位，避免翻转 */
 const PITCH_LIMIT = Math.PI / 2 - 0.1;
+/** 鼠标/指针视角灵敏度（与 interaction.ts 保持一致） */
+const LOOK_SPEED = 0.003;
 /** 门窗开合插值系数 */
 const OPEN_LERP = 0.15;
 /** 眼高跟随脚下标高的平滑时间常数（秒）：台阶高度按此做插值过渡 */
@@ -745,6 +752,15 @@ export function createViewManager(
     state.tpsTarget.copy(controls.target);
   }
 
+  function applyLook(dx: number, dy: number): void {
+    if (state.mode !== 'fps') return;
+    state.fpsYaw -= dx * LOOK_SPEED;
+    state.fpsPitch -= dy * LOOK_SPEED;
+    state.fpsPitch = THREE.MathUtils.clamp(state.fpsPitch, -PITCH_LIMIT, PITCH_LIMIT);
+    tmpEuler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
+    camera.quaternion.setFromEuler(tmpEuler);
+  }
+
   return {
     get activeFloor() {
       return activeFloor;
@@ -754,6 +770,7 @@ export function createViewManager(
     setMinimapVisible,
     getMinimapVisible,
     updateFpsMovement,
+    applyLook,
     saveTpsView,
     persist,
     getMode: () => state.mode,

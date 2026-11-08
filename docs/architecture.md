@@ -252,3 +252,35 @@ dir  = ( -sin(rel)·cos(el),  sin(el),  cos(rel)·cos(el) )   // 已归一化
 - 星空位置重算按 1 秒签名节流（恒星每小时才转 15°，1Hz 已足够平滑），且仅在时刻/经纬度/房屋朝向变化时触发；银河与月亮共用同一节流。
 - 中性环境反射贴图的 PMREM 重建成本较高（约 10~20ms），沿用"太阳方位变化 ≥0.5° 或天气变化 + 最小间隔 150ms"节流；2D 模式不重建但标记，回到 3D 立即重建。
 - 对旧 `envMap` 调用 `dispose()` 防泄漏，`dispose()` 时释放 Sky 网格、星空 Points、银河、月亮与云层贴图；切换地点时取消上一次未完成的天气请求。
+
+## 8. 游戏层（叠加在 fps 之上）
+
+游戏模式**不是**第四种 `ViewMode`：`ViewMode` 仍为 `'tps' | 'fps' | '2d'`，`src/game/` 只是叠加在 `fps` 之上的子系统，因此三视图切换、`house-view-v1` 持久化与 2D 绘制都不受影响。
+
+### 8.1 模块与依赖
+
+`src/game/` 沿用环境层范式：只依赖 `three` / `types` / `config`，通过 `GameHooks` 注入 `scene` / `camera` / `canvas` / `getStaticRoots` / `getViewState` / `applyLook` / `onExit`，所有装配在 `main.ts`。
+
+| 模块 | 职责 |
+| --- | --- |
+| `game.ts` | 开关、指针锁定、输入分发、弹药/换弹、计分连击、任务进度、`house-game-v1` 持久化 |
+| `gameTypes.ts` | 道具判别联合（gun / melee / tool）、任务/靶子/快照/命中盒类型 |
+| `assets.ts` | Canvas 程序化贴图（弹孔/裂纹/靶纸/枪口火焰/光斑）+ 游戏专用材质 |
+| `audio.ts` | WebAudio 合成音效，懒初始化 + 首次手势 `resume()` + 同类并发限 2 |
+| `viewmodel.ts` | 第一人称持握模型（挂相机）、待机/移动/后坐/换弹/切枪、枪口火焰、手电 |
+| `ballistics.ts` | hitscan 射线、命中盒优先级、弹孔池（玻璃走裂纹）、曳光池、火花池 |
+| `props.ts` | 室内维修任务点（灯泡/水管/电闸/螺丝/封箱）与靶子（纸靶/钢靶/易拉罐） |
+| `hud.ts` | 纯 DOM 战术 HUD：准星、命中标记、弹药、任务、得分连击、飘字、暂停面板 |
+
+### 8.2 输入所有权
+
+- **仅游戏模式启用 Pointer Lock**：`movementX/Y` 经 `view.applyLook(dx, dy)` 写入 `fpsYaw/fpsPitch`（沿用 `PITCH_LIMIT`）；非游戏的第一人称仍是原有拖拽转头。
+- `attachPointerInteraction` 增加可选第 4 参 `isGameActive`，在 `pointerdown/move/up/wheel` 首行早退；不传该参时行为与改造前完全一致。
+- `disable()` 移除全部监听并 `exitPointerLock()`；Esc 只退出锁定 → 暂停面板（继续/重置/退出），不会误退模式。
+
+### 8.3 弹道与资源
+
+- 单次射击 = 一条 `Raycaster`：命中盒优先，其次静态楼层根（4 个 `floors[].root`，**不传整个 `scene`**）；枪口→命中点画 0.06s 曳光。
+- 弹孔/曳光/火花全部池化（64/12/24），`update` 内复用模块级临时向量。
+- 持握模型使用**私有克隆材质**（`depthTest:false` + `depthWrite:false` + `renderOrder:10`），避免贴墙被近裁剪面切掉，也避免污染 `assets.mat` 的共享材质。
+- 任务点/靶子挂在独立 `Group`，不进 `Floors[].root`、不进 `FpsWalkArea.solids`，行走判定与门窗拾取零改动。

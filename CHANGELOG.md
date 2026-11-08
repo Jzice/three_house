@@ -2,6 +2,26 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-11-08
+
+### 改动
+- **第一人称持握模型整体重写（核心）**：`src/game/viewmodel.ts` 重写 7 件道具（手枪 / 步枪 / 匕首 / 螺丝刀 / 活动扳手 / 电钻 / 手电）的逐件分层建模，每件都有可辨识的结构特征（套筒防滑纹、导轨红点、刀身斜面血槽、十字头、可调扳手偏心头与蜗杆、夹头钻头、灯头镜片抱夹等）。
+- **双手双臂持握 + 半写实手**：每手约 9 个 mesh（掌背 / 并指块 / 指缝 / 指节 / 拇指近远节 / 腕 / 袖口），前臂 + 上臂 + 肘护垫 + 手腕护套的双段手臂；支持手按「掌心朝上、手指绕向近侧」摆放，步枪 / 手枪 / 电钻可见双手。
+- **道具缩放与手/臂解耦**：新增 `itemRoot`（承接 POSES 的 pos/rot/scale）与 `handsRoot`（不缩放）；道具声明 grip frame（握点 + 掌心姿态），手的体积不再随道具 scale 变形，步枪 scale 不再把手臂缩成细杆。
+- **绘制深度排序**：保留 `depthTest=false` + 按相机距离分配 `renderOrder` 的画家算法；`setItem` 先落位姿再 `updateMatrixWorld` 后排序，首帧遮挡正确。
+- **活动扳手头部重做**：颈部过渡 + 绕 Y 偏 14° 的偏心头整组 + 亮铬固定钳口 / 暗钢活动钳口（20mm 张口）+ 夹持面齿纹 + 滚花蜗杆 + 刻度，识别度提升。
+- **材质策略**：金属 `metalness` 压到 0.2、`emissive = color×0.34 + 0x121419`，暗处不再全黑；手套 / 衣袖基色提到 `0xa8b0ba` / `0x5d6f7c`（织物贴图会把基色压暗约一半）。
+- 配套：`src/game/geometry.ts` 几何辅助库（at / bevelBox / box / cyl / limb / plate / sphere / torus）；`src/game/assets.ts` 材质与贴图；游戏模式入口与 HUD（`index.html` / `src/main.ts` / `src/ui/ui.ts` / `src/view/*` / `src/config/gameConfig.ts` / `src/game/*`）。
+
+### 同步
+- 版本由 `0.5.x` 跳至 `2.0.0`（用户确认本次为主版本越级）。
+- `package.json` 与 `package-lock.json`（两处 `version`）同步为 `2.0.0`。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功。
+- 产物自检：`dist/` 仅两个 html、离线版无 `unpkg|importmap|src="/assets`、CDN 版恰好 1 条 importmap。
+- 起 `npm run dev` 逐件切换 1~7 道具截图确认：结构可辨、双手入画、口径取景 24~36% 占屏高、无遮挡错乱、开火 / 换弹 / 切枪动画无控制台报错。
+
 ## [0.5.37] - 2026-11-08
 
 ### 改动

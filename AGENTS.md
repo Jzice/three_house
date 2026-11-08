@@ -34,13 +34,15 @@ src/
 ├── types.ts                 # 共享类型，无运行时依赖
 ├── config/
 │   ├── houseConfig.ts       # 户型全部尺寸与构件数据（纯数据 + 少量推导）
-│   └── siteConfig.ts        # 站点/环境默认：默认地点武穴、内置城市表、正面朝西换算角、天气刷新
+│   ├── siteConfig.ts        # 站点/环境默认：默认地点武穴、内置城市表、正面朝西换算角、天气刷新
+│   └── gameConfig.ts        # 游戏模式全部数值：道具 / 任务点 / 靶子 / 计分 / HUD 文案
 ├── scene/                   # sceneSetup · materials · builders · stairs · buildHouse
 ├── view/                    # viewState（三模式状态机）· interaction（键鼠）
 ├── floorplan/floorplan2d.ts # 2D 平面图绘制、标注拖拽、测量
 ├── environment/             # 环境层：solar(太阳) · weather(Open-Meteo) · celestial(天文定位) · starCatalog(内置星表) · metaSky(metaverse-sky 适配：天空/云/降水/大气/IBL) · skyAtmosphere(大气参数/地平色复算) · starfield(真实星表/银河/月亮 overlay) · ground(大地/雾) · lighting(光照映射) · environment(编排)
+├── game/                    # 游戏层（叠加在 fps 之上，不新增 ViewMode）：game(编排) · gameTypes · assets(程序化资源) · audio(WebAudio 合成) · viewmodel(持握模型) · ballistics(hitscan/弹孔/曳光) · props(任务点/靶子) · hud(纯 DOM)
 └── ui/
-    ├── ui.ts                # 既有按钮绑定与状态同步
+    ├── ui.ts                # 既有按钮绑定与状态同步（含游戏模式按钮）
     └── envPanel.ts          # 环境面板（地点 / 日照 / 天气，仅 DOM + 回调）
 ```
 
@@ -52,6 +54,7 @@ src/
 - `ui` **不得** import 任何渲染模块：只做 DOM 与回调，模式切换的具体动作由 `main.ts` 编排。
 - 跨模块的"副作用"（如进入 2D 要重绘）一律通过构造函数回调注入，不要直接 import。
 - **环境层 `src/environment/`**：只依赖 `three` / `astronomy-engine` / `metaverse-sky` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；它通过持有 `scene` / `renderer` / `LightHandles` 的**实例引用**完成渲染动作（不反向依赖这些模块）。`ui/envPanel.ts` 同样只依赖类型与 DOM 回调，通过 `Environment` 实例调用 `setLocation` / `setLive` / `setManualLocalDate` / `setFrontAzimuth` / `refreshWeather`，并被动接收 `onSnapshot` 刷新读数。所有装配在 `main.ts` 完成。
+- **游戏层 `src/game/`**：同样只依赖 `three` / `types` / `config`，**不得** import `scene` / `view` / `floorplan` / `ui`；通过 `GameHooks`（`scene` / `camera` / `canvas` / `getStaticRoots` / `getViewState` / `applyLook` / `onExit`）注入实例引用与回调。游戏模式是**叠加在 `fps` 之上的子系统**，`ViewMode` 仍只有 `'tps' | 'fps' | '2d'`，不要新增第 4 种模式。输入接管靠 `attachPointerInteraction` 的可选 `isGameActive` 早退参数，不传该参时既有拖拽/点击行为完全不变。
 
 ## 4. 核心约定
 
@@ -116,6 +119,12 @@ src/
 | 改光照强度 / 色温 / 雾浓度映射 | `src/environment/lighting.ts` |
 | 改环境编排（时间 / 地点 / 天气 / 降水覆盖、metaverse-sky 驱动） | `src/environment/environment.ts` |
 | 改环境面板 UI（地点 / 日照 / 天气交互） | `src/ui/envPanel.ts` + `src/style.css`（`.env-*`） |
+| 改游戏道具 / 弹道 / 任务点 / 靶子数值与坐标 | `src/config/gameConfig.ts`（`ITEMS` / `TASKS` / `TARGETS` / `SCORING` / `GAME`） |
+| 改持握模型外观 / 后坐力 / 换弹动画 | `src/game/viewmodel.ts` + `src/game/assets.ts` |
+| 改命中判定 / 弹孔 / 曳光 | `src/game/ballistics.ts` |
+| 改任务点与靶子的几何 / 命中反馈 | `src/game/props.ts` |
+| 改游戏 HUD 布局 / 暂停面板 | `src/game/hud.ts` + `src/style.css`（`.gh-*`） |
+| 改游戏音效 | `src/game/audio.ts`（WebAudio 合成，禁止引入音频文件） |
 | 改构建 / 发布方式 | `vite.config.ts` + `scripts/build-all.mjs` + `.github/workflows/`（打 `v*` tag 触发 Release，push main / Release 发布触发 Pages） |
 
 ## 6. 已知陷阱
@@ -126,6 +135,8 @@ src/
 - **两次 Vite 构建会互相覆盖**：`build()` 会清空 `outDir`，所以 `scripts/build-all.mjs` 先构建到 `dist/.tmp-<variant>/` 再改名搬运。不要用 `vite build --mode cdn` 直接覆盖 `dist/index.html`。
 - **2D 模式跳过渲染**（`mode !== '2d'` 才 `render`），这是刻意的，不要"修"掉。
 - **穹顶 / 星穹必须跟随相机**：metaverse-sky 的天空/云/降水在其内部 `update()` 已自动跟随相机；真实星空 `starfield` 仍由 `environment.update()` 每帧对齐 `camera.position`。一旦相机 dolly 拉远，天球球面到相机的距离超过远裁剪面（1000m）就会被整片裁掉，天空上出现圆形缺口（"黑色圆球虚影"），因此天球网格必须挂在跟随相机的坐标系下（starfield 半径 450~882m < far，跟随相机即可规避）。
+- **游戏持握模型必须使用私有克隆材质**：`viewmodel.ts` 为 `depthTest:false` 会把材质改成不做深度测试，若直接改 `assets.mat` 的共享材质，靶纸边框等场景物体会盖住靶纸（曾出现整块黑屏）。`setItem` 已用 `own()` 克隆，改造时不要退回共享材质。
+- **游戏任务点 / 靶子挂在独立 `Group`**，不要挂进 `floors[].root`（否则上帝视角的楼层可见性会误隐藏它们，也会被门窗射线拾取误命中）。
 - **构建产物 `dist/` 与 `node_modules/` 已 gitignore**，不要提交，也不要手工编辑产物。
 
 ## 7. 改完之后怎么验证

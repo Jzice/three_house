@@ -13,6 +13,7 @@ import { attachKeyboard, attachPointerInteraction, createKeyState } from './view
 import { createViewManager, updateInteractables } from './view/viewState';
 import { createTouchControls } from './view/touchControls';
 import { createEnvPanel } from './ui/envPanel';
+import { Game } from './game/game';
 import type { EnvironmentSnapshot, InteractiveObject } from './types';
 
 /** 非阻塞提示：当前浏览器未启用 WebGPU，已回退 WebGL2（功能不受影响） */
@@ -169,9 +170,24 @@ function bootstrap(): void {
     onMeasuringChange: (active) => ui.setMeasuring(active),
   });
 
+  // 底部提示元素显隐助手（进入/退出游戏时隐藏/恢复）
+  const getInfoDisplay = (): string => {
+    const e = document.getElementById('info');
+    return e ? e.style.display : '';
+  };
+  const setInfoDisplay = (v: string): void => {
+    const e = document.getElementById('info');
+    if (e) e.style.display = v;
+  };
+  // 进入游戏前的小地图 / 提示状态（退出时恢复）
+  let prevMinimap = view.getMinimapVisible();
+  let prevInfo = getInfoDisplay();
+
   // ---- UI ----
   const ui = createUI({
     onSwitchMode: (mode) => {
+      // 切走任何模式前，若处于游戏模式则先退出（恢复小地图/提示与门窗点击语义）
+      if (game.isActive()) game.disable();
       view.setMode(mode);
       ui.setActiveMode(mode);
       // 进入第一人称需绘制右下角小地图（2D 由 setMode 内 onEnter2D 重绘）
@@ -194,6 +210,45 @@ function bootstrap(): void {
       ui.setMinimap(visible);
       if (visible && view.getMode() === 'fps') floorplan.draw();
     },
+    onToggleGame: () => {
+      if (game.isActive()) {
+        game.disable();
+        ui.setGameActive(false);
+        return;
+      }
+      // 进入游戏：确保在第一人称
+      if (view.getMode() !== 'fps') {
+        view.setMode('fps');
+        ui.setActiveMode('fps');
+        syncJoystick('fps');
+      }
+      // 隐藏小地图与底部提示，记住之前状态以便恢复
+      prevMinimap = view.getMinimapVisible();
+      view.setMinimapVisible(false);
+      syncMinimapBtn();
+      prevInfo = getInfoDisplay();
+      setInfoDisplay('none');
+      ui.setGameActive(true);
+      game.enable();
+    },
+  });
+
+  // ---- 游戏模式（叠加在 fps 之上的子系统） ----
+  const game = new Game({
+    scene: ctx.scene,
+    camera: ctx.camera,
+    canvas: ctx.renderer.domElement,
+    getStaticRoots: () => floors.map((f) => f.root),
+    getViewState: () => view.getState(),
+    applyLook: (dx, dy) => view.applyLook(dx, dy),
+    onExit: () => {
+      ui.setGameActive(false);
+      view.setMinimapVisible(prevMinimap);
+      setInfoDisplay(prevInfo);
+      syncMinimapBtn();
+      // 恢复小地图后立即重绘一次，避免显示退出前的旧内容
+      if (view.getMode() === 'fps' && prevMinimap) floorplan.draw();
+    },
   });
 
   // ---- 环境面板（地点 / 日照 / 天气） ----
@@ -203,12 +258,18 @@ function bootstrap(): void {
   // ---- 输入 ----
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
-  attachPointerInteraction(ctx, () => view.getState(), () => {
-    // 仅"当前可见楼层"的门窗可点击：上帝视角当前层及以下整体可见，仅这些楼层的门窗可交互
-    const list: InteractiveObject[] = [];
-    for (const f of floors) if (f.root.visible) list.push(...f.interactables);
-    return list;
-  });
+  attachPointerInteraction(
+    ctx,
+    () => view.getState(),
+    () => {
+      // 仅"当前可见楼层"的门窗可点击：上帝视角当前层及以下整体可见，仅这些楼层的门窗可交互
+      const list: InteractiveObject[] = [];
+      for (const f of floors) if (f.root.visible) list.push(...f.interactables);
+      return list;
+    },
+    // 游戏模式激活时，门窗点击语义交给 game 层，此处早退
+    () => game.isActive(),
+  );
 
   // 触屏虚拟摇杆（仅触屏设备启用；桌面端返回 isTouch=false，getMove 恒为 {0,0}）
   const touch = createTouchControls();
@@ -280,15 +341,25 @@ function bootstrap(): void {
   });
 
   // ---- 渲染循环 ----
+  let lastFrame = performance.now();
   function animate(): void {
+    const now = performance.now();
+    const dt = Math.min((now - lastFrame) / 1000, 0.1);
+    lastFrame = now;
+
     const mode = view.getMode();
+    const gameActive = game.isActive();
+    const gamePaused = game.isPaused();
+    const movingKeys =
+      keys.w || keys.a || keys.s || keys.d || keys.up || keys.down || keys.left || keys.right;
+
     if (mode === 'tps') {
       ctx.controls.update();
       // 持续记录当前上帝视角到全局视角状态（切层时相机保持不动、整栋居中，仅切换可见楼层）
       view.saveTpsView();
-    } else if (mode === 'fps') {
+    } else if (mode === 'fps' && !(gameActive && gamePaused)) {
       view.updateFpsMovement(keys, touch.isTouch ? touch.getMove() : null);
-      syncMinimapPlayer();
+      if (!gameActive) syncMinimapPlayer();
     }
 
     // 环境层：实时推进时间与天气，按太阳/天气驱动光照。
@@ -296,6 +367,9 @@ function bootstrap(): void {
     env.update(mode !== '2d');
     // 天气表面特效：积雪/积水（雨/雪粒子由 metaverse-sky 另行渲染）
     weatherFx.update(mode !== '2d');
+
+    // 游戏模式每帧推进（内部在未激活时早退）
+    if (gameActive) game.update(dt, movingKeys);
 
     if (mode !== '2d') {
       for (const f of floors) if (f.root.visible) updateInteractables(f.interactables);

@@ -9,6 +9,8 @@ export interface UI {
   setMeasuring(active: boolean): void;
   /** 同步小地图按钮高亮（与 view 内部可见状态一致） */
   setMinimap(visible: boolean): void;
+  /** 同步游戏模式按钮高亮 */
+  setGameActive(active: boolean): void;
 }
 
 export interface UIHandlers {
@@ -16,6 +18,7 @@ export interface UIHandlers {
   onSwitchFloor: (floor: number) => void;
   onToggleMeasure: () => void;
   onToggleMinimap: () => void;
+  onToggleGame: () => void;
 }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -35,6 +38,7 @@ export function createUI(handlers: UIHandlers): UI {
   const btnFloor4 = el<HTMLButtonElement>('btn-floor-4');
   const btnAddDim = el<HTMLButtonElement>('btn-add-dim');
   const btnMinimap = el<HTMLButtonElement>('btn-minimap');
+  const btnGame = el<HTMLButtonElement>('btn-game');
   const measureTip = el<HTMLElement>('measure-tip');
 
   btnTPS.addEventListener('click', () => handlers.onSwitchMode('tps'));
@@ -46,6 +50,7 @@ export function createUI(handlers: UIHandlers): UI {
   btnFloor4.addEventListener('click', () => handlers.onSwitchFloor(3));
   btnAddDim.addEventListener('click', () => handlers.onToggleMeasure());
   btnMinimap.addEventListener('click', () => handlers.onToggleMinimap());
+  btnGame.addEventListener('click', () => handlers.onToggleGame());
 
   return {
     setActiveMode(mode) {
@@ -84,6 +89,9 @@ export function createUI(handlers: UIHandlers): UI {
     },
     setMinimap(visible) {
       btnMinimap.classList.toggle('active', visible);
+    },
+    setGameActive(active) {
+      btnGame.classList.toggle('active', active);
     },
   };
 }

@@ -63,6 +63,8 @@ export function attachPointerInteraction(
   ctx: SceneContext,
   getState: () => ViewState,
   getInteractables: () => InteractiveObject[],
+  /** 游戏模式激活时返回 true，此时本函数所有处理早退（输入交给 game 层） */
+  isGameActive?: () => boolean,
 ): void {
   const { camera, renderer } = ctx;
   const canvas = renderer.domElement;
@@ -152,6 +154,7 @@ export function attachPointerInteraction(
 
   canvas.addEventListener('pointerdown', (e) => {
     if (getState().mode === '2d') return;
+    if (isGameActive?.()) return; // 游戏模式：输入交给 game 层
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -175,6 +178,7 @@ export function attachPointerInteraction(
 
   canvas.addEventListener('pointermove', (e) => {
     if (getState().mode === '2d' || !pointers.has(e.pointerId)) return;
+    if (isGameActive?.()) return;
     const prev = pointers.get(e.pointerId)!;
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -212,6 +216,10 @@ export function attachPointerInteraction(
       pointers.delete(e.pointerId);
       return;
     }
+    if (isGameActive?.()) {
+      pointers.delete(e.pointerId);
+      return;
+    }
 
     if (e.pointerType === 'mouse') {
       const wasDragging = mouseDragging;
@@ -240,6 +248,7 @@ export function attachPointerInteraction(
   canvas.addEventListener('wheel', (e) => {
     const state = getState();
     if (state.mode !== 'fps') return;
+    if (isGameActive?.()) return; // 游戏模式：滚轮前进由 game 层处理
     e.preventDefault();
     const k = e.ctrlKey ? PINCH_TO_MOVE : WHEEL_TO_MOVE;
     state.addFpsForward(-e.deltaY * k);
