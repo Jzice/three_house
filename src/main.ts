@@ -234,6 +234,8 @@ function bootstrap(): void {
   });
 
   // ---- 游戏模式（叠加在 fps 之上的子系统） ----
+  // 触屏能力检测需在 Game 之前就绪：游戏内虚拟按钮与右半屏转头依赖此标志
+  const touch = createTouchControls();
   const game = new Game({
     scene: ctx.scene,
     camera: ctx.camera,
@@ -241,6 +243,7 @@ function bootstrap(): void {
     getStaticRoots: () => floors.map((f) => f.root),
     getViewState: () => view.getState(),
     applyLook: (dx, dy) => view.applyLook(dx, dy),
+    isTouch: touch.isTouch,
     onExit: () => {
       ui.setGameActive(false);
       view.setMinimapVisible(prevMinimap);
@@ -272,7 +275,6 @@ function bootstrap(): void {
   );
 
   // 触屏虚拟摇杆（仅触屏设备启用；桌面端返回 isTouch=false，getMove 恒为 {0,0}）
-  const touch = createTouchControls();
   const info = document.getElementById('info');
   if (info) {
     if (touch.isTouch) {

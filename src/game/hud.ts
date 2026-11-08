@@ -14,6 +14,16 @@ export interface HudCallbacks {
   onReset(): void;
   /** 点击快捷栏切换道具（触屏无数字键时的入口） */
   onSelectItem(id: string): void;
+  /** 触屏开火键按下（枪械开火 / 近战挥砍 / 工具启用，与鼠标点击同源） */
+  onFireDown(): void;
+  /** 触屏开火键抬起（连发停火 / 工具停用） */
+  onFireUp(): void;
+  /** 触屏换弹键 */
+  onReload(): void;
+  /** 触屏切道具（dir = -1 上一个 / +1 下一个） */
+  onCycle(dir: number): void;
+  /** 触屏暂停键 */
+  onPause(): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -43,7 +53,7 @@ export class GameHud {
   private slots: HTMLDivElement[] = [];
   private taskRows = new Map<string, { row: HTMLDivElement; dot: HTMLDivElement }>();
 
-  constructor(private cb: HudCallbacks) {
+  constructor(private cb: HudCallbacks, isTouch: boolean) {
     // 准星
     this.crosshair.innerHTML =
       '<span class="ch-line ch-t"></span><span class="ch-line ch-b"></span>' +
@@ -61,16 +71,22 @@ export class GameHud {
     this.scoreBox.append(sLabel);
     this.root.append(this.scoreBox, this.comboBadge);
 
-    // 右上按钮
+    // 右上按钮（触屏额外提供独立暂停键；桌面端隐藏）
     const topRight = el('div', 'gh-topright');
-    topRight.append(this.muteBtn, this.exitBtn);
+    const pauseBtn = el('button', 'gh-btn gh-pause', HUD_TEXT.pause);
+    pauseBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.cb.onPause();
+    });
+    topRight.append(this.muteBtn, pauseBtn, this.exitBtn);
     this.root.append(topRight);
 
     // 弹药 + 换弹条
     this.ammoBox.append(this.ammoText, this.reloadBar);
     this.root.append(this.ammoBox);
 
-    // 快捷栏
+    // 快捷栏（触屏下在两端加 ◀ ▶ 切换按钮；桌面端隐藏箭头）
     ITEMS.forEach((it: ItemDef) => {
       const slot = el('div', 'gh-slot');
       slot.append(el('div', 'gh-slot-num', String(it.slot)));
@@ -80,6 +96,20 @@ export class GameHud {
       this.slots.push(slot);
       this.quickbar.append(slot);
     });
+    const cyclePrev = el('button', 'gh-btn gh-cycle gh-prev', '◀');
+    const cycleNext = el('button', 'gh-btn gh-cycle gh-next', '▶');
+    cyclePrev.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.cb.onCycle(-1);
+    });
+    cycleNext.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.cb.onCycle(1);
+    });
+    this.quickbar.prepend(cyclePrev);
+    this.quickbar.append(cycleNext);
     this.root.append(this.quickbar);
 
     // 交互提示
@@ -89,6 +119,38 @@ export class GameHud {
     // 暂停 / 结算
     this.buildPause();
     this.root.append(this.pause);
+
+    // 触屏虚拟按钮层（仅触屏设备构建；桌面端不显示，保持鼠标+键盘原行为）
+    if (isTouch) {
+      this.root.classList.add('touch');
+      const touchLayer = el('div', 'gh-touch');
+      const fireBtn = el('button', 'gh-btn-fire');
+      fireBtn.append(el('span', 'gh-fire-label', HUD_TEXT.fire));
+      fireBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          fireBtn.setPointerCapture(e.pointerId);
+        } catch {
+          /* 不支持指针捕获则忽略 */
+        }
+        this.cb.onFireDown();
+      });
+      const releaseFire = (e: Event) => {
+        e.stopPropagation();
+        this.cb.onFireUp();
+      };
+      fireBtn.addEventListener('pointerup', releaseFire);
+      fireBtn.addEventListener('pointercancel', releaseFire);
+      const reloadBtn = el('button', 'gh-btn-reload', HUD_TEXT.reload);
+      reloadBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.cb.onReload();
+      });
+      touchLayer.append(fireBtn, reloadBtn);
+      this.root.append(touchLayer);
+    }
 
     // 按钮
     this.muteBtn.addEventListener('click', () => this.cb.onMute());

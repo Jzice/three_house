@@ -193,4 +193,6 @@ export interface GameHooks {
   applyLook: (dx: number, dy: number) => void;
   /** 退出游戏模式（由 main 编排模式与 UI 恢复） */
   onExit: () => void;
+  /** 当前设备是否触屏：决定是否启用游戏内虚拟按钮与右半屏转头（仅触屏设备，桌面端保持鼠标+键盘原行为） */
+  isTouch: boolean;
 }

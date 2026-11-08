@@ -476,3 +476,48 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     .gh-slot-name { font-size: 10px; }
     .gh-quickbar { gap: 5px; bottom: 12px; }
 }
+
+/* ============ 触屏虚拟按钮（仅 .game-hud.touch 显示；桌面端完全隐藏） ============ */
+/* 切道具箭头与暂停键默认隐藏，仅触屏设备（isTouch）显示 */
+.gh-cycle { display: none; }
+.game-hud.touch .gh-cycle { display: inline-flex; }
+.gh-pause { display: none; }
+.game-hud.touch .gh-pause { display: inline-flex; }
+
+/* 透明容器层：覆盖全屏但不拦截指针，仅其中的按钮可点（右侧拖动转头仍可穿透到画布） */
+.gh-touch { position: absolute; inset: 0; pointer-events: none; }
+.gh-btn-fire, .gh-btn-reload {
+    position: absolute; pointer-events: auto; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+    color: #F2F5F7; border: 2px solid rgba(255, 255, 255, 0.25);
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.gh-btn-fire {
+    right: 18px; bottom: 18px; width: 96px; height: 96px;
+    background: rgba(234, 67, 53, 0.32); border-color: rgba(234, 67, 53, 0.6);
+}
+.gh-btn-fire:active { background: rgba(234, 67, 53, 0.55); transform: scale(0.94); }
+.gh-fire-label { font-size: 15px; letter-spacing: 0.05em; }
+.gh-btn-reload {
+    right: 126px; bottom: 30px; width: 64px; height: 64px; font-size: 13px;
+    background: rgba(41, 128, 185, 0.32); border-color: rgba(41, 128, 185, 0.6);
+}
+.gh-btn-reload:active { background: rgba(41, 128, 185, 0.55); transform: scale(0.94); }
+
+/* 移动端布局重排（仅触屏）：避免虚拟按钮遮挡任务清单与读数 */
+.game-hud.touch .gh-tasks {
+    left: 12px; top: 12px; width: 140px; padding: 8px 10px;
+    max-height: 42vh; overflow-y: auto;
+}
+.game-hud.touch .gh-score { right: 12px; top: 56px; }
+.game-hud.touch .gh-score-val { font-size: 26px; }
+.game-hud.touch .gh-ammo { right: 16px; bottom: 150px; text-align: right; }
+.game-hud.touch .gh-ammo-text { font-size: 24px; }
+.game-hud.touch .gh-quickbar {
+    bottom: 20px; gap: 4px; max-width: calc(100vw - 220px); overflow-x: auto;
+}
+.game-hud.touch .gh-cycle { width: 36px; padding: 6px 0; font-size: 16px; justify-content: center; flex: 0 0 auto; }
+.game-hud.touch .gh-slot { width: 40px; padding: 6px 2px; flex: 0 0 auto; }
+.game-hud.touch .gh-slot-name { font-size: 10px; }

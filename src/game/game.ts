@@ -87,16 +87,24 @@ export class Game {
     this.props = createProps(this.assets, hooks.scene);
     // 未进入游戏前，任务点/靶子整体隐藏（不污染上帝视角与普通第一人称）
     this.props.group.visible = false;
-    this.hud = new GameHud({
-      onExit: () => this.disable(),
-      onResume: () => this.resume(),
-      onMute: () => this.toggleMute(),
-      onReset: () => this.resetProgress(),
-      onSelectItem: (id) => {
-        const idx = ITEMS.findIndex((i) => i.id === id);
-        if (idx >= 0) this.selectItem(idx);
+    this.hud = new GameHud(
+      {
+        onExit: () => this.disable(),
+        onResume: () => this.resume(),
+        onMute: () => this.toggleMute(),
+        onReset: () => this.resetProgress(),
+        onSelectItem: (id) => {
+          const idx = ITEMS.findIndex((i) => i.id === id);
+          if (idx >= 0) this.selectItem(idx);
+        },
+        onFireDown: () => this.inputFireDown(),
+        onFireUp: () => this.inputFireUp(),
+        onReload: () => this.startReload(),
+        onCycle: (d: number) => this.inputCycle(d),
+        onPause: () => this.togglePause(),
       },
-    });
+      this.hooks.isTouch,
+    );
 
     this.loadPersist();
     this.audio.setMuted(this.muted);
@@ -291,6 +299,20 @@ export class Game {
   private onPointerDown(e: PointerEvent): void {
     if (!this.active || this.paused) return;
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+    // 触屏：开火 / 换弹 / 切道具由独立虚拟按钮负责；画布仅用于"右半屏拖动转头"
+    if (e.pointerType === 'touch') {
+      // 仅当起始于右半屏才启用转视角，左半屏留给摇杆与按钮，避免误转头
+      this.pointerActive = e.clientX > window.innerWidth / 2;
+      this.touchMoved = false;
+      this.downX = e.clientX;
+      this.downY = e.clientY;
+      this.lastX = e.clientX;
+      this.lastY = e.clientY;
+      return;
+    }
+
+    // 鼠标（桌面）既有逻辑：点击开火 / 近战 / 工具，未锁定时拖拽转头
     this.pointerActive = true;
     this.touchMoved = false;
     this.downX = e.clientX;
@@ -330,6 +352,14 @@ export class Game {
 
   private onPointerUp(e: PointerEvent): void {
     if (!this.active) return;
+
+    // 触屏：画布不负责开火 / 工具释放（由虚拟按钮处理），此处仅结束转视角
+    if (e.pointerType === 'touch') {
+      this.pointerActive = false;
+      return;
+    }
+
+    // 鼠标（桌面）既有逻辑
     const wasPointer = this.pointerActive;
     this.pointerActive = false;
     if (this.paused) return;
@@ -342,7 +372,7 @@ export class Game {
       this.useTool(false);
       if (item.model === 'drill') this.audio.drillStop();
     }
-    // 非锁定 + 轻点（未拖动）视为射击（触屏/降级）；工具已在 pointerdown 处理
+    // 非锁定 + 轻点（未拖动）视为射击（降级）；工具已在 pointerdown 处理
     if (!this.locked && wasPointer) {
       const moved = Math.abs(e.clientX - this.downX) + Math.abs(e.clientY - this.downY) > 6 || this.touchMoved;
       if (!moved) {
@@ -357,6 +387,40 @@ export class Game {
     if (!this.active || this.paused) return;
     e.preventDefault();
     this.hooks.getViewState().addFpsForward(-e.deltaY * 0.004);
+  }
+
+  // ---------- 触屏虚拟按钮入口（与鼠标点击同源，保证桌面/移动行为一致） ----------
+  /** 开火键按下：枪械开火 / 近战挥砍 / 工具启用 */
+  inputFireDown(): void {
+    if (!this.active || this.paused) return;
+    const item = this.current();
+    if (item.kind === 'gun') {
+      this.fireOnce();
+      if (item.auto) this.heldFire = true;
+    } else if (item.kind === 'melee') {
+      this.meleeOnce();
+    } else {
+      this.useTool(true);
+      if (item.model === 'drill') this.audio.drillStart();
+    }
+  }
+
+  /** 开火键抬起：连发停火 / 工具停用 */
+  inputFireUp(): void {
+    if (!this.active) return;
+    const item = this.current();
+    if (item.kind === 'gun') {
+      this.heldFire = false;
+    } else if (item.kind === 'tool') {
+      this.useTool(false);
+      if (item.model === 'drill') this.audio.drillStop();
+    }
+  }
+
+  /** 切道具（dir = -1 上一个 / +1 下一个），替代数字键 */
+  inputCycle(dir: number): void {
+    if (!this.active) return;
+    this.selectItem(this.itemIndex + dir);
   }
 
   // ---------- 射击 / 工具 ----------
