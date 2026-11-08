@@ -2,6 +2,23 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.4] - 2026-11-08
+
+### 改动
+- **修复 2F 阳台玻璃推拉门第一人称可穿玻璃**：根因为第一人称碰撞把整扇 2.2m 门洞当作二值门洞（任意一扇 `isOpen` 即整扇放行），但玻璃面板实际位置（单扇开时仍占半幅、两扇交叉对开时整宽仍被玻璃占满）未被碰撞反映，导致不该通行的玻璃区域被放行。
+- **把玻璃面板注册为动态实体障碍**：`src/view/viewState.ts` 的 `createViewManager` 新增可选参数 `getDynamicObstacles?: (floor) => WalkRect[]`；`isWalkable` 把该层返回的矩形按 `PLAYER_R` 外扩后作为常驻 `solids` 阻挡（玻璃是物理实体，开/关都按其实际位置挡）；`updateFpsMovement` / `setActiveFloor` / `autoSwitchFloor` 在每帧/切层时刷新。
+- **`src/main.ts` 新增 `getSlidingObstacles(floor)`**：仅 2F 生效，遍历 `floors[1].interactables` 中 `userData.id==='sliding'` 的两扇玻璃叶，用 `getWorldPosition` 取实时世界中心，按 `SLIDING_DOOR.w/2`(1.1m) 半宽 + 门洞整厚(z±0.15) 构造障碍矩形，门体外观与开合动画不变。
+- 行为：关两扇整宽挡；开一扇该扇让出的那半可穿、另一半玻璃仍挡；两扇交叉对开整宽仍被玻璃占满 → 不可穿（与现状视觉一致）。保留原 `gaps`/`doors` 二值逻辑，二者并存正好修复穿玻璃且保留「开一扇半幅可穿」。
+
+### 同步
+- 版本由 `2.0.3` 递增至 `2.0.4`（patch）。
+- `package.json` 与 `package-lock.json`（两处 `version`）同步为 `2.0.4`。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功。
+- 产物自检：`dist/` 仅两个 html、离线版无 `unpkg|importmap|src="/assets`、CDN 版恰好 1 条 importmap。
+- 涉及交互的改动建议起 `npm run dev` 在 2F 第一人称目视确认：关两扇不可穿、开一扇只能从该侧穿、两扇交叉对开不可穿。
+
 ## [2.0.3] - 2026-11-08
 
 ### 改动

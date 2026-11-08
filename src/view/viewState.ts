@@ -283,9 +283,12 @@ export function createViewManager(
   setFloorVisible: (floor: number, visible: boolean, ceilingVisible: boolean) => void,
   isDoorOpen?: (floor: number, id: string) => boolean,
   onAutoFloor?: (floor: number) => void,
+  getDynamicObstacles?: (floor: number) => WalkRect[],
 ): ViewManager {
   const { camera, controls, renderer } = ctx;
   let activeFloor = PERSISTED_VIEW?.floor ?? 0;
+  /** 动态实体障碍（如推拉门玻璃面板）矩形：由外部按层实时提供，每帧刷新一次后供 isWalkable 视为常驻 solids */
+  let dynObstacles: WalkRect[] = [];
   /** 第一人称小地图是否可见（默认关闭，用户开关持久化；仅 FPS 模式下实际显示） */
   let minimapVisible = loadMinimapVisible();
   /**
@@ -420,6 +423,8 @@ export function createViewManager(
     if (floor === activeFloor) return;
     if (floor < 0 || floor >= FLOORS.length) return; // 越界早退
     activeFloor = floor;
+    // 切层后动态障碍对应楼层变化，立即刷新（避免用到上一层的玻璃位置）
+    dynObstacles = getDynamicObstacles ? getDynamicObstacles(activeFloor) : [];
     uiFloor = floor;
     const mode = state.mode;
 
@@ -508,6 +513,11 @@ export function createViewManager(
     if (!regionOk) return false;
     // 墙体/承重柱：玩家半径外扩后命中即阻挡（贴墙可滑动、不可穿入）
     for (const s of area.solids) {
+      if (x >= s.x0 - PLAYER_R && x <= s.x1 + PLAYER_R && z >= s.z0 - PLAYER_R && z <= s.z1 + PLAYER_R) return false;
+    }
+    // 动态实体障碍（推拉门玻璃面板等）：按其实时世界位置阻挡；
+    // 玻璃是物理实体，无论开/关都按其所在位置阻挡（开门放行由"玻璃已让出的区域"自然实现）
+    for (const s of dynObstacles) {
       if (x >= s.x0 - PLAYER_R && x <= s.x1 + PLAYER_R && z >= s.z0 - PLAYER_R && z <= s.z1 + PLAYER_R) return false;
     }
     // 门洞缺口：仅关门时阻挡（开门放行；同时修复"门外可穿关门"的既有 bug）
@@ -652,6 +662,8 @@ export function createViewManager(
   function autoSwitchFloor(floor: number): void {
     if (floor === activeFloor) return;
     activeFloor = floor;
+    // 自动切层后动态障碍对应楼层变化，立即刷新
+    dynObstacles = getDynamicObstacles ? getDynamicObstacles(activeFloor) : [];
     levelFloor = floor;
     // 切层后新层的栏杆集合 / 挖空区不同（3F 只有洞口护栏），旧位置可能瞬间变非法：
     // 立即校验并推回最近合法点，避免切层瞬间被卡在障碍带内。
@@ -688,6 +700,8 @@ export function createViewManager(
     const area = walkAreas[activeFloor];
     const fromInside = inRect(area.inside, camera.position.x, camera.position.z);
     const footY = groundY;
+    // 每帧刷新一次动态实体障碍（推拉门玻璃面板等的实时位置），供 isWalkable 视为常驻 solids
+    dynObstacles = getDynamicObstacles ? getDynamicObstacles(activeFloor) : [];
     // 落点救急：若当前已处于非法位置（切层 / 历史存档 / 穿栏进入夹缝），先推回最近合法点。
     // 之后分轴判定只禁止「合法→非法」，允许「非法→合法」，玩家永远能自己走出来。
     if (!isWalkable(area, camera.position.x, camera.position.z, fromInside, footY)) {

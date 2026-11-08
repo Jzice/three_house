@@ -1,6 +1,7 @@
 import './style.css';
 
-import { FLOORS } from './config/houseConfig';
+import * as THREE from 'three';
+import { FLOORS, SLIDING_DOOR } from './config/houseConfig';
 import { WEATHER_ENABLED_DEFAULT } from './config/siteConfig';
 import { buildHouse } from './scene/buildHouse';
 import { createMaterials } from './scene/materials';
@@ -14,7 +15,7 @@ import { createViewManager, updateInteractables } from './view/viewState';
 import { createTouchControls } from './view/touchControls';
 import { createEnvPanel } from './ui/envPanel';
 import { Game } from './game/game';
-import type { EnvironmentSnapshot, InteractiveObject } from './types';
+import type { EnvironmentSnapshot, InteractiveObject, WalkRect } from './types';
 
 /** 非阻塞提示：当前浏览器未启用 WebGPU，已回退 WebGL2（功能不受影响） */
 function showWebGpuFallbackNotice(): void {
@@ -85,6 +86,28 @@ function bootstrap(): void {
   // 必须在房屋（屋顶/阳台/院子）装配并加入场景之后创建，才能收集到这些带标记的室外 mesh。
   const weatherFx = createWeatherFx(ctx.scene, env);
 
+  // 2F 阳台玻璃推拉门：两扇玻璃叶作为动态实体障碍，障碍矩形跟随其实际（动画中）世界位置。
+  // 玻璃是物理实体，无论开/关都按其所在位置阻挡：关两扇整宽挡、开一扇该扇让出的那半可穿、
+  // 另一半玻璃仍挡；两扇交叉对开（整宽仍被玻璃占满）不可穿（与现状视觉一致）。
+  const tmpSliding = new THREE.Vector3();
+  function getSlidingObstacles(floor: number): WalkRect[] {
+    if (floor !== 1) return [];
+    const out: WalkRect[] = [];
+    const halfW = SLIDING_DOOR.w / 2; // 单扇半宽 1.1m
+    const zHalf = 0.15; // 门洞整厚（含墙厚与内外轨），防止玩家沿 z 方向绕开玻璃
+    for (const o of floors[1].interactables) {
+      if (o.userData.id !== 'sliding') continue;
+      o.getWorldPosition(tmpSliding); // 内部已 updateWorldMatrix，取到动画中实时位置
+      out.push({
+        x0: tmpSliding.x - halfW,
+        x1: tmpSliding.x + halfW,
+        z0: tmpSliding.z - zHalf,
+        z1: tmpSliding.z + zHalf,
+      });
+    }
+    return out;
+  }
+
   // ---- 视角（按层保存模式/相机；第三/第一人称由 viewState 控制可见性） ----
   const view = createViewManager(
     ctx,
@@ -103,6 +126,8 @@ function bootstrap(): void {
       if (mode === '2d' || mode === 'fps') floorplan.draw();
       if (mode === 'fps') syncMinimapBtn();
     },
+    // 动态实体障碍（推拉门玻璃面板等）：按层实时返回当前占据的矩形
+    getSlidingObstacles,
   );
 
   // ---- 门开合状态持久化（每层各门窗的开关；与视角/楼层分开存储，刷新后恢复） ----
