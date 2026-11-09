@@ -2,6 +2,23 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.8] - 2026-11-09
+
+### 改动
+- **修复 1F 后门从室内往外看门洞里出现一条浅灰长方形条（从室外往里没有）**：根因是院子铺装台面 `paveH=0.50m` 比 1F 完成面 `baseY=0.30m` 高 `0.20m`，`yard.ts` 的前院条带 / 后院梯形铺装侧裙边统一用 `materials.wall`（`0xe0e0e0` 浅灰）且法线朝室内；而 `getThresholdSegments()` 给外墙门生成的室外踏面只是 `2cm` 薄贴面，没把高差填实，于是从室内透过门洞看到院面侧裙边 `0.318→0.50m` 的一段浅灰断面，从室外看该面是背面（且被铺装本体遮挡）故不可见。
+- **按 `0.5.10` 的既定做法把 0.20m 高差填实为一级实体台阶**：`getThresholdSegments()` 在 `outerRise>0` 时把室外踏面向门框内压 `2mm`（新增 `STEP_RISER_OVERLAP`）、底面从院面下探到楼板底 `baseY - SLAB_T`，并给该段标记 `riserMaterial = style.sill`；`createThresholdMesh()` 按 BoxGeometry 材质序把顶面留给院面 `paving`、其余五面（含朝室内的踢面）换成门槛同色材质（入户 `doorDark` / 后门 `metalDoor`）。从里往外看到的是与门槛同色的一级规整台阶，从外往里仍是连续地面。覆盖 `0:back` 与 `0:main` 两扇 1F 外墙门。
+
+### 同步
+- `src/types.ts` 的 `ThresholdSegment` 新增可选 `riserMaterial`；`THRESHOLD_STYLES` 的 `0:main` / `0:back` 做法说明、`outerRise` 字段注释与 `getThresholdSegments()` 文档同步。
+- 2D 图例、CAD `THRESHOLD` 图层、FPS 脚下贴地仍与 `getThresholdSegments()` 同源派生：台阶段仅 z 向多 `2mm`、盒体高度 `0.02m → 0.402m`，`topY`（`0.502m`）、图例色与脚下贴地标高不变，通行判定不受影响；`docs/house.json` / `house.dxf` 静态产物本次未重生成（下次 `npm run gen:cad && npm run gen:dxf` 即会同步）。
+- 未改动门窗尺寸 / 开合角度 / 交互阈值、材质字典、三种视角相机与天空环境层。
+- 本次为 **v2.0.8 发版**：`package.json` 与 `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.8`；提交信息与附注标签注释均为 `v2.0.8：…`，按 `push origin main` → `push origin v2.0.8` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1275.7 KB / CDN 版 396.7 KB），构建日志中的 `"abs" is imported ... but never used` 为 metaverse-sky 既有告警。
+- 产物自检：`dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 0 条、CDN 版 importmap 恰好 1 条。
+- `npm run dev` 第一人称目视：后门内侧（门外卵石 → 中灰台阶踢面 → 门槛 → 室内地砖）、后门外侧（连续地面、无多余竖条）、入户门内侧（近黑台阶踢面）三处均无浅灰断面，控制台 0 错误 0 警告。
+
 ## [2.0.7] - 2026-11-09
 
 ### 改动

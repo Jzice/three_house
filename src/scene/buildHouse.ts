@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { BoxSpec, FloorConfig, InteractiveObject, MaterialKey, MaterialMap } from '../types';
+import type { BoxSpec, FloorConfig, InteractiveObject, MaterialKey, MaterialMap, ThresholdSegment } from '../types';
 import {
   FLOORS,
   getColumns,
@@ -111,10 +111,13 @@ function createSlabMesh(
 
 /**
  * 门槛 / 门洞补地面网格：过门石是整块实心材料，六面同材质（侧面为断口而非乳胶漆）。
+ * 1F 外墙门的实体台阶段例外：顶面仍为院面铺装，其余五面（含朝室内的踢面）换为该门门槛材质，
+ * 使门洞里看到的是一级规整台阶，而不是院子铺装侧裙边的浅灰断面。
  * 带贴图的材质按构件自身尺寸平铺，不套用楼板的 0.8m 全局砖缝相位——真实过门石本就独立分块；
  * 并给窄条设 repeat 下限，避免木纹 / 矿粒在几厘米宽的门槛上被裁成纯色。
  */
-function createThresholdMesh(spec: BoxSpec, materials: MaterialMap): THREE.Mesh {
+function createThresholdMesh(seg: ThresholdSegment, materials: MaterialMap): THREE.Mesh {
+  const spec = seg.spec;
   const src = materials[spec.material];
   const mat = src.clone();
   if (src.map) {
@@ -123,7 +126,13 @@ function createThresholdMesh(spec: BoxSpec, materials: MaterialMap): THREE.Mesh 
     tex.repeat.set(Math.max(spec.w / TILE_SIZE, 0.5), Math.max(spec.d / TILE_SIZE, 0.5));
     mat.map = tex;
   }
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(spec.w, spec.h, spec.d), mat);
+  const geo = new THREE.BoxGeometry(spec.w, spec.h, spec.d);
+  // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z]：顶面用踏面材质，其余五面用门槛同色踢面。
+  // 踢面材质（doorDark / metalDoor）为纯色，直接克隆即可，不复用踏面贴图的 repeat。
+  const riser = seg.riserMaterial ? materials[seg.riserMaterial].clone() : null;
+  const mesh: THREE.Mesh = riser
+    ? new THREE.Mesh(geo, [riser, riser, mat, riser, riser, riser])
+    : new THREE.Mesh(geo, mat);
   mesh.name = `threshold-${spec.material}-${spec.x.toFixed(2)}-${spec.z.toFixed(2)}`;
   mesh.position.set(spec.x, spec.y, spec.z);
   mesh.castShadow = false;
@@ -159,7 +168,7 @@ export function buildHouse(materials: MaterialMap, floor: FloorConfig): HouseRes
   // 门槛 / 过门石 / 门洞补地面：按各门两侧实际地面与高差铺装（世界坐标，不走 remapBox）。
   // 放在楼板之后、门窗之前，外门缺口由补地面实体填实，内门收边条叠在连续楼板之上。
   for (const seg of getThresholdSegments(floor)) {
-    root.add(createThresholdMesh(seg.spec, materials));
+    root.add(createThresholdMesh(seg, materials));
   }
 
   // 天花板：本层上方的楼板底面（= 上层楼板 / 屋顶板），仅第一人称处于该层时可见，

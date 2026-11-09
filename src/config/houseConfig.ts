@@ -647,6 +647,8 @@ const SILL_DEPTH = T_INT; // 0.24m
 const TREAD_EXTEND = 0.15;
 /** 踏面压在楼板 / 院子铺装上的共面让缝（米），与 WALL_TOP_GUARD 同类 */
 const TREAD_GUARD = 0.002;
+/** 1F 外门实体台阶的踢面向门框内压入量（米）：盖住院子铺装的浅灰侧裙边，并避免两立面共面闪烁 */
+const STEP_RISER_OVERLAP = 0.002;
 
 /** 单扇门的门槛做法：键 = `${楼层序号}:${门 id}`；门位与洞宽仍由 collectFloorDoors 派生，避免重复维护 */
 interface ThresholdStyle {
@@ -658,7 +660,7 @@ interface ThresholdStyle {
   outer?: MaterialKey;
   /** 门槛顶相对本层完成面的抬高（米） */
   sillRise: number;
-  /** 室外侧踏面顶相对完成面的高差（米）：1F 院子 0.2m，其余 0 */
+  /** 室外侧踏面顶相对完成面的高差（米）：1F 院子 0.2m，其余 0；>0 时该段按实体台阶填实 */
   outerRise: number;
   /** 外墙门需把内外踏面延伸到门框两侧，并填实门洞缺口 */
   infillGeom: boolean;
@@ -689,12 +691,12 @@ export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
   '0:main': {
     sill: 'doorDark', inner: 'floorIndoor', outer: 'paving',
     sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: 1,
-    color: SILL_DOOR_DARK, note: '入户双开门：门槛与深灰仿铜门框同材质；内外踏面分用室内瓷砖与前院卵石，过渡 0.2m 高差',
+    color: SILL_DOOR_DARK, note: '入户双开门：门槛与深灰仿铜门框同材质；室内踏面用瓷砖、室外 0.2m 高差填实为一级实体台阶（踢面与门槛同色，顶面接前院卵石）',
   },
   '0:back': {
     sill: 'metalDoor', inner: 'floorIndoor', outer: 'paving',
     sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: -1,
-    color: SILL_METAL, note: '北墙后门：门槛与灰色金属门框同材质；18mm 挡水 + 内外高差过渡踏面',
+    color: SILL_METAL, note: '北墙后门：门槛与灰色金属门框同材质；18mm 挡水 + 室外 0.2m 高差填实为一级实体台阶（踢面与门槛同色，顶面接后院卵石）',
   },
   '0:door-bed1': {
     sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
@@ -745,6 +747,9 @@ export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
  * 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用这一份推导结果。
  * 沿墙厚方向以墙心为 0：门槛条固定占 [-SILL_DEPTH/2, +SILL_DEPTH/2]（与门框等宽）；
  * 外墙门的内 / 外踏面分别再向两侧延伸 TREAD_EXTEND；内门楼板连续，只生成门槛条。
+ * 1F 两扇外墙门有 0.2m 内外高差（outerRise>0）：外侧踏面压入门框 2mm 并从楼板底填实为
+ * 一级实体台阶，顶面接院子铺装、朝室内的踢面与门槛同色（由 3D 装配按 riserMaterial 分面），
+ * 避免门洞里露出院子铺装的浅灰侧裙边；其余无高差门仍为 2cm 薄贴面。
  *
  * 门位取 collectThresholdDoors()（含厨房常开洞口），而非 collectFloorDoors()：
  * 后者只描述「有门扇、需要门禁判定」的门，前者额外补无门扇洞口的过门石。
@@ -760,6 +765,8 @@ export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
     const half = SILL_DEPTH / 2;
     const parts: Array<{
       a: number; b: number; rise: number; material: MaterialKey; kind: 'sill' | 'infill';
+      /** 实体台阶：把 outerRise 高差填实为一级台阶，而非压在院面上的 2cm 薄贴面 */
+      step?: boolean;
     }> = [{ a: -half, b: half, rise: style.sillRise, material: style.sill, kind: 'sill' }];
     if (style.infillGeom) {
       // 踏面移到门框两侧：顶标高加 2mm 让缝，避免与楼板 / 院子铺装顶面共面 z-fighting
@@ -767,9 +774,13 @@ export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
         a: -half - TREAD_EXTEND, b: -half,
         rise: TREAD_GUARD, material: style.inner ?? style.sill, kind: 'infill',
       });
+      // 1F 两扇外墙门有 0.2m 内外高差：室外踏面向门框内压 2mm 并填实为实体台阶，
+      // 朝室内的踢面由渲染侧换成门槛同色，盖住院子铺装侧裙边（materials.wall 浅灰）在门洞处的裸露断面。
+      const isStep = style.outerRise > 0;
       parts.push({
-        a: half, b: half + TREAD_EXTEND,
+        a: half - (isStep ? STEP_RISER_OVERLAP : 0), b: half + TREAD_EXTEND,
         rise: style.outerRise + TREAD_GUARD, material: style.outer ?? style.sill, kind: 'infill',
+        step: isStep,
       });
     }
     for (const p of parts) {
@@ -779,15 +790,21 @@ export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
       const hi = Math.max(c0, c1);
       const topY = floor.baseY + p.rise;
       // 门槛条：外门下探到楼板底以填实门洞缺口，内门只嵌 2cm；
-      // 内外踏面：压在楼板 / 院子铺装之上的 2cm 薄贴面
+      // 实体台阶：从楼板底一直填到院面标高，0.2m 高差变成朝室内的一级踢面；
+      // 其余踏面：压在楼板 / 院子铺装之上的 2cm 薄贴面
       const bottom = p.kind === 'sill'
         ? floor.baseY - (style.infillGeom ? SLAB_T : 0.02)
-        : topY - 0.02;
+        : p.step
+          ? floor.baseY - SLAB_T
+          : topY - 0.02;
       const spec: BoxSpec = alongX
         ? box(door.w, topY - bottom, hi - lo, door.x, (topY + bottom) / 2, (lo + hi) / 2, p.material)
         : box(hi - lo, topY - bottom, door.w, (lo + hi) / 2, (topY + bottom) / 2, door.z, p.material);
       const color = p.kind === 'sill' ? style.color : p.material === 'paving' ? '#b7b0a4' : '#d8d8d4';
-      out.push({ id: door.id, kind: p.kind, spec, topY, color, note: style.note });
+      out.push({
+        id: door.id, kind: p.kind, spec, topY, color, note: style.note,
+        riserMaterial: p.step ? style.sill : undefined,
+      });
     }
   }
   return out;

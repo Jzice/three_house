@@ -238,6 +238,12 @@ export interface ThresholdSegment {
   color: string;
   /** 该门的实际做法说明 */
   note: string;
+  /**
+   * 实体台阶段的踢面材质（仅 1F 两扇外墙门有 0.2m 内外高差时设置）：
+   * 顶面仍用 `spec.material`（与院面一致），其余五面用此材质（与该门门槛同色），
+   * 使从室内看到的是一级规整台阶，而不是院子铺装侧裙边的浅灰断面。
+   */
+  riserMaterial?: MaterialKey;
 }
 
 /** 带交互数据的 Object3D */
