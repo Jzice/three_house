@@ -349,11 +349,21 @@ function buildFlower(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent:
   }
 }
 
-/** 吊扇灯：白色圆盘灯体 + 细金边 + 4 片半透弧叶 */
-function buildCeilingFan(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
+/** 吊扇灯的扇叶机构句柄：转子 + 每片扇叶的水平旋叠铰轴 */
+interface FanRig {
+  rotor: THREE.Group;
+  folds: THREE.Group[];
+  /** 扇叶基准高度（相对灯具原点） */
+  bladeY: number;
+}
+
+/** 吊扇灯：白色圆盘灯体 + 细金边 + 4 片半透弧叶（贴近灯体、可水平旋叠收拢） */
+function buildCeilingFan(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): FanRig {
   const cfg = LAMP_GEOMETRY.ceilingFan;
   const r = spec.radius;
   const topY = -spec.drop;
+  // 扇叶平面下移到圆盘灯体上表面之上 0.08m，不再贴天花板
+  const bladeY = topY + cfg.bladeAboveBody;
 
   const canopy = cached('fan-canopy', () => new THREE.CylinderGeometry(cfg.canopyR, cfg.canopyR, cfg.canopyH, 20));
   add(parent, canopy, MAT.white, 0, -cfg.canopyH / 2, 0);
@@ -372,6 +382,15 @@ function buildCeilingFan(spec: LampSpec, glow: THREE.MeshStandardMaterial[], par
   const discMesh = add(parent, disc, gm, 0, topY - cfg.bodyH - 0.003, 0);
   discMesh.rotation.x = Math.PI / 2;
 
+  // 转子：根部小轮毂 + 4 组「径向 pivot → 水平旋叠铰轴 → 叶片」
+  const rotor = new THREE.Group();
+  rotor.name = `fan-rotor-${spec.id}`;
+  parent.add(rotor);
+  const hub = cached(`fan-hub-${cfg.hubR}`, () =>
+    new THREE.CylinderGeometry(cfg.hubR, cfg.hubR, cfg.hubH, 20));
+  // 轮毂略低于扇叶平面，收拢的叶片不会与它穿插
+  add(rotor, hub, MAT.white, 0, bladeY - cfg.hubH, 0);
+
   const bladeLen = cfg.bladeLen * (r / cfg.bodyR);
   const bladeGeo = cached(`fan-blade-${bladeLen}`, () => {
     const g = new THREE.PlaneGeometry(bladeLen, cfg.bladeW, 10, 2);
@@ -383,13 +402,21 @@ function buildCeilingFan(spec: LampSpec, glow: THREE.MeshStandardMaterial[], par
     g.computeVertexNormals();
     return g;
   });
+  const folds: THREE.Group[] = [];
   for (let i = 0; i < cfg.bladeCount; i++) {
     const pivot = new THREE.Group();
     pivot.rotation.y = (i / cfg.bladeCount) * Math.PI * 2;
-    const blade = add(pivot, bladeGeo, MAT.blade, bladeLen / 2 + r * 0.55, cfg.bladeY, 0);
+    rotor.add(pivot);
+    // 铰轴落在叶片根部：绕自身 y 轴回旋即可把整片叶子平叠到灯体正上方
+    const fold = new THREE.Group();
+    fold.position.set(r * 0.55, bladeY, 0);
+    fold.rotation.y = cfg.foldAngle; // 初始收拢态，由状态中枢下发目标态
+    pivot.add(fold);
+    const blade = add(fold, bladeGeo, MAT.blade, bladeLen / 2, 0, 0);
     blade.rotation.x = -Math.PI / 2;
-    parent.add(pivot);
+    folds.push(fold);
   }
+  return { rotor, folds, bladeY };
 }
 
 /**
@@ -497,6 +524,10 @@ export interface LampHandle {
   light: THREE.PointLight;
   /** t∈[0,1]：自发光与点光源强度插值 */
   setGlow(t: number): void;
+  /** 吊扇目标态：仅 ceilingFan 有效，其余灯具为空操作 */
+  setFanTarget(on: boolean): void;
+  /** 每帧推进扇叶水平旋叠 / 自转：仅 ceilingFan 有效 */
+  update(dt: number): void;
 }
 
 export interface SwitchHandle {
@@ -515,6 +546,7 @@ export function createLamp(spec: LampSpec, floorBaseY: number): LampHandle {
   group.position.set(spec.x, floorBaseY + spec.y, spec.z);
 
   const glow: THREE.MeshStandardMaterial[] = [];
+  let fanRig: FanRig | null = null;
   switch (spec.kind) {
     case 'chandelier':
       buildChandelier(spec, glow, group);
@@ -523,7 +555,7 @@ export function createLamp(spec: LampSpec, floorBaseY: number): LampHandle {
       buildFlower(spec, glow, group);
       break;
     case 'ceilingFan':
-      buildCeilingFan(spec, glow, group);
+      fanRig = buildCeilingFan(spec, glow, group);
       break;
     case 'shell':
       buildShell(spec, glow, group);
@@ -544,6 +576,26 @@ export function createLamp(spec: LampSpec, floorBaseY: number): LampHandle {
   light.visible = false;
   group.add(light);
 
+  // 吊扇 engage∈[0,1] 同时驱动「扇叶水平旋叠角」与「转速」：
+  // 开 → 边旋转边甩开叶片，关 → 边减速边旋叠收回，与灯体发光完全独立。
+  let fanTarget = 0;
+  let engage = 0;
+  let spinAngle = 0;
+  let fanInitialized = false;
+
+  function applyFan(): void {
+    if (!fanRig) return;
+    const fanCfg = LAMP_GEOMETRY.ceilingFan;
+    fanRig.rotor.rotation.y = spinAngle;
+    const foldAngle = (1 - engage) * fanCfg.foldAngle;
+    for (let i = 0; i < fanRig.folds.length; i++) {
+      const f = fanRig.folds[i];
+      f.rotation.y = foldAngle;
+      // 收拢时四片叶子错开层叠避免共面闪烁；完全展开时归位同一平面
+      f.position.y = fanRig.bladeY + (1 - engage) * i * fanCfg.stackGap;
+    }
+  }
+
   const peak = spec.intensity ?? 1.2;
   return {
     spec,
@@ -558,10 +610,35 @@ export function createLamp(spec: LampSpec, floorBaseY: number): LampHandle {
       }
       light.intensity = k * peak;
     },
+    setFanTarget(on: boolean): void {
+      if (!fanRig) return;
+      fanTarget = on ? 1 : 0;
+      // 首帧前由状态中枢恢复持久化状态：直接吸附，避免刷新时误播一次展开动画
+      if (!fanInitialized) {
+        engage = fanTarget;
+        fanInitialized = true;
+        applyFan();
+      }
+    },
+    update(dt: number): void {
+      if (!fanRig) return;
+      const fanCfg = LAMP_GEOMETRY.ceilingFan;
+      const step = Math.min(Math.max(dt, 0), 0.1);
+      if (engage !== fanTarget) {
+        // 帧率无关的一阶趋近：约 1.2s 完成展开 / 收拢与起停转
+        engage += (fanTarget - engage) * (1 - Math.exp(-step / fanCfg.foldTau));
+        if (Math.abs(fanTarget - engage) < 0.002) engage = fanTarget;
+        applyFan();
+      }
+      if (engage > 0) {
+        spinAngle = (spinAngle + Math.PI * 2 * fanCfg.spinRps * engage * step) % (Math.PI * 2);
+        fanRig.rotor.rotation.y = spinAngle;
+      }
+    },
   };
 }
 
-/** 创建 86 型开关面板：贴墙内表面、双联按键各自独立命中与状态指示 */
+/** 创建 86 型开关面板：贴墙内表面、各按键独立命中与状态指示；3 键起切换加宽三联板 */
 export function createSwitch(spec: SwitchSpec, floorBaseY: number): SwitchHandle {
   const cfg = LAMP_GEOMETRY.switch;
   const group = new THREE.Group();
@@ -569,18 +646,20 @@ export function createSwitch(spec: SwitchSpec, floorBaseY: number): SwitchHandle
   group.position.set(spec.x, floorBaseY + spec.y, spec.z);
   group.rotation.y = spec.rotY;
 
-  const plate = cached('sw-plate', () => new THREE.BoxGeometry(cfg.plateW, cfg.plateH, cfg.plateT));
+  const n = Math.max(1, spec.keys.length);
+  // 三联及以上用加宽的 86 系列面板，保证每键仍是 30mm 标准宽、命中盒足够宽
+  const plateW = n >= 3 ? cfg.plateW3 : cfg.plateW;
+  const plate = cached(`sw-plate-${plateW}`, () => new THREE.BoxGeometry(plateW, cfg.plateH, cfg.plateT));
   add(group, plate, MAT.plate);
 
-  const n = Math.max(1, spec.keys.length);
-  const cell = (cfg.plateW - 0.010) / n;
+  const cell = (plateW - 0.010) / n;
   const keyW = Math.min(cfg.keyW, cell - 0.006);
   const hitObjects: THREE.Object3D[] = [];
   const keyMeshes: THREE.Mesh[] = [];
   const indicators: THREE.MeshStandardMaterial[] = [];
 
   for (let i = 0; i < n; i++) {
-    const kx = -cfg.plateW / 2 + 0.005 + (i + 0.5) * cell;
+    const kx = -plateW / 2 + 0.005 + (i + 0.5) * cell;
     const key = add(group, new THREE.BoxGeometry(keyW, cfg.keyH, cfg.keyT), MAT.key,
       kx, 0, cfg.plateT / 2 + cfg.keyT / 2);
     keyMeshes.push(key);

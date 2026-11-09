@@ -1,8 +1,10 @@
 import type { LightController } from '../lighting/lightController';
 import {
+  FANS,
   LAMPS,
   LIGHT_GROUPS,
   LAMP_KIND_LABEL,
+  type FanSpec,
   type LampKind,
   type LampSpec,
 } from '../config/lightingConfig';
@@ -48,6 +50,15 @@ function kindIcon(kind: LampKind): string {
     '</svg>'
   );
 }
+
+/** 吊扇行图标：四叶扇（与灯型图标同风格） */
+const FAN_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+  'stroke-linecap="round" stroke-linejoin="round">' +
+  '<circle cx="12" cy="12" r="2.1"/>' +
+  '<path d="M12 9.9c-1-4.5 2.6-6.6 4.6-4.6s-0.1 4.6-4.6 4.6 M14.1 12c4.5-1 6.6 2.6 4.6 4.6s-4.6-0.1-4.6-4.6 ' +
+  'M12 14.1c1 4.5-2.6 6.6-4.6 4.6s0.1-4.6 4.6-4.6 M9.9 12c-4.5 1-6.6-2.6-4.6-4.6s4.6 0.1 4.6 4.6"/>' +
+  '</svg>';
 
 export interface LightPanel {
   /** 3D 楼层切换时同步分段标签与列表 */
@@ -134,13 +145,30 @@ export function createLightPanel(controller: LightController): LightPanel {
       </div>`;
   }
 
+  /** 吊扇独立一行：与同 id 的灯并列显示，状态取自 snapshot.fans */
+  function fanRowHtml(spec: FanSpec): string {
+    return `
+      <div class="lp-row" data-fan="${spec.id}">
+        <span class="lp-icon">${FAN_ICON}</span>
+        <span class="lp-text">
+          <span class="lp-name">${spec.label}</span>
+          <span class="lp-kind">自动折叠 · 独立开关</span>
+        </span>
+        <button class="lp-switch" role="switch" aria-checked="false" type="button" aria-label="${spec.label}">
+          <span class="lp-knob"></span>
+        </button>
+      </div>`;
+  }
+
   function renderList(floor: number): void {
     const groups = LIGHT_GROUPS.filter((g) => g.floor === floor);
     list.innerHTML = groups
       .map((g) => {
         const items = LAMPS.filter((l) => l.group === g.id);
-        if (items.length === 0) return '';
-        return `<div class="lp-group"><div class="lp-group-title">${g.label}</div>${items.map(rowHtml).join('')}</div>`;
+        const fanItems = FANS.filter((f) => f.group === g.id);
+        if (items.length === 0 && fanItems.length === 0) return '';
+        return `<div class="lp-group"><div class="lp-group-title">${g.label}</div>` +
+          `${items.map(rowHtml).join('')}${fanItems.map(fanRowHtml).join('')}</div>`;
       })
       .join('');
   }
@@ -148,7 +176,8 @@ export function createLightPanel(controller: LightController): LightPanel {
   function refresh(): void {
     const snap = controller.getSnapshot();
     list.querySelectorAll<HTMLElement>('.lp-row').forEach((row) => {
-      const on = snap.on[row.dataset.lamp ?? ''] === true;
+      const fanId = row.dataset.fan;
+      const on = fanId ? snap.fans[fanId] === true : snap.on[row.dataset.lamp ?? ''] === true;
       row.classList.toggle('on', on);
       const sw = row.querySelector<HTMLElement>('.lp-switch');
       if (sw) sw.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -182,6 +211,11 @@ export function createLightPanel(controller: LightController): LightPanel {
     const t = e.target as HTMLElement;
     const row = t.closest<HTMLElement>('.lp-row');
     if (!row) return;
+    const fanId = row.dataset.fan;
+    if (fanId) {
+      controller.toggleFan(fanId);
+      return;
+    }
     const id = row.dataset.lamp;
     if (id) controller.toggleLamp(id);
   });

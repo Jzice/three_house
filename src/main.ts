@@ -289,9 +289,13 @@ function bootstrap(): void {
 
   // ---- 全屋照明：状态中枢 + 灯光面板（3D 墙上开关与 UI 面板共用同一状态源） ----
   // 必须在 createEnvPanel 之后创建：灯光面板依赖右上环境按钮实现两面板互斥显示。
+  const allLamps = floors.flatMap((f) => f.lamps);
+  // 吊扇灯句柄同时交给状态中枢（独立开关状态）与渲染循环（扇叶旋叠 / 自转）
+  const fanHandles = allLamps.filter((h) => h.spec.kind === 'ceilingFan');
   const lighting = createLightController(
-    floors.flatMap((f) => f.lamps),
+    allLamps,
     floors.flatMap((f) => f.switches),
+    fanHandles,
   );
   const lightPanel = createLightPanel(lighting);
   lightPanel.setActiveFloor(view.activeFloor);
@@ -426,6 +430,8 @@ function bootstrap(): void {
     // tps 与 fps 统一同一规则，2D 传空集合只推进灯状态、不启用任何点光源。
     lighting.update(dt);
     lighting.syncVisibility(mode === '2d' ? [] : [view.activeFloor], ctx.camera.position);
+    // 吊扇：扇叶水平旋叠 / 自转推进（2D 不渲染；静止时句柄内部零遍历）
+    if (mode !== '2d') for (const h of fanHandles) h.update(dt);
 
     // 游戏模式每帧推进（内部在未激活时早退）
     if (gameActive) game.update(dt, movingKeys);

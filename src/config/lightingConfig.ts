@@ -11,7 +11,8 @@
  * - 吊灯 / 花灯 / 吊扇灯灯底距完成面 ≥2.20m / ≥2.30m（餐厅上方避开 0.75m 台面）；
  * - 吸顶灯贴上层楼板底面；卫生间用防潮款；走廊灯按长度均布；
  *   楼梯休息台下灯改贴平台板底，点光源有效半径收敛到 2m，避免净高不足处穿楼板漏光；
- * - 玄关、2F 大厅、卫生间设双联；三处楼梯休息台灯一律「一灯一就近开关」单控
+ * - 玄关、2F 大厅设三联（外面走廊 / 室内大厅 / 左边大厅，一键一灯），餐厅设灯/扇双联，
+ *   卫生间设双联；三处楼梯休息台灯一律「一灯一就近开关」单控
  *   （后门旁 / 1F 楼梯入口 / 2F 楼梯入口），不再跨层双控；3F 梯口与半层同样就近单控。
  */
 import { FLOORS, STAIR } from './houseConfig';
@@ -57,8 +58,10 @@ export interface LampSpec {
 export interface SwitchKeySpec {
   /** 按键名称（面板内提示 / UI 说明） */
   label: string;
-  /** 该按键控制的灯 id 列表：可为多盏（分组开关） */
+  /** 该按键控制的灯 id 列表：可为多盏（分组开关）；吊扇键为空数组 */
   controls: string[];
+  /** 吊扇设备 id：存在时该按键只切换扇叶状态，与灯光状态完全独立 */
+  fan?: string;
 }
 
 /** 86 型开关面板配置 */
@@ -100,6 +103,9 @@ const PLATFORM_SOFFIT_Y = FLOORS.map((f) =>
 
 /** 开关面板安装高度（相对本层完成面） */
 export const SWITCH_Y = 1.30;
+
+/** 吊扇首屏默认状态：关闭（扇叶水平旋叠收在灯体上方），点击开关才展开旋转 */
+export const FAN_DEFAULT_ON = false;
 
 /** 默认发光色：暖白 3000K 观感 */
 export const LAMP_COLOR = 0xffd9a8;
@@ -155,14 +161,26 @@ export const LAMP_GEOMETRY = {
     leafCount: 8,
     leafLen: 0.16,
   },
-  /** 吊扇灯：白色圆盘 + 金边 + 4 片半透弧叶 */
+  /** 吊扇灯：白色圆盘 + 金边 + 4 片半透弧叶（可水平旋叠的自动折叠扇叶） */
   ceilingFan: {
     bodyR: 0.30,
     bodyH: 0.075,
     bladeCount: 4,
     bladeLen: 0.44,
     bladeW: 0.115,
-    bladeY: -0.10,
+    /** 扇叶平面在圆盘灯体上表面之上的高度：0.08m → 相对原点 -0.42，贴近灯体 */
+    bladeAboveBody: 0.08,
+    /** 关闭时扇叶绕根部铰轴在水平面内回旋的角度：平叠到灯体正上方 */
+    foldAngle: (155 * Math.PI) / 180,
+    /** 展开 / 收拢与转速耦合的一阶时间常数（秒），约 1.2s 完成 */
+    foldTau: 0.35,
+    /** 满速转速（转 / 秒） */
+    spinRps: 1.2,
+    /** 收拢时四片扇叶的层叠间距，避免共面闪烁 */
+    stackGap: 0.006,
+    /** 扇叶根部小轮毂 */
+    hubR: 0.05,
+    hubH: 0.018,
     rimR: 0.012,
     canopyR: 0.085,
     canopyH: 0.045,
@@ -199,9 +217,10 @@ export const LAMP_GEOMETRY = {
     rimEdge: 0.012,
     panelH: 0.008,
   },
-  /** 86 型开关面板 */
+  /** 86 型开关面板：1~2 键用 86mm 方板，3 键起用加宽三联板（保证 30mm 标准按键） */
   switch: {
     plateW: 0.086,
+    plateW3: 0.20,
     plateH: 0.086,
     plateT: 0.012,
     keyW: 0.030,
@@ -317,14 +336,31 @@ export const LAMPS: LampSpec[] = [
   }),
 ];
 
+/** 可独立开关的吊扇设备：与吊扇灯共用 id，状态独立于发光 / 点光源 */
+export interface FanSpec {
+  id: string;
+  floor: number;
+  group: string;
+  label: string;
+}
+
+/** 吊扇设备表：由吊扇灯派生，新增吊扇灯自动获得独立开关行 */
+export const FANS: FanSpec[] = LAMPS
+  .filter((l) => l.kind === 'ceilingFan')
+  .map((l) => ({ id: l.id, floor: l.floor, group: l.group, label: `${l.label.split(' · ')[0]} · 吊扇` }));
+
 /**
- * 逐开关表（共 17 个面板）。
+ * 逐开关表（共 17 个面板 / 24 个按键）。
  * 位置取各门洞内侧、距门套 0.15~0.20m、贴墙内表面再内移 1cm、距完成面 1.30m；
  * rotY 让面板法向（局部 +z）朝室内：南墙内侧=π、北墙内侧=0、东墙面朝+x=π/2、朝-x=-π/2。
  *
+ * 前厅两块三联面板落在南墙西窗（x∈[-3.83,-2.03]）与正门之间的实墙垛正中：
+ * 1F 垛 x∈[-2.03,-1.45] 取 x=-1.74、2F 垛 x∈[-2.03,-1.30] 取 x=-1.665，
+ * 使面板与左边大门、右边窗户大体等距；加宽后的 0.20m 三联板仍在墙垛内。
  * 左右墙（法向 ±x）面板必须落在实墙段上：1F/2F 纵墙 x=1.20 只有 z∈[-4.88,-1.62] /
- * [0.38,0.75] / [1.65,4.88] 三段；餐厅面板贴楼梯间东墙 x=-2.00 在 z∈[-2.75,-1.70]
- * 的实墙段东面（避开 z∈[-3.85,-2.75] 的厨房常开洞口），厨房灯另拆单键装在**厨房内侧**
+ * [0.38,0.75] / [1.65,4.88] 三段；餐厅灯/扇双联面板贴楼梯间东墙 x=-2.00 在
+ * z∈[-2.75,-1.70] 的实墙段东面，靠南侧墙角 z=-1.70 内移 0.18m 取 z=-1.88
+ * （避开 z∈[-3.85,-2.75] 的厨房常开洞口）；厨房灯另拆单键装在**厨房内侧**
  * 该洞口北旁实墙 x=-1.87、z=-4.03；bed1 贴纵墙南段东面、门洞南沿 z=1.83；
  * 卫生间开关贴门外洗漱过道侧 x=2.37、门洞南沿 -0.45 以南 0.18m 的实墙段（潮湿场所开关
  * 宜门外；铰链在北侧，门扇向卫生间内开，不扫过门右侧）；杂物间单键装在门洞东侧
@@ -339,16 +375,21 @@ export const LAMPS: LampSpec[] = [
 export const SWITCHES: SwitchSpec[] = [
   // ---------------- 1F ----------------
   {
-    id: 'sw-1f-entry', floor: 0, x: -1.63, z: 4.87, y: SWITCH_Y, rotY: Math.PI,
+    // 三联：外面走廊（门廊灯）/ 室内大厅 / 左边大厅，一键一灯
+    id: 'sw-1f-entry', floor: 0, x: -1.74, z: 4.87, y: SWITCH_Y, rotY: Math.PI,
     keys: [
-      { label: '玄关 / 门廊', controls: ['1f-foyer-chandelier', '1f-porch'] },
-      { label: '客厅花灯', controls: ['1f-living-flower'] },
+      { label: '外面走廊', controls: ['1f-porch'] },
+      { label: '室内大厅', controls: ['1f-foyer-chandelier'] },
+      { label: '左边大厅', controls: ['1f-living-flower'] },
     ],
   },
   {
-    // 餐厅左侧＝楼梯间东墙 x=-2.00 的东面 -1.88（实墙段 z∈[-2.75,-1.70]），面向餐厅
-    id: 'sw-1f-dining', floor: 0, x: -1.87, z: -2.20, y: SWITCH_Y, rotY: Math.PI / 2,
-    keys: [{ label: '餐厅吊扇灯', controls: ['1f-dining-fan'] }],
+    // 灯 / 扇双联：灯键靠南侧墙角（局部 -x → 世界 +z），吊扇键靠内侧
+    id: 'sw-1f-dining', floor: 0, x: -1.87, z: -1.88, y: SWITCH_Y, rotY: Math.PI / 2,
+    keys: [
+      { label: '餐厅灯', controls: ['1f-dining-fan'] },
+      { label: '餐厅吊扇', controls: [], fan: '1f-dining-fan' },
+    ],
   },
   {
     // 厨房灯独立单键，装在厨房**内侧**：楼梯间东墙 x=-2.00 东面 -1.88 的实墙段
@@ -391,10 +432,12 @@ export const SWITCHES: SwitchSpec[] = [
   },
   // ---------------- 2F ----------------
   {
-    id: 'sw-2f-hall', floor: 1, x: -1.48, z: 4.87, y: SWITCH_Y, rotY: Math.PI,
+    // 与 1F 同为三联：外面走廊（门廊灯）/ 室内大厅 / 左边大厅
+    id: 'sw-2f-hall', floor: 1, x: -1.665, z: 4.87, y: SWITCH_Y, rotY: Math.PI,
     keys: [
-      { label: '大厅左厅', controls: ['2f-hall-left-shell'] },
-      { label: '大厅右厅 / 门廊', controls: ['2f-hall-right-rect', '2f-porch'] },
+      { label: '外面走廊', controls: ['2f-porch'] },
+      { label: '室内大厅', controls: ['2f-hall-right-rect'] },
+      { label: '左边大厅', controls: ['2f-hall-left-shell'] },
     ],
   },
   {

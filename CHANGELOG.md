@@ -2,6 +2,27 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.10] - 2026-11-10
+
+### 改动
+- **1F/2F 前厅开关改三联并移到墙垛中央**：`sw-1f-entry` 由 `x=-1.63` 移到 `-1.74`、`sw-2f-hall` 由 `x=-1.48` 移到 `-1.665`（分别为 1F 实墙垛 `x∈[-2.03,-1.45]`、2F `x∈[-2.03,-1.30]` 的中心），与左边大门、右边西窗大体等距；两面板由双联改三联，一键一灯分别控制「外面走廊（门廊灯 `1f-porch` / `2f-porch`）／室内大厅（`1f-foyer-chandelier` / `2f-hall-right-rect`）／左边大厅（`1f-living-flower` / `2f-hall-left-shell`）」，原「玄关+门廊」「右厅+门廊」合并键拆开。
+- **三联 86 面板加宽**：`LAMP_GEOMETRY.switch` 新增 `plateW3=0.20`，`createSwitch()` 在 `keys.length>=3` 时改用 `0.20m` 板宽，3 个按键仍是 `30mm` 标准宽、命中盒约 `63mm`；1~2 键面板保持 `86mm` 不变。
+- **餐厅开关改灯/扇双联并靠南侧墙角**：`sw-1f-dining` 由 `z=-2.20` 移到 `z=-1.88`（距 `z=-1.70` 墙角 `0.18m`）；灯键控 `1f-dining-fan` 发光 / 点光源，新增吊扇键（`SwitchKeySpec.fan`）只控制扇叶，灯扇互不影响。
+- **吊扇扇叶下移并改为自动折叠**：扇叶平面由相对灯具原点 `-0.10` 改到圆盘灯体上表面上方 `0.08m`（相对原点 `-0.42`）；新增 `FANS` 设备表（由吊扇灯派生）与 `FAN_DEFAULT_ON=false`，吊扇状态独立于灯光并持久化到 `house-lights-v1.fans`；`buildCeilingFan()` 改为「转子 + 4 组水平旋叠铰轴」，关闭时叶片绕根部回旋 `155°` 平叠到灯体正上方并停转，启动时边旋转边甩开成十字，展开 / 收拢与转速由同一 `engage` 一阶趋近（`foldTau=0.35s`，约 `1.2s` 完成），满速 `1.2 转/秒`。
+
+### 同步
+- `lightingConfig.ts` 的布位依据与逐开关表注释同步；灯 `23`、面板 `17` 不变，按键 `21→24`。
+- `lightController.ts`：新增 `FanLike` / `isFanOn` / `setFan` / `toggleFan`，`toggleBySwitch` 分流吊扇键，`LightSnapshot.fans` 与持久化字段同步；「全开 / 全关」仍只管灯。
+- `lightPanel.ts`：「餐厅」分组新增「餐厅 · 吊扇」独立开关行（四叶扇图标），与 3D 双联面板双向同步。
+- `main.ts`：收集 `ceilingFan` 句柄注入状态中枢，并在渲染循环逐帧推进扇叶动画（2D 跳过、静止时句柄内部零遍历）。
+- 2D 平面图、门窗尺寸与开合、材质体系、三种视角相机与天空环境层均未改动。
+- 本次为 **v2.0.10 发版**：`package.json` 与 `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.10`；提交信息与附注标签注释均为 `v2.0.10：…`，按 `push origin main` → `push origin v2.0.10` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 `1279.1 KB` / CDN 版 `400.0 KB`）；构建日志中的 `"abs" is imported ...` 为 metaverse-sky 既有告警。
+- 产物自检：`dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+- `npm run dev` + playwright-cli：控制台仅既有 `favicon.ico` 404；场景内 `sw-1f-entry (-1.74,4.87) plateW=0.20 hits=3`、`sw-2f-hall (-1.665,4.87) plateW=0.20 hits=3`、`sw-1f-dining (-1.87,-1.88) plateW=0.086 hits=2`；灯光面板出现「餐厅 · 吊扇」行；启动吊扇后 `fold=0` 且转子持续自转，关闭后 `fold=2.705rad`、四片层叠于 `-0.42/-0.414/-0.408/-0.402` 并停转；刷新后状态正确恢复；第一人称截图确认三联面板位于大门与西窗之间、扇叶展开成十字而收拢时藏于灯体上方。
+
 ## [2.0.9] - 2026-11-10
 
 ### 改动

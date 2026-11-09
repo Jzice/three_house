@@ -1,5 +1,7 @@
 import type { Vector3 } from 'three';
 import {
+  FAN_DEFAULT_ON,
+  FANS,
   LAMPS,
   LIGHT_GROUPS,
   LIGHTS_PERSIST_MS,
@@ -17,6 +19,7 @@ import {
  * 都调用同一组 setLamp / toggleBySwitch / setGroup / setAll，天然双向同步。
  *
  * - 状态：每盏灯有目标值 target(0/1) 与插值值 current，`update()` 只遍历 dirty 灯集；
+ *   吊扇是独立设备（与吊扇灯共用 id），只保存目标态，扇叶旋叠 / 自转的插值留在渲染侧；
  * - 持久化：`house-lights-v1`，带版本校验、异常静默降级、300ms 节流写盘；
  * - 性能：点光源 `castShadow=false`，仅「已开 且 所属楼层可见」参与候选，
  *   超出 MAX_ACTIVE_LIGHTS 时按距相机最近取前 N，其余仍保留灯罩自发光；
@@ -44,9 +47,17 @@ export interface SwitchLike {
   setKeyOn(index: number, on: boolean): void;
 }
 
+/** 渲染侧吊扇句柄的结构化子集：状态中枢只下达目标态，姿态插值留在渲染侧 */
+export interface FanLike {
+  spec: { id: string };
+  setFanTarget(on: boolean): void;
+}
+
 export interface LightSnapshot {
   /** 各灯 id → 是否开启 */
   on: Record<string, boolean>;
+  /** 各吊扇 id → 是否启动（与灯光独立，不计入 litCount） */
+  fans: Record<string, boolean>;
   /** UI 分组 id 列表 */
   groups: string[];
   /** 已开灯数 */
@@ -63,7 +74,13 @@ export interface LightController {
   setLamp(id: string, on: boolean): void;
   /** 切换单灯 */
   toggleLamp(id: string): void;
-  /** 3D 开关面板某按键：整组「有关就全开、全开就全关」，天然支持双控 */
+  /** 吊扇是否启动 */
+  isFanOn(id: string): boolean;
+  /** 设置吊扇（只改扇叶状态，不影响同 id 的灯） */
+  setFan(id: string, on: boolean): void;
+  /** 切换吊扇 */
+  toggleFan(id: string): void;
+  /** 3D 开关面板某按键：灯组「有关就全开、全开就全关」，吊扇键则独立切换 */
   toggleBySwitch(switchId: string, keyIndex: number): void;
   /** 按 UI 分组批量设置 */
   setGroup(group: string, on: boolean): void;
@@ -83,18 +100,27 @@ export interface LightController {
 interface PersistedLights {
   v: number;
   on: Record<string, boolean>;
+  /** 新增字段：老数据没有时按 FAN_DEFAULT_ON 降级，不升版本号 */
+  fans?: Record<string, boolean>;
 }
 
 /** 读取持久化开关；结构不符 / 未知 id / 存储不可用时静默降级 */
-function loadPersisted(): Record<string, boolean> | null {
+function loadPersisted(): PersistedLights | null {
   try {
     const raw = localStorage.getItem(LIGHTS_STORAGE_KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as Partial<PersistedLights>;
     if (!d || d.v !== 1 || typeof d.on !== 'object' || d.on === null) return null;
-    const out: Record<string, boolean> = {};
+    if (d.fans !== undefined && (typeof d.fans !== 'object' || d.fans === null)) return null;
+    const out: PersistedLights = { v: 1, on: {} };
     for (const l of LAMPS) {
-      if (typeof d.on[l.id] === 'boolean') out[l.id] = d.on[l.id];
+      if (typeof d.on[l.id] === 'boolean') out.on[l.id] = d.on[l.id];
+    }
+    if (d.fans) {
+      out.fans = {};
+      for (const f of FANS) {
+        if (typeof d.fans[f.id] === 'boolean') out.fans[f.id] = d.fans[f.id];
+      }
     }
     return out;
   } catch {
@@ -105,19 +131,30 @@ function loadPersisted(): Record<string, boolean> | null {
 export function createLightController(
   lamps: readonly LampLike[],
   switches: readonly SwitchLike[],
+  fans: readonly FanLike[],
 ): LightController {
   const lampMap = new Map<string, LampLike>(lamps.map((h) => [h.spec.id, h]));
   const switchMap = new Map<string, SwitchLike>(switches.map((s) => [s.spec.id, s]));
+  const fanMap = new Map<string, FanLike>(fans.map((f) => [f.spec.id, f]));
   const saved = loadPersisted();
 
   const target = new Map<string, number>();
   const current = new Map<string, number>();
   for (const h of lamps) {
-    const on = saved?.[h.spec.id] ?? DEFAULT_ON;
+    const on = saved?.on[h.spec.id] ?? DEFAULT_ON;
     const t = on ? 1 : 0;
     target.set(h.spec.id, t);
     current.set(h.spec.id, t);
     h.setGlow(t);
+  }
+
+  // 吊扇状态独立于同 id 的灯：初始目标态直接下发给渲染侧（首帧即吸附到对应姿态）
+  const fanTarget = new Map<string, number>();
+  for (const f of fans) {
+    const savedFan = saved?.fans?.[f.spec.id];
+    const on = typeof savedFan === 'boolean' ? savedFan : FAN_DEFAULT_ON;
+    fanTarget.set(f.spec.id, on ? 1 : 0);
+    f.setFanTarget(on);
   }
 
   /** 待插值的灯 id 集合：静止时为空，零遍历 */
@@ -136,19 +173,23 @@ export function createLightController(
     try {
       const on: Record<string, boolean> = {};
       for (const h of lamps) on[h.spec.id] = target.get(h.spec.id) === 1;
-      const data: PersistedLights = { v: 1, on };
+      const fansOn: Record<string, boolean> = {};
+      for (const f of fans) fansOn[f.spec.id] = fanTarget.get(f.spec.id) === 1;
+      const data: PersistedLights = { v: 1, on, fans: fansOn };
       localStorage.setItem(LIGHTS_STORAGE_KEY, JSON.stringify(data));
     } catch {
       // localStorage 不可用 / 隐私模式：静默降级，不影响交互
     }
   }
 
-  /** 把灯状态映射到 3D 开关面板的按键指示（双控开关同步亮灭） */
+  /** 把灯 / 扇状态映射到 3D 开关面板的按键指示（双控开关同步亮灭） */
   function syncSwitchVisuals(): void {
     for (const s of switches) {
       s.spec.keys.forEach((k, i) => {
-        const allOn = k.controls.length > 0 && k.controls.every((id) => target.get(id) === 1);
-        s.setKeyOn(i, allOn);
+        const on = k.fan
+          ? fanTarget.get(k.fan) === 1
+          : k.controls.length > 0 && k.controls.every((id) => target.get(id) === 1);
+        s.setKeyOn(i, on);
       });
     }
   }
@@ -173,6 +214,10 @@ export function createLightController(
     return target.get(id) === 1;
   }
 
+  function isFanOn(id: string): boolean {
+    return fanTarget.get(id) === 1;
+  }
+
   function getSnapshot(): LightSnapshot {
     const on: Record<string, boolean> = {};
     let litCount = 0;
@@ -181,7 +226,9 @@ export function createLightController(
       on[h.spec.id] = v;
       if (v) litCount++;
     }
-    return { on, groups: LIGHT_GROUPS.map((g) => g.id), litCount, total: lamps.length };
+    const fanOn: Record<string, boolean> = {};
+    for (const f of fans) fanOn[f.spec.id] = fanTarget.get(f.spec.id) === 1;
+    return { on, fans: fanOn, groups: LIGHT_GROUPS.map((g) => g.id), litCount, total: lamps.length };
   }
 
   function setLamp(id: string, on: boolean): void {
@@ -194,10 +241,29 @@ export function createLightController(
     commit();
   }
 
+  function setFan(id: string, on: boolean): void {
+    if (!fanMap.has(id)) return;
+    const t = on ? 1 : 0;
+    if (fanTarget.get(id) === t) return;
+    fanTarget.set(id, t);
+    fanMap.get(id)?.setFanTarget(on);
+    commit();
+  }
+
+  function toggleFan(id: string): void {
+    setFan(id, !isFanOn(id));
+  }
+
   function toggleBySwitch(switchId: string, keyIndex: number): void {
     const s = switchMap.get(switchId);
     const key = s?.spec.keys[keyIndex];
-    if (!key || key.controls.length === 0) return;
+    if (!key) return;
+    // 吊扇键：只切换扇叶状态，与同 id 的灯完全独立
+    if (key.fan) {
+      toggleFan(key.fan);
+      return;
+    }
+    if (key.controls.length === 0) return;
     // 该按键控制的灯「有关就全开、全开就全关」；多个面板指向同一组灯时即可实现双控，行为一致
     const allOn = key.controls.every((id) => target.get(id) === 1);
     for (const id of key.controls) setTarget(id, !allOn);
@@ -293,6 +359,9 @@ export function createLightController(
     isOn,
     setLamp,
     toggleLamp,
+    isFanOn,
+    setFan,
+    toggleFan,
     toggleBySwitch,
     setGroup,
     setAll,
