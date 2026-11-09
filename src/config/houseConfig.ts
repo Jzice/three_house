@@ -289,20 +289,20 @@ export function getFloorSlabs(floor: FloorConfig): BoxSpec[] {
   if (floor.index === 2) {
     // 3F 半层楼板：仅后半部分；西侧留出楼梯入口空隙（2F 楼梯直通本层）
     return [
-      box(4.4 - V.x1, SLAB_T, 0.38 - V.z0, (V.x1 + 4.4) / 2, y, (V.z0 + 0.38) / 2, 'floor'), // 东侧大板 x∈[-2.12,4.40]
-      box(V.x1 - V.x0, SLAB_T, 0.38 - V.z1, (V.x0 + V.x1) / 2, y, (V.z1 + 0.38) / 2, 'floor'), // 梯口南侧走道 x∈[-4.40,-2.12]、z∈[-1.28,0.38]
+      box(4.4 - V.x1, SLAB_T, 0.38 - V.z0, (V.x1 + 4.4) / 2, y, (V.z0 + 0.38) / 2, 'floorIndoor'), // 东侧大板 x∈[-2.12,4.40]
+      box(V.x1 - V.x0, SLAB_T, 0.38 - V.z1, (V.x0 + V.x1) / 2, y, (V.z1 + 0.38) / 2, 'floorIndoor'), // 梯口南侧走道 x∈[-4.40,-2.12]、z∈[-1.28,0.38]
     ];
   }
   if (floor.index === 1) {
     // 2F 楼板：北西梯井不铺（与 3F 对 2F→3F 楼梯的挖法完全对称），
     // 拆成"东侧主板 + 西侧条"两块，缝隙正好是梯井
     return [
-      box(4.4 - V.x1, SLAB_T, 9.8, (V.x1 + 4.4) / 2, y, 0, 'floor'),                       // 东侧主板 x∈[-2.12,4.40]
-      box(V.x1 - V.x0, SLAB_T, 4.9 - V.z1, (V.x0 + V.x1) / 2, y, (V.z1 + 4.9) / 2, 'floor'), // 西侧条 x∈[-4.40,-2.12]、z∈[-1.28,4.90]
+      box(4.4 - V.x1, SLAB_T, 9.8, (V.x1 + 4.4) / 2, y, 0, 'floorIndoor'),                       // 东侧主板 x∈[-2.12,4.40]
+      box(V.x1 - V.x0, SLAB_T, 4.9 - V.z1, (V.x0 + V.x1) / 2, y, (V.z1 + 4.9) / 2, 'floorIndoor'), // 西侧条 x∈[-4.40,-2.12]、z∈[-1.28,4.90]
     ];
   }
   // 1F：整板
-  return [box(8.8, SLAB_T, 9.8, 0, y, 0, 'floor')];
+  return [box(8.8, SLAB_T, 9.8, 0, y, 0, 'floorIndoor')];
 }
 
 // ==========================================================
@@ -681,18 +681,18 @@ const SILL_ALUMINUM = '#2a2a2c';
  * - 房门 5 扇 + 卫生间 2 扇 + 厨房常开洞口统一黑色大理石 blackMarble；
  * - 其余 4 扇门槛与各自门框同材质：入户 doorDark、后门 metalDoor、
  *   2F 推拉门 blackAluminum、3F 正面门 metalDoor（整扇已统一为灰色金属）；
- * - 3 扇外墙门把内 / 外踏面移到门框两侧各延伸 0.15m，仍用 floor / paving
- *   保留两侧实际地面与 1F 的 0.2m 高差过渡；
+ * - 3 扇外墙门把内 / 外踏面移到门框两侧各延伸 0.15m，室内侧用 floorIndoor、
+ *   室外侧用 paving / floor（阳台抛光），保留两侧实际地面与 1F 的 0.2m 高差过渡；
  * - `0:door-kitchen` 是无门扇的常开洞口，只生成一条过门石，没有门框 / 门禁。
  */
 export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
   '0:main': {
-    sill: 'doorDark', inner: 'floor', outer: 'paving',
+    sill: 'doorDark', inner: 'floorIndoor', outer: 'paving',
     sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: 1,
     color: SILL_DOOR_DARK, note: '入户双开门：门槛与深灰仿铜门框同材质；内外踏面分用室内瓷砖与前院卵石，过渡 0.2m 高差',
   },
   '0:back': {
-    sill: 'metalDoor', inner: 'floor', outer: 'paving',
+    sill: 'metalDoor', inner: 'floorIndoor', outer: 'paving',
     sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: -1,
     color: SILL_METAL, note: '北墙后门：门槛与灰色金属门框同材质；18mm 挡水 + 内外高差过渡踏面',
   },
@@ -713,7 +713,7 @@ export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
     color: SILL_BLACK, note: '厨房常开洞口：无门扇、永远可通行；过门石沿用房门黑色大理石，抬高 4mm 收边',
   },
   '1:sliding': {
-    sill: 'blackAluminum', inner: 'floor', outer: 'floor',
+    sill: 'blackAluminum', inner: 'floorIndoor', outer: 'floor',
     sillRise: 0.004, outerRise: 0, infillGeom: true, outerSign: 1,
     color: SILL_ALUMINUM, note: '2F 阳台推拉门：门槛与黑色铝合金门框同材质；内外踏面用地砖并保持齐平、不绊脚',
   },

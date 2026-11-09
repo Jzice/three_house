@@ -69,14 +69,16 @@ function remapBox(spec: BoxSpec, floor: FloorConfig): BoxSpec {
 }
 
 /**
- * 楼板 / 天花板网格：顶面用 topMaterial（地砖或外墙色），底面与四周用白色乳胶漆 paint。
+ * 楼板 / 天花板网格：顶面用 topMaterial（室内地砖或外墙色），底面与四周用白色乳胶漆 paint。
  * 地砖贴图相位对齐全局砖缝网格（x≡-4.40、z≡-4.90），与 getFloorSlabs 的多块拆分拼缝一致。
  * 楼板为**世界坐标**（厚度绝对、顶面 = 完成面），故不走 remapBox。
+ * 顶面默认用 floorIndoor（抑制镜面）：默认不投影的太阳主光会穿墙照进室内，抛光地砖会把
+ * 它反成「太阳镜像」光柱；屋面板等外墙色面由调用处显式传 'wall'，室外阳台板另用抛光 floor。
  */
 function createSlabMesh(
   spec: BoxSpec,
   materials: MaterialMap,
-  topMaterial: MaterialKey = 'floor',
+  topMaterial: MaterialKey = 'floorIndoor',
 ): THREE.Mesh {
   const topMat = materials[topMaterial];
   const mat = topMat.clone();

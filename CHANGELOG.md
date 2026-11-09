@@ -2,6 +2,24 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.7] - 2026-11-09
+
+### 改动
+- **修复无窗房间墙角地板出现「太阳镜像」**：太阳主光是全局平行光，默认不投影且墙 / 楼板 / 屋顶均不参与阴影，会穿过围护结构照到室内；抛光地砖 `roughness: 0.16` 在低太阳高度下把这个光源反成一条白核暖橙的竖直光柱。逐项排除（关 `sunGlow`、关裙板 / 灰罩 / 夜罩 / 霾墙 / 朝霞全部天空层后亮斑不变；`roughness → 1`、锁死 `DirectionalLight.intensity = 0`、启用动态阴影后亮斑消失）确认是太阳主光的镜面高光，而非天空层、吸顶灯点光源或 `scene.environment` 反射。
+- **新增室内地砖材质 `floorIndoor`**（`src/scene/materials.ts`）：与 `floor` 共用同一张程序化大理石贴图，仅把 `roughness 0.16 → 0.62`、`metalness 0.06 → 0.02`、`envMapIntensity 0.8 → 0.3`，把镜面高光打散为不可辨的漫亮，砖缝与纹理保持不变；室外 / 阳台仍用 `floor` 抛光版（`0.16 / 0.06 / 0.8`），反光观感零改动。
+- **室内地面统一切换**：`createSlabMesh()` 顶面默认材质 `floor → floorIndoor`（1F/2F/3F 楼板与天花板组）；`getFloorSlabs()` 5 处、`THRESHOLD_STYLES` 三处 `inner`（入户门 / 后门 / 2F 推拉门室内侧踏面）改用 `floorIndoor`，`0:main` / `0:back` 的 `outer: 'paving'` 与 `1:sliding` 的 `outer: 'floor'`（阳台侧）保持原值；屋面板显式传 `'wall'` 不受影响。
+- **楼梯踏面同步抑制**：`stair` 材质 `roughness 0.28 → 0.55`、`metalness 0.05 → 0.02`、`envMapIntensity 0.75 → 0.35`，避免同类穿墙高光出现在楼梯上。
+
+### 同步
+- `src/types.ts` 新增 `MaterialKey` 分支 `floorIndoor`（`MaterialMap` 为 `Record<MaterialKey, …>`，故 `createMaterials()` 同步给出实现）；`src/config/houseConfig.ts` 门槛做法注释同步为「室内侧 floorIndoor / 室外侧 paving · floor」。
+- 未改动天空层、光照与阴影默认开关（「实时光照」仍默认关闭）、`weatherFx` 的 `weatherExposed` 收集逻辑、三视角相机与门窗交互、2D 平面图与 23 条标注。
+- 本次为 **v2.0.7 发版**：`package.json` 与 `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.7`；提交信息与附注标签注释均为 `v2.0.7：…`，按 `push origin main` → `push origin v2.0.7` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1275.4 KB / CDN 版 396.3 KB）。
+- 产物自检：`dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 0 条、CDN 版 importmap 恰好 1 条。构建日志中 `"abs" is imported ... but never used` 来自 metaverse-sky，为既有告警。
+- `npm run dev` 目视：复现机位（武穴 2026-11-09 07:13、第一人称 `fpsPos [0,1.6,2]` / `yaw −0.41` / `pitch −0.14`）门洞后地板的暖橙光柱完全消失；场景遍历确认室内楼板顶面 `roughness=0.62 / envMapIntensity=0.3`、阳台楼板顶面仍为 `0.16 / 0.8`；上帝视角与默认正午构图无异常，控制台 0 错误 0 警告。
+
 ## [2.0.6] - 2026-11-09
 
 ### 改动

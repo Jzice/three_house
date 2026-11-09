@@ -543,18 +543,30 @@ export function createMaterials(): MaterialMap {
     metalness: 0.06,
     envMapIntensity: 0.8,
   });
+  // 室内地砖：与抛光版共用同一张程序化大理石贴图，只压掉镜面项。
+  // 太阳主光是全局平行光，默认不投影且墙/楼板/屋顶都不参与阴影，会穿过围护结构照到室内；
+  // 低粗糙度（0.16）的抛光面在低太阳高度下会把这个光源拉成一条白核暖橙的「镜像」光柱，
+  // 连无窗房间的墙角地板都会出现。提高粗糙度把高光打散成不可辨的漫亮，砖缝与纹理保持不变；
+  // 室外 / 阳台仍使用 floor 抛光版，保留原有反光观感。
+  const floorIndoorTile = new THREE.MeshStandardMaterial({
+    map: tileTex,
+    roughness: 0.62,
+    metalness: 0.02,
+    envMapIntensity: 0.3,
+  });
   // 楼梯等共用此基础材质，保留默认平铺密度；楼板会在 buildHouse 中按尺寸重设
   tileTex.repeat.set(3, 3);
 
   return {
     wall: new THREE.MeshStandardMaterial({ color: 0xe0e0e0, roughness: 0.9 }),
     floor: floorTile,
-    // 楼梯踏面 / 踢面：暖米白切割瓷砖（保留环境反射但压低强度，避免过亮与室内基调脱节）
+    floorIndoor: floorIndoorTile,
+    // 楼梯踏面 / 踢面：暖米白切割瓷砖（同属室内地面，一并抑制穿墙直射光的镜面像）
     stair: new THREE.MeshStandardMaterial({
       map: createStepTileTexture(),
-      roughness: 0.28,
-      metalness: 0.05,
-      envMapIntensity: 0.75,
+      roughness: 0.55,
+      metalness: 0.02,
+      envMapIntensity: 0.35,
     }),
     // 扶手立柱 / 顶圆管：酒红色木色（木纹哑光带微金属光泽），贴合参考样式
     railing: new THREE.MeshStandardMaterial({ color: 0x6b2d2d, roughness: 0.45, metalness: 0.45 }),

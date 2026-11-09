@@ -6,7 +6,10 @@ export type ViewMode = 'tps' | 'fps' | '2d';
 /** 材质字典的键，由 materials.ts 统一生产 */
 export type MaterialKey =
   | 'wall'
+  /** 抛光大理石地砖：室外 / 阳台等有真实直射光的表面 */
   | 'floor'
+  /** 室内地砖：与 floor 同贴图但抑制镜面项，避免穿墙的太阳主光在无窗房间形成「太阳镜像」 */
+  | 'floorIndoor'
   | 'stair'
   | 'railing'
   /** 深灰阳台栏杆：v0.5.35 起改用 metalDoor，此键保留备用 */
