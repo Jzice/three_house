@@ -198,7 +198,7 @@ export function createLightController(
     const s = switchMap.get(switchId);
     const key = s?.spec.keys[keyIndex];
     if (!key || key.controls.length === 0) return;
-    // 该按键控制的灯「有关就全开、全开就全关」；上下层双控开关共享同一组灯，行为一致
+    // 该按键控制的灯「有关就全开、全开就全关」；多个面板指向同一组灯时即可实现双控，行为一致
     const allOn = key.controls.every((id) => target.get(id) === 1);
     for (const id of key.controls) setTarget(id, !allOn);
     commit();

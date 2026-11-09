@@ -2,6 +2,26 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.9] - 2026-11-10
+
+### 改动
+- **厨房灯开关移到厨房内门旁（厨房内侧）**：`sw-1f-dining` 由双联收为单键只控 `1f-dining-fan`，新增 `sw-1f-kitchen` 单键装在楼梯间东墙 `x=-2.00` 常开洞口 `z∈[-3.85,-2.75]` 北旁实墙 `(-1.87,-4.03)`，`rotY=π/2` 法向朝厨房内、距洞口边 `0.18m`、`y=SWITCH_Y=1.30`。
+- **1F 休息台灯东移到后门正南中央**：`1f-stair-a` 由 `(-3.25,-4.28)` 移到 `(-2.67,-4.28)`（东移 `0.58m`，与 1F 后门中心 `x=-2.67` 对齐），`z=-4.28` 仍为休息平台进深中央；安装面 `PLATFORM_SOFFIT_Y[0]=2.05`、φ`0.30m` 圆形吸顶灯、`distance=2.0` 均不变。
+- **后门旁增设就近开关**：新增 `sw-1f-back` 贴北墙内面 `(-3.40,-4.87)`、`rotY=0`，落在后门洞 `x∈[-3.22,-2.12]` 西侧 `0.18m`、`1.30m` 标高的实墙段上，单控 `1f-stair-a`。
+- **1-2F / 2-3F 休息台开关移到本层楼梯入口西墙**：`sw-1f-stair` 由 `(-4.37,3.30)` 改到 `(-4.37,0.90)`（1F 第一跑起步 `z=0.72` 以南 `0.18m`）单控 `2f-stair-a`；`sw-2f-stair` 由 `(-4.37,3.30)` 改到 `(-4.37,-1.10)`（2F 起步 `z=-1.28` 以南 `0.18m`）单控新增灯。两层起步 `z` 不同，故 1F/2F 开关不再垂直对齐。
+- **2-3F 休息台新增同款吸顶灯**：`3f-platform`（`ceiling`、φ`0.30m`、`distance=4.5`）平面 `(-3.25,-4.28)` 与 `2f-stair-a` 垂直对齐；该区 `z∈[-4.88,-3.68]` 是梯井挑空、3F 无楼板，故贴最近实体安装面屋面板底（`CEILING_Y[2]=2.50` / 世界 `9.30m`），不新增任何板体，点光源半径放大到 `4.5m` 覆盖挑空高度。
+- **楼梯灯由跨层双控改为「一灯一就近开关」单控**：删除 `STAIR_LAMP_IDS`（原 `1f-stair-a` / `2f-stair-a` / `3f-landing` 成组，由 `sw-1f-stair` / `sw-2f-stair` 双控），改为 `sw-1f-back→1f-stair-a`、`sw-1f-stair→2f-stair-a`、`sw-2f-stair→3f-platform`；`sw-3f-landing→3f-landing` 保持不动。灯 `22→23`、面板 `15→17`、按键 `20→21`。
+
+### 同步
+- 功能改动集中在 `src/config/lightingConfig.ts`（唯一数据源）：逐灯 / 逐开关表注释与布位依据说明同步；`LIGHT_GROUPS` 新增 `3f-platform` 分组「2-3F 休息台」，三处休息台灯的分组与灯名改为可区分（「1F 休息台」「1-2F 休息台」「2-3F 休息台」）；`src/lighting/lightController.ts` 一处「上下层双控」注释改写为控制器能力描述。
+- `lightFixtures.ts` / `buildHouse.ts` / `lightPanel.ts` / 状态中枢 / 2D 平面图与 23 条标注、门窗尺寸与开合、交互阈值、三种视角相机、天空环境层均未改动；控制关系与灯光面板均由配置数据驱动自动跟随。
+- 本次为 **v2.0.9 发版**：`package.json` 与 `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.9`；提交信息与附注标签注释均为 `v2.0.9：…`，按 `push origin main` → `push origin v2.0.9` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 1276.0 KB / CDN 版 397.0 KB）；构建日志中 `"abs" is imported ... but never used` 为 metaverse-sky 既有告警。
+- 产物自检：`dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 0 条、CDN 版 importmap 恰好 1 条。
+- `npm run dev` 页面场景遍历：`lamps=23 switches=17`、开关命中盒 21 个；`lamp-1f-stair-a` 世界 `(-2.67,2.35,-4.28)`、`lamp-3f-platform` `(-3.25,9.30,-4.28)`；`sw-1f-kitchen (-1.87,1.60,-4.03)` / `sw-1f-back (-3.40,1.60,-4.87)` / `sw-1f-stair (-4.37,1.60,0.90)` / `sw-2f-stair (-4.37,5.10,-1.10)`；切到 3F 后灯光面板出现「2-3F 休息台 · 吸顶灯」；控制台仅既有 `favicon.ico` 404。
+
 ## [2.0.8] - 2026-11-09
 
 ### 改动
