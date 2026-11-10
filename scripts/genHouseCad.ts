@@ -8,7 +8,7 @@
  *
  * 重要：cadcraft 的 script/3DPOLY 命令会丢弃 Z 坐标（仅读 x,y），但 execute 的
  * 3dpoly 命令配合 JSON 的 [x,y,z] 数组可正确保留 Z。因此本生成器直接产出 house.json，
- * 由 cadcraft 通过 execute 3dpoly 逐盒构建，保证真实标高（1F 0.3 / 2F 3.8 / 3F 6.8 / 屋顶 9.3）。
+ * 由 cadcraft 通过 execute 3dpoly 逐盒构建，保证真实标高（1F 0.5 / 2F 4.0 / 3F 7.0 / 屋顶 9.5）。
  *
  * 运行：npm run gen:cad  (经 esbuild 打包后由 node 执行)
  */
@@ -163,7 +163,7 @@ for (const f of FLOORS) {
   }
 }
 
-// ---- 门槛 / 过门石 / 门洞补地面（世界坐标，与 3D 装配同源） ----
+// ---- 门槛 / 过门石（每处门一条长条，世界坐标，与 3D 装配同源） ----
 for (const f of FLOORS) {
   if (f.index === 3) continue;
   for (const seg of getThresholdSegments(f)) {

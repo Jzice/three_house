@@ -213,7 +213,7 @@ export interface FpsWalkArea {
   /** 院外有界地面（仅 1F）：允许走出院子到外侧地面，围墙仅视觉不阻挡 */
   outside?: WalkRect;
   /**
-   * 门槛 / 门洞台阶的局部完成面（俯视矩形 + 世界标高）：不参与 solids / gaps，
+   * 过门石的局部完成面（俯视矩形 + 世界标高）：不参与 solids / gaps，
    * 即凸起过门石不阻挡通行，仅让第一人称脚下贴地按实际完成面抬升。
    */
   thresholds: (WalkRect & { y: number })[];
@@ -222,13 +222,14 @@ export interface FpsWalkArea {
 }
 
 /**
- * 门槛 / 门洞地面的一段实体：由 `getThresholdSegments()` 统一推导，
+ * 一条过门石实体：由 `getThresholdSegments()` 统一推导，
  * 供 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用，避免四处重复建模。
+ * 门框两侧的延伸踏面与 1F 外门的一级实体台阶已移除，每处门只产出一条过门石。
  */
 export interface ThresholdSegment {
   /** 所属门 id（2D 图例一致；有门扇的门还对应 userData.id 与门禁 gaps，无门扇常开洞口只作门槛标识） */
   id: string;
-  /** 过门石条 / 门洞补地面 */
+  /** 过门石条；保留 'infill' 分支以兼容 2D / CAD 既有绘制逻辑，当前派生结果恒为 'sill' */
   kind: 'sill' | 'infill';
   /** 世界坐标盒体（顶面 = topY），不走 remapBox */
   spec: BoxSpec;
@@ -238,12 +239,6 @@ export interface ThresholdSegment {
   color: string;
   /** 该门的实际做法说明 */
   note: string;
-  /**
-   * 实体台阶段的踢面材质（仅 1F 两扇外墙门有 0.2m 内外高差时设置）：
-   * 顶面仍用 `spec.material`（与院面一致），其余五面用此材质（与该门门槛同色），
-   * 使从室内看到的是一级规整台阶，而不是院子铺装侧裙边的浅灰断面。
-   */
-  riserMaterial?: MaterialKey;
 }
 
 /** 带交互数据的 Object3D */

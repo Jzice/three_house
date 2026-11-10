@@ -2,6 +2,46 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.11] - 2026-11-11
+
+### 改动
+- **1F 完成面抬到 0.50m 与院面齐平，彻底消除门洞深色矩形挡板**：用户反馈 1F 前 / 后门从室内向外看仍有一条深色竖立矩形、从室外往里看没有。根因是原 `baseY=0.30` 与院面 `paveH=0.50` 存在 `0.20m` 高差，上一轮为遮住院面铺装浅灰侧裙边而加的 `4mm` 深色收口贴片（`y∈[0.318,0.50]`）与过门石薄条上下相接，从室内看连成一条约 `0.20m` 高的挡板。按确认方案把 1F 完成面与院面统一为 `0.50`（**不降院子**），其它楼层顺次 `+0.20`：`0.30/3.80/6.80/9.30 → 0.50/4.00/7.00/9.50`；新增 `FIRST_FLOOR_Y=0.5`，`FLOORS[].baseY` 与 `yard.paveH` 共用同一常量保证室内外永远同源。
+- **删除 `yard.ts` 门洞收口贴片**：`addDoorReveal` 整段及 `getThresholdSegments` / `FLOORS` 导入一并移除；齐平后院面侧裙边被 1F 楼板（`y∈[0.30,0.50]`、`z≤4.90`）与过门石（`z∈[4.88,5.12]`）遮住，从室内向外只剩连续地面 + 一条 `18mm` 贴地过门石，没有任何竖立断面（深色或浅色）。
+- **2F/3F 圆形吸顶灯点光源参数对齐 1F**：新增 `CEILING_BASE`（= `LAMP_LIGHT_DEFAULTS.ceiling` 的 `1.1 / 4.5m`），2F 6 盏 / 3F 5 盏 `ceiling` 灯逐灯显式展开，与 1F 普通吸顶灯同值；取消 `radius<0.19` 的 `0.72` 折扣与 `3.6m` 短半径，2F/3F 门廊灯的 `0.9 / 3.6m`、休息台灯的 `0.792 / 2.0m` 一并提到 `1.1 / 4.5m`，并补齐 `3f-platform` 此前只写 `distance` 而漏配的 `intensity`。
+- 逐层点光源 Σintensity：1F `11.884`（保持不变）、2F `9.084 → 9.9`、3F `4.684 → 5.5`；2F 贝壳灯 `1.6`、方形回字灯 `1.7` 与 1F 全部 10 盏既有数值不动。
+
+- **去掉 1F 前/后门、2F 前门、3F 前门门槛外的台阶与高差过渡**：`getThresholdSegments()` 不再生成门框两侧各 `0.15m` 的内 / 外 `infill` 踏面，也不再把 1F 院面 `paveH=0.50` 与室内完成面 `baseY=0.30` 的 `0.20m` 高差填实成一级实体台阶；4 扇门口各只剩一条 `0.24m` 宽深色过门石长条（`doorDark` / `metalDoor` / `blackAluminum` / `metalDoor`），`sillRise` 保持 `0.018 / 0.018 / 0.004 / 0.018`，材质、颜色与外观风格不变。
+- **门洞断面收口**：`yard.ts` 在 1F 两处门洞宽度内各加一片 `4mm` 厚深色立面贴片（`y ∈ [baseY+sillRise, paveH]`、`z = ±(D/2 − 0.006)`，材质取该门过门石同源并克隆），盖住院面铺装朝室内的 `materials.wall` 浅灰侧裙边；贴片不抬高地面、不生成踏面 / 坡度、不进碰撞，从室外被铺装本体遮挡，院子其它方向外观不变（**本轮 1F 与院面齐平后该贴片已整体移除，见上方「1F 完成面抬到 0.50m」条目**）。
+
+### 同步
+- **绝对世界标高同步**：`src/config/gameConfig.ts` 中 5 个任务点 + 2 个室内 / 3F 阳台靶纸的 `pos[1]` 各 `+0.20`（`3.25→3.45`、`1.3→1.5`、`1.4→1.6`、`1.5→1.7`、`0.7→0.9`、`1.5→1.7`、`8.0→8.2`）；院子钢靶 `1.0`、易拉罐 `0.5` 锚定不变的院面 / 自然地面，不动。灯具、开关、楼梯、阳台、屋顶、2D / CAD 均相对 `floor.baseY` 派生，自动跟随，无需手改。
+- `houseConfig.ts` 的楼层 / 楼梯后窗 / 墙段世界标高注释与门槛说明、`scripts/genHouseCad.ts` 层高注释、`docs/data-model.md` 标高表同步为 `0.50/4.00/7.00/9.50`；`docs/house.json` / `docs/house.dxf` 由 `npm run gen:cad && npm run gen:dxf` 重生成（`144` 个盒体、`32536` 行 DXF，`THRESHOLD` 仍 `12` 段，房屋 Z 整体 `+0.20`，院面 `0→0.50` 不变）。
+- 未改材质 / `MaterialKey`、门窗尺寸与开合角度 / 交互阈值、三种视角相机、院子铺装与围墙几何、院门三级台阶、8 条内门样式；`isWalkable()` / `gaps` / 门禁 `isDoorOpenNow` / `STAIR_MATCH_LIMIT` / `EYE_SMOOTH_TAU` **零改动**。
+- **持久化提示**：`house-view-v1` 存的是绝对相机 y，旧缓存的 FPS 眼高会偏低 `0.20m`，但每帧 `resolveGround()` 会在约 `0.1s` 内插值回 `2.10`，TPS 构图仅轻微偏移；清 localStorage 即可完全复位，未改存储键或迁移逻辑。
+
+- 仅改 `src/config/lightingConfig.ts` 的 `CEILING_BASE` 常量、`LAMPS` 逐灯数值与注释；灯数 23 / 面板 17 / 按键 24、灯具造型、灯罩自发光 `GLOW_ON=1.25`、全局环境光与曝光、点光源限流与「只给活动层」可见性策略均未改动。
+- **已知未解决项**：上帝视角同时看多层时非活动层仍偏暗，根因是 `src/main.ts` 的 `syncVisibility` 每帧只把 `view.activeFloor` 一层的点光源置为可见（刻意防止 `castShadow=false` 的低层光穿楼板照亮高层几何），与逐灯功率无关；按本轮确认的「只改逐灯数值」范围未改可见性策略。
+- 本次为 **v2.0.11 发版**：`package.json` 与 `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.11`；提交信息与附注标签注释均为 `v2.0.11：…`，按 `push origin main` → `push origin v2.0.11` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
+- **门槛配置收敛**：`ThresholdStyle` 精简为 `sill / sillRise / fillsOpening / color / note`；`fillsOpening=true` 表示外墙门门洞无楼板、过门石下探到 `baseY − SLAB_T` 填实（1F 前 / 后门、2F 前门保持 true；3F 正面门阳台板连续覆盖，保持 false），删除 `inner / outer / outerRise / outerSign / infillGeom` 与 `TREAD_EXTEND / TREAD_GUARD / STEP_RISER_OVERLAP`，12 条 `note` 与文档注释同步。`ThresholdSegment` 删除 `riserMaterial`，`kind` 保留联合类型但派生恒为 `'sill'`。
+- `buildHouse.ts` 的 `createThresholdMesh()` 去掉实体台阶六面分面、统一六面同材质，保留按 `spec.w/d` 的 `repeat` 平铺（窄条下限 `0.5`）；`floorplan2d.ts` 图例注释、`genHouseCad.ts` THRESHOLD 图层注释、`viewState.ts` 脚下贴地注释同步（**通行判定逻辑零改动**）。`docs/house.json` / `docs/house.dxf` 由 `npm run gen:cad && npm run gen:dxf` 重生成，`THRESHOLD` 图层盒体 `18 → 12`（3 扇有踏面的外门各减 2 段）。
+- 未改材质字典 / `MaterialKey`、门窗尺寸与开合角度 / 交互阈值、三种视角相机、院子铺装与围墙几何 / 标高、院门三级台阶、8 条内门样式；`isWalkable()` / `gaps` / 门禁 `isDoorOpenNow` / `STAIR_MATCH_LIMIT` / `EYE_SMOOTH_TAU` 均未改，未新增「≤10cm 落差不做阻挡」等规则；`viewState.ts` 仅同步注释称谓。
+
+### 验证
+- `npm run typecheck` 0 错误；`npm run build:all` 两种单文件产物生成成功（离线版 `1279.1 KB` / CDN 版 `400.0 KB`）；产物自检 `dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap `1` 条。
+- `npm run dev` + playwright-cli：清空持久化后读取场景逐灯点光源，1F 10 盏 `Σ=11.884` 原值、2F 8 盏 `Σ=9.9`（6 盏 ceiling 全 `1.1/4.5`）、3F 5 盏 `Σ=5.5`（全 `1.1/4.5`）；控制台 0 错误；tps 切到 3F 显示整栋时仅 3F 的 5 盏点光源可见、其余 18 盏隐藏（既有可见性策略的直接证据）；fps 在 2F 抬头目视天花板光晕柔和，未见明显穿层光斑。
+
+- 门槛改动：`npm run typecheck` 0 错误、`read_lints` 0 问题；`npm run build:all` 两种单文件产物生成成功（离线版 `1278.5 KB` / CDN 版 `399.4 KB`，构建日志 `"abs" is imported ...` 为 metaverse-sky 既有告警）；产物自检 `dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+
+- 门槛改动：`npm run dev` + playwright-cli（启用 `Emulation.setFocusEmulationEnabled` 避免后台标签页 rAF 节流）逐扇设开门状态并真实按 `W` 驱动第一人称，1F 前门 `4.30→6.78 / 5.70→4.34`、1F 后门 `-4.30→-9.10 / -5.70→-4.18`、2F 前门 `4.30→6.14 / 5.80→-1.08`、3F 前门 `-0.30→6.34 / 1.60→-4.56`，4 扇门均双向穿过门洞、眼高按完成面平滑过渡（`1.90↔2.10`）；关门时 1F 前门仍被既有门禁挡在 `z=4.54`，阻挡行为不变。
+- 门槛改动：数值核对 `getThresholdSegments()` 每处门恒 1 条 `sill`（`12` 段、`riserMaterial` 全无），`FpsWalkArea.thresholds` 为 `6/4/2` 段且只剩过门石标高；`tps` / `fps` / `2d` 三视图与 2D 门槛图例截图正常，前 / 后门口无台阶、无坡度、无浅灰断面，只剩深色过门石长条；控制台 0 错误 0 警告。
+- **既有行为说明**：2F 推拉门两扇同时全开时，玻璃面板动态障碍（`getSlidingObstacles`）仍占满门洞，按既有设计不可穿；点击开一扇时可从让出的一侧（`x≈0.62`）双向通行。该阻挡来自门扇动态障碍与玩家半径，与本次删除外台阶无关，按确认未改任何通行规则。
+
+- 1F 抬高：`npm run typecheck` 0 错误、`read_lints` 0 问题；`npm run build:all` 两种单文件产物生成成功（离线版 `1278.2 KB` / CDN 版 `399.1 KB`，构建日志 `"abs" is imported ...` 为 metaverse-sky 既有告警）；产物自检 `dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+- 1F 抬高：`npm run dev` + playwright-cli 数值核对 `FLOORS[].baseY=[0.5,4,7,9.5]`、`yard.paveH=0.5`、1F 前 / 后门过门石 `topY=0.518 / bottom=0.30`；从室内朝前门、朝后门截图均为「连续地面 + 一条贴地薄过门石」，深色竖立矩形彻底消失；室外朝里、`tps`、`2d` 三视图与 2D 门槛图例截图正常，控制台除首屏既有的 `favicon.ico` 404 外 `0 errors / 0 warnings`。
+- 1F 抬高：真实按 `W` 双向通行，室内 `z=4.30→6.78` 出院、院内 `z=5.80→2.28→-2.04` 进屋，眼高稳定 `2.10`（室内外齐平，原 `1.90↔2.10` 过渡自然消失）；门禁与碰撞规则未改。
+- **发版前复验（v2.0.11）**：`npm run typecheck` 0 错误、`npm run build:all` 两种单文件产物生成成功（离线版 `1278.2 KB` / CDN 版 `399.1 KB`，`"abs" is imported ...` 为 metaverse-sky 既有告警）；`dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条；三处版本号（`package.json` 顶层 / `package-lock.json` 顶层 / `packages[""].version`）统一 `2.0.11`。交互与视觉按 §7 已起 `npm run dev` 完成三种模式、前 / 后门由里向外与由外向里、FPS 双向通行目视确认。
+
 ## [2.0.10] - 2026-11-10
 
 ### 改动

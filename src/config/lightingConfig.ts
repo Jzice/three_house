@@ -267,6 +267,14 @@ function lamp(
 }
 
 /**
+ * 圆形吸顶灯的点光源基准（= LAMP_LIGHT_DEFAULTS.ceiling，1F 普通吸顶灯的既有值）。
+ * 2F/3F 的圆形吸顶灯逐灯显式展开此值，与 1F 同类灯对齐：
+ * 绕过 `radius<0.19` 的 0.72 折扣与 3.6m 短半径，也统一门廊 / 休息台的收敛值。
+ * 1F 全部保持既有数值不动；2F 的贝壳灯 / 方形回字灯仍按灯型默认值不动。
+ */
+const CEILING_BASE = LAMP_LIGHT_DEFAULTS.ceiling;
+
+/**
  * 逐灯坐标表（共 23 盏）。
  * 1F：进门大厅吊灯(-0.25,3.60，吊杆 0.45)、西厅花灯(-2.60,3.60)、餐厅吊扇灯(-0.50,-1.01)；
  * 2F：大厅左厅贝壳灯(-2.60,3.60)、右厅方形回字灯(-0.25,3.60)，与 1F 两主灯上下垂直对齐；
@@ -302,37 +310,39 @@ export const LAMPS: LampSpec[] = [
   }),
 
   // ---------------- 2F ----------------
+  // 圆形吸顶灯逐灯显式展开 CEILING_BASE：与 1F 普通吸顶灯同为 1.1 / 4.5m，
+  // 消除小灯 0.72 折扣、门廊 0.9 / 3.6m 与休息台 2.0m 短半径的层间差。
   lamp('2f-hall-left-shell', 1, '2f-living', '大厅·左厅 · 贝壳灯', 'shell', -2.60, 3.60, 0.30),
   lamp('2f-hall-right-rect', 1, '2f-living', '大厅·右厅 · 方形回字灯', 'rectPanel', -0.25, 3.60, 0.50, { w: 1.00, d: 0.60 }),
-  lamp('2f-backbed', 1, '2f-bed', '2层后卧 · 吸顶灯', 'ceiling', 1.25, -3.25, 0.225),
-  lamp('2f-wash', 1, '2f-service', '洗漱过道 · 吸顶灯', 'ceiling', 1.75, -0.50, 0.15),
-  lamp('2f-bath', 1, '2f-service', '卫生间 · 防潮吸顶灯', 'ceiling', 3.50, -0.50, 0.225, { damp: true }),
-  lamp('2f-bed1', 1, '2f-bed', '卧室1 · 吸顶灯', 'ceiling', 2.85, 2.75, 0.225),
+  lamp('2f-backbed', 1, '2f-bed', '2层后卧 · 吸顶灯', 'ceiling', 1.25, -3.25, 0.225, { ...CEILING_BASE }),
+  lamp('2f-wash', 1, '2f-service', '洗漱过道 · 吸顶灯', 'ceiling', 1.75, -0.50, 0.15, { ...CEILING_BASE }),
+  lamp('2f-bath', 1, '2f-service', '卫生间 · 防潮吸顶灯', 'ceiling', 3.50, -0.50, 0.225, { ...CEILING_BASE, damp: true }),
+  lamp('2f-bed1', 1, '2f-bed', '卧室1 · 吸顶灯', 'ceiling', 2.85, 2.75, 0.225, { ...CEILING_BASE }),
   // 1-2F 休息台「上」的灯：贴 2F 休息平台板底（-3.25,-4.28），距 1F 休息台面 2.65m，
   // 位置不动；开关移到 1F 楼梯入口西墙，就近单控
   lamp('2f-stair-a', 1, '2f-stair', '1-2F 休息台 · 吸顶灯', 'ceiling', -3.25, -4.28, 0.15, {
-    y: PLATFORM_SOFFIT_Y[1], distance: 2.0,
+    ...CEILING_BASE, y: PLATFORM_SOFFIT_Y[1],
   }),
   // 大厅左厅已有贝壳灯主灯，南段不再重复布圆形吸顶灯（1F 同位置同理）。
   // 门廊顶 = 3F 大阳台板底（2.80m）；灯位正对阳台推拉门中心 x=-0.20。
   lamp('2f-porch', 1, '2f-porch', '正门门廊 · 吸顶灯', 'ceiling', -0.20, 5.77, 0.15, {
-    porch: true, intensity: 0.9, distance: 3.6,
+    ...CEILING_BASE, porch: true,
   }),
 
   // ---------------- 3F ----------------
-  lamp('3f-hall-a', 2, '3f-hall', '3F 半层 · 西侧吸顶灯', 'ceiling', -0.60, -2.30, 0.225),
-  lamp('3f-hall-b', 2, '3f-hall', '3F 半层 · 东侧吸顶灯', 'ceiling', 2.80, -2.30, 0.225),
-  // 2-3F 休息台新增灯：与「1-2F 休息台」同款 φ0.30m 圆形吸顶灯、平面位置垂直对齐。
+  // 3F 五盏全为圆形吸顶灯：此前 3/5 盏被 radius<0.19 折成 0.792 / 3.6m，
+  // 现统一对齐 1.1 / 4.5m；3f-platform 一并补齐此前漏配的 intensity。
+  lamp('3f-hall-a', 2, '3f-hall', '3F 半层 · 西侧吸顶灯', 'ceiling', -0.60, -2.30, 0.225, { ...CEILING_BASE }),
+  lamp('3f-hall-b', 2, '3f-hall', '3F 半层 · 东侧吸顶灯', 'ceiling', 2.80, -2.30, 0.225, { ...CEILING_BASE }),
+  // 2-3F 休息台灯：与「1-2F 休息台」同款 φ0.30m 圆形吸顶灯、平面位置垂直对齐。
   // 该处 z∈[-4.88,-3.68] 是梯井挑空、3F 无楼板，最近实体安装面为屋面板底（CEILING_Y[2]=2.50、
-  // 世界 9.30m），故贴屋面板底不新增板体；点光源有效半径放大到 4.5m 以覆盖挑空高度。
-  lamp('3f-platform', 2, '3f-platform', '2-3F 休息台 · 吸顶灯', 'ceiling', -3.25, -4.28, 0.15, {
-    distance: 4.5,
-  }),
-  lamp('3f-landing', 2, '3f-stair', '梯口走道 · 吸顶灯', 'ceiling', -3.25, -0.45, 0.15),
+  // 世界 9.30m），故贴屋面板底不新增板体；点光源 1.1 / 4.5m 覆盖挑空高度。
+  lamp('3f-platform', 2, '3f-platform', '2-3F 休息台 · 吸顶灯', 'ceiling', -3.25, -4.28, 0.15, { ...CEILING_BASE }),
+  lamp('3f-landing', 2, '3f-stair', '梯口走道 · 吸顶灯', 'ceiling', -3.25, -0.45, 0.15, { ...CEILING_BASE }),
   // 门廊顶 = 屋面板南挑底面（2.50m）；屋面板南沿 z=1.42、正面墙外皮 z=0.62，
   // 取挑檐中线 z=1.02，不外挑到露天阳台。
   lamp('3f-porch', 2, '3f-porch', '正门门廊 · 吸顶灯', 'ceiling', 0.00, 1.02, 0.15, {
-    porch: true, intensity: 0.9, distance: 3.6,
+    ...CEILING_BASE, porch: true,
   }),
 ];
 

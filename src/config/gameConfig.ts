@@ -3,7 +3,9 @@ import type { ItemDef, TaskDef, TargetDef } from '../game/gameTypes';
 /**
  * 游戏模式全部数值与坐标集中于此（配置即建模）。
  * 改数值/位置不要去渲染代码里堆 box()，只在下面调参。
- * 坐标系沿用户型：原点房屋中心，y=0 地面，1F 完成面 baseY=0.30；
+ * 坐标系沿用户型：原点房屋中心，y=0 地面，1F 完成面 = 院面 `FIRST_FLOOR_Y=0.50`；
+ * 下列 `pos[1]` 均为**绝对世界标高**，随 1F 及各层完成面整体 +0.20m 同步上移；
+ * 院子里的钢靶 / 易拉罐锚定不变的院面与自然地面，故不随之抬升。
  * -z 为设计「北/楼梯间侧」、+z 为「南/入户门侧」，+z 也是 1F 院子方向。
  */
 
@@ -100,7 +102,7 @@ export const TASKS: TaskDef[] = [
     id: 't-bulb',
     name: '换灯泡',
     floor: 0,
-    pos: [-1.75, 3.25, 2.63], // 客厅吊顶灯座
+    pos: [-1.75, 3.45, 2.63], // 客厅吊顶灯座
     size: [0.6, 0.6, 0.6],
     requiredItem: 'screw',
     requiredSkill: 'screw',
@@ -112,7 +114,7 @@ export const TASKS: TaskDef[] = [
     id: 't-pipe',
     name: '修水管',
     floor: 0,
-    pos: [3.5, 1.3, -1.38], // 卫生间北墙阀门
+    pos: [3.5, 1.5, -1.38], // 卫生间北墙阀门
     size: [0.5, 0.6, 0.4],
     requiredItem: 'wrench',
     requiredSkill: 'wrench',
@@ -124,7 +126,7 @@ export const TASKS: TaskDef[] = [
     id: 't-breaker',
     name: '合电闸',
     floor: 0,
-    pos: [4.38, 1.4, -3.25], // 杂物间东墙配电箱
+    pos: [4.38, 1.6, -3.25], // 杂物间东墙配电箱
     size: [0.5, 0.7, 0.3],
     requiredItem: 'light',
     requiredSkill: 'light',
@@ -136,7 +138,7 @@ export const TASKS: TaskDef[] = [
     id: 't-screw',
     name: '拧螺丝',
     floor: 0,
-    pos: [2.85, 1.5, 0.62], // 卧室1北墙铰链
+    pos: [2.85, 1.7, 0.62], // 卧室1北墙铰链
     size: [0.5, 0.5, 0.3],
     requiredItem: 'drill',
     requiredSkill: 'drill',
@@ -148,7 +150,7 @@ export const TASKS: TaskDef[] = [
     id: 't-box',
     name: '拆封箱',
     floor: 0,
-    pos: [-0.5, 0.7, -3.88], // 厨房地面封箱
+    pos: [-0.5, 0.9, -3.88], // 厨房地面封箱
     size: [0.6, 0.8, 0.6],
     requiredItem: 'blade',
     requiredSkill: 'blade',
@@ -164,7 +166,7 @@ export const TARGETS: TargetDef[] = [
     id: 'paper-living',
     kind: 'paper',
     floor: 0,
-    pos: [-1.75, 1.5, 0.46], // 客厅北墙靶纸，面向 +z（南）
+    pos: [-1.75, 1.7, 0.46], // 客厅北墙靶纸，面向 +z（南）
     rotY: 0,
     width: 0.6,
     height: 0.9,
@@ -228,7 +230,7 @@ export const TARGETS: TargetDef[] = [
     id: 'paper-balcony',
     kind: 'paper',
     floor: 2, // 3F（index 2），阳台可达
-    pos: [0, 8.0, 5.5], // 3F 阳台靶纸
+    pos: [0, 8.2, 5.5], // 3F 阳台靶纸
     rotY: 0,
     width: 0.6,
     height: 0.9,

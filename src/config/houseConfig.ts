@@ -32,24 +32,31 @@ export const D = 10.24;
  */
 export const H = 3.5;
 
+/**
+ * 1F 完成面标高（米），同时也是院面铺装顶面标高：室内外齐平，
+ * 两扇外门门洞处地面连续、没有高差与竖立断面，只剩一条贴地过门石。
+ * 各层 `baseY` 与院子 `yard.paveH` 共用本常量，确保两者永远同源。
+ */
+export const FIRST_FLOOR_Y = 0.5;
+
 /** 两层楼房：1F 层高 3.5m；2F 在其上方、层高 3.0m（敞顶，后区按定制合并） */
 export const FLOORS: FloorConfig[] = [
   {
     index: 0,
     name: '1F',
-    // 本层 baseY = 室内地坪完成面：房屋整体抬离地面，1F 完成面 0.30m
-    // （楼板厚 SLAB_T=0.20m，板底落在 0.10m，埋于院落地坪之下）
-    baseY: 0.3,
+    // 本层 baseY = 室内地坪完成面：房屋整体抬离地面，1F 完成面 0.50m，与院面齐平
+    // （楼板厚 SLAB_T=0.20m，板底落在 0.30m，埋于院面铺装之内）
+    baseY: FIRST_FLOOR_Y,
     wallH: H,
     stair: { steps1: 14, steps2: 9, platformH: 2.2, run1Length: 4.4, run2Length: 2.4 },
-    // 1F 院子：东/南/北外扩 3m、西边到房屋西墙为止，卵石铺装（面高 0.30m）+ 0.5m 实体矮围墙，
+    // 1F 院子：东/南/北外扩 3m、西边到房屋西墙为止，卵石铺装（面高 0.50m，与室内齐平）+ 0.5m 实体矮围墙，
     // 东面临街开 2.4m 院门（位于东南角，贴南围墙）
-    yard: { extendEast: 2.2, extendSouth: 2.2, extendNorth: 4.5, extendWest: 1, rearEastDepth: 0.5, rearStraight: 3, paveH: 0.5, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, gateW: 2.4, gateZ: 6.68 },
+    yard: { extendEast: 2.2, extendSouth: 2.2, extendNorth: 4.5, extendWest: 1, rearEastDepth: 0.5, rearStraight: 3, paveH: FIRST_FLOOR_Y, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, gateW: 2.4, gateZ: 6.68 },
   },
   {
     index: 1,
     name: '2F',
-    baseY: 0.3 + H, // 3.80 = 1F 完成面 + 1F 层高
+    baseY: FIRST_FLOOR_Y + H, // 4.00 = 1F 完成面 + 1F 层高
     wallH: 3.0,
     stair: { steps1: 9, steps2: 9, platformH: 1.5, run1Length: 2.4, run2Length: 2.4 },
     // 南墙阳台：出挑 1.3m，长度与南墙一致并两端各外延 0.3m
@@ -58,7 +65,7 @@ export const FLOORS: FloorConfig[] = [
   {
     index: 2,
     name: '3F',
-    baseY: 0.3 + H + 3.0, // 6.80 = 2F 完成面 + 2F 层高
+    baseY: FIRST_FLOOR_Y + H + 3.0, // 7.00 = 2F 完成面 + 2F 层高
     wallH: 2.5,
     // 北半层（前缘对齐 2F 卧室1 北墙 z=0.5）+ 南侧大阳台（延伸至正面墙并向前挑空 1.5m，
     // 两端外延至 x=±4.8）；无楼梯。平屋顶独立为第 4 层（index 3），
@@ -68,7 +75,7 @@ export const FLOORS: FloorConfig[] = [
   {
     index: 3,
     name: '屋顶',
-    baseY: 0.3 + H + 3.0 + 2.5, // 9.30 = 3F 墙顶 = 屋面板底
+    baseY: FIRST_FLOOR_Y + H + 3.0 + 2.5, // 9.50 = 3F 墙顶 = 屋面板底
     wallH: 0,
     // 平屋顶四周挑空：北/东/西各 0.3m、南 0.8m（外墙皮 x=±4.62 / z=-5.12，正面墙外皮 z=0.62）
     roof: { slabT: 0.2, parapetH: 0.5, parapetT: 0.2, bounds: { x0: -4.92, x1: 4.92, z0: -5.42, z1: 1.42 } },
@@ -98,12 +105,12 @@ export const WINDOW_TOP = WINDOW_SILL + WINDOW_H;
  * 楼梯间后墙「上下 2 行、下行左半可平开（铰链在窗口左外缘）/ 右半固定（左右 1:1 等宽）」窗的竖向尺寸
  * （相对本层完成面的绝对米数）。洞口净宽 1.1m、水平居中于楼梯休息台墙面 x=-3.25、
  * 墙心 z=-5.0、rotY=π，两窗尺寸统一（宽 1.1m、高 1.2m）。
- * - 2F：相对本层（baseY 3.80）sill=-0.50 / top=0.70 → 世界窗底 3.30m / 窗顶 4.50m。
- *   整窗较此前下移 0.8m：上沿 4.50、下沿 3.30（落入 1F 墙 0.5m）；1F 后门门楣在
+ * - 2F：相对本层（baseY 4.00）sill=-0.50 / top=0.70 → 世界窗底 3.50m / 窗顶 4.70m。
+ *   整窗较此前下移 0.8m：上沿 4.70、下沿 3.50（落入 1F 墙 0.5m）；1F 后门门楣在
  *   x∈[-3.22,-2.70] 重叠段让位，窗右下角完整露出。
- * - 3F 半层：相对本层（baseY 6.80）sill=-0.30 / top=0.90 → 世界窗底 6.50m / 窗顶 7.70m。
- *   相对上一轮（5.50–6.70）上移 1m；窗底 6.50 略低于 3F 楼面 6.80 的 0.30m（落入 2F 墙顶开洞），
- *   窗顶 7.70 位于 3F 墙面内，3F 墙在该处开 0.90m 窗洞、其下接 3F 楼面无墙台。
+ * - 3F 半层：相对本层（baseY 7.00）sill=-0.30 / top=0.90 → 世界窗底 6.70m / 窗顶 7.90m。
+ *   相对上一轮（5.70–6.90）上移 1m；窗底 6.70 略低于 3F 楼面 7.00 的 0.30m（落入 2F 墙顶开洞），
+ *   窗顶 7.90 位于 3F 墙面内，3F 墙在该处开 0.90m 窗洞、其下接 3F 楼面无墙台。
  * 两窗尺寸统一（宽 1.1m、高 1.2m），水平居中于休息台墙面 x=-3.25（不再与 1F 后门 x=-2.67 对齐）。
  */
 export const STAIR_BACK_WINDOW = {
@@ -326,22 +333,22 @@ function exteriorWallSpecs(floor: FloorConfig): BoxSpec[] {
     ...(floor.index === 0
       ? [
           // 1F 后门（x=-2.67，洞口 1.1m → x∈[-3.22,-2.12]）+ 东西门垛。
-          // 2F 后窗下移 0.8m 后，其下 0.5m（世界 3.30–3.80、x∈[-3.80,-2.70]）落入本层墙需开洞；
+          // 2F 后窗下移 0.8m 后，其下 0.5m（世界 3.50–4.00、x∈[-3.80,-2.70]）落入本层墙需开洞；
           // 该窗 x 与 1F 后门洞 x∈[-3.22,-2.12] 重叠 0.52m，门楣在重叠段 [-3.22,-2.70] 拆为
           // 左右两段让位，窗右下角完整露出。原本 1F 后门西侧的 0.58m 缺口也一并填实。
           box(0.58, wallH, T_EXT, -4.09, wallH / 2, -5.0),   // 西墙垛 x∈[-4.38,-3.80]
-          box(0.58, 3.0, T_EXT, -3.51, 1.5, -5.0),           // 窗西段下方实墙 x∈[-3.80,-3.22]（世界 0.30–3.30）
-          box(0.52, 1.0, T_EXT, -2.96, 2.5, -5.0),           // 门楣左段 x∈[-3.22,-2.70]（世界 2.30–3.30）
-          box(0.58, 1.5, T_EXT, -2.41, 2.75, -5.0),          // 门楣右段 x∈[-2.70,-2.12]（世界 2.30–3.80）
+          box(0.58, 3.0, T_EXT, -3.51, 1.5, -5.0),           // 窗西段下方实墙 x∈[-3.80,-3.22]（世界 0.50–3.50）
+          box(0.52, 1.0, T_EXT, -2.96, 2.5, -5.0),           // 门楣左段 x∈[-3.22,-2.70]（世界 2.50–3.50）
+          box(0.58, 1.5, T_EXT, -2.41, 2.75, -5.0),          // 门楣右段 x∈[-2.70,-2.12]（世界 2.50–4.00）
           box(0.72, wallH, T_EXT, -1.76, wallH / 2, -5.0),   // 东墙垛 x∈[-2.12,-1.40]
         ]
       : [
           // 2F：两扇楼梯后窗（均 x∈[-3.80,-2.70]）——
-          //   下窗 = 2F 后窗（世界 3.80–4.50，仅上 0.7m 在本层墙内；下 0.5m 在 1F 墙已处理）；
-          //   上窗 = 3F 后窗上移 1m 后的下沿段（世界 6.50–6.80，仅 0.30m 落入本层墙顶）。
-          // 两窗之间世界[4.50,6.50]用实墙补齐，窗上 6.80 即本层墙顶。
+          //   下窗 = 2F 后窗（世界 4.00–4.70，仅上 0.7m 在本层墙内；下 0.5m 在 1F 墙已处理）；
+          //   上窗 = 3F 后窗上移 1m 后的下沿段（世界 6.70–7.00，仅 0.30m 落入本层墙顶）。
+          // 两窗之间世界[4.70,6.70]用实墙补齐，窗上 7.00 即本层墙顶。
           box(0.58, wallH, T_EXT, -4.09, wallH / 2, -5.0),   // 西墙垛 x∈[-4.38,-3.80]
-          box(1.1, 2.0, T_EXT, -3.25, 1.70, -5.0),           // 两窗之间实墙 世界[4.50,6.50]
+          box(1.1, 2.0, T_EXT, -3.25, 1.70, -5.0),           // 两窗之间实墙 世界[4.70,6.70]
           box(1.30, wallH, T_EXT, -2.05, wallH / 2, -5.0),   // 东墙垛 x∈[-2.70,-1.40]
         ]),
     // 窗 1：窗台 + 窗上墙
@@ -641,31 +648,21 @@ function collectThresholdDoors(floor: FloorConfig): FloorDoorDef[] {
 // 门槛 / 过门石（按各门两侧实际地面与干湿情况配置）
 // ==========================================================
 
-/** 门框（门套）贯通墙厚的深度：门槛条按此宽度铺满整个门洞 */
+/** 门框（门套）贯通墙厚的深度：过门石条按此宽度铺满整个门洞 */
 const SILL_DEPTH = T_INT; // 0.24m
-/** 外墙门内 / 外踏面向门框两侧延伸的长度（米） */
-const TREAD_EXTEND = 0.15;
-/** 踏面压在楼板 / 院子铺装上的共面让缝（米），与 WALL_TOP_GUARD 同类 */
-const TREAD_GUARD = 0.002;
-/** 1F 外门实体台阶的踢面向门框内压入量（米）：盖住院子铺装的浅灰侧裙边，并避免两立面共面闪烁 */
-const STEP_RISER_OVERLAP = 0.002;
 
 /** 单扇门的门槛做法：键 = `${楼层序号}:${门 id}`；门位与洞宽仍由 collectFloorDoors 派生，避免重复维护 */
 interface ThresholdStyle {
-  /** 门槛条材质：房门 / 卫生间为黑色大理石，其余与门框一致 */
+  /** 过门石材质：房门 / 卫生间为黑色大理石，其余与门框一致 */
   sill: MaterialKey;
-  /** 室内侧踏面材质（仅 infillGeom 门使用；缺省同 sill） */
-  inner?: MaterialKey;
-  /** 室外侧踏面材质（仅 infillGeom 门使用；缺省同 sill） */
-  outer?: MaterialKey;
-  /** 门槛顶相对本层完成面的抬高（米） */
+  /** 过门石顶相对本层完成面的抬高（米） */
   sillRise: number;
-  /** 室外侧踏面顶相对完成面的高差（米）：1F 院子 0.2m，其余 0；>0 时该段按实体台阶填实 */
-  outerRise: number;
-  /** 外墙门需把内外踏面延伸到门框两侧，并填实门洞缺口 */
-  infillGeom: boolean;
-  /** 室外所在方向（沿墙厚的有符号方向）：+1 = +x/+z，-1 = -x/-z；内门为 0 */
-  outerSign: 1 | -1 | 0;
+  /**
+   * 门洞需填实：外墙门（楼板止于 ±4.90，门洞墙厚内无楼板）为 true，
+   * 过门石条下探到楼板底 `baseY - SLAB_T` 把门洞地面补齐；内门楼板连续，只嵌 2cm 薄贴面。
+   * 与「是否有外台阶」无关：移除外侧台阶后外墙门仍须保持 true，否则门洞地面露空。
+   */
+  fillsOpening: boolean;
   /** 2D 图例颜色 */
   color: string;
   /** 该门实际情况说明 */
@@ -678,78 +675,77 @@ const SILL_METAL = '#707478';
 const SILL_ALUMINUM = '#2a2a2c';
 
 /**
- * 全 11 扇门 + 1 处常开洞口的逐门做法：
- * - 门槛条一律按门框宽度 SILL_DEPTH(0.24m) 居中铺满整个门洞墙厚；
+ * 全 11 扇门 + 1 处常开洞口的逐门做法：**每处只铺一条 0.24m 宽的过门石长条**，
+ * 门框两侧不再延伸踏面，也不再把室内外高差填实成一级实体台阶 / 坡度。
+ * - 过门石一律按门框宽度 SILL_DEPTH(0.24m) 居中铺满整个门洞墙厚；
  * - 房门 5 扇 + 卫生间 2 扇 + 厨房常开洞口统一黑色大理石 blackMarble；
- * - 其余 4 扇门槛与各自门框同材质：入户 doorDark、后门 metalDoor、
+ * - 其余 4 扇与各自门框同材质：入户 doorDark、后门 metalDoor、
  *   2F 推拉门 blackAluminum、3F 正面门 metalDoor（整扇已统一为灰色金属）；
- * - 3 扇外墙门把内 / 外踏面移到门框两侧各延伸 0.15m，室内侧用 floorIndoor、
- *   室外侧用 paving / floor（阳台抛光），保留两侧实际地面与 1F 的 0.2m 高差过渡；
+ * - 1F 前 / 后门、2F 前门、3F 前门外侧的台阶与高差过渡已移除，门口只有这一条过门石；
+ *   1F 完成面 `baseY` 与院面 `paveH` 同为 `FIRST_FLOOR_Y=0.50`，门洞处地面连续，
+ *   从室内向外看只露出过门石顶面 18mm 薄条，没有任何竖立断面，`yard.ts` 也不再需要收口贴片。
  * - `0:door-kitchen` 是无门扇的常开洞口，只生成一条过门石，没有门框 / 门禁。
  */
 export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
   '0:main': {
-    sill: 'doorDark', inner: 'floorIndoor', outer: 'paving',
-    sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: 1,
-    color: SILL_DOOR_DARK, note: '入户双开门：门槛与深灰仿铜门框同材质；室内踏面用瓷砖、室外 0.2m 高差填实为一级实体台阶（踢面与门槛同色，顶面接前院卵石）',
+    sill: 'doorDark', sillRise: 0.018, fillsOpening: true,
+    color: SILL_DOOR_DARK, note: '入户双开门：仅一条与深灰仿铜门框同材质的 18mm 过门石；外侧无台阶、无踏面与坡度，门洞由过门石下探填实',
   },
   '0:back': {
-    sill: 'metalDoor', inner: 'floorIndoor', outer: 'paving',
-    sillRise: 0.018, outerRise: 0.20, infillGeom: true, outerSign: -1,
-    color: SILL_METAL, note: '北墙后门：门槛与灰色金属门框同材质；18mm 挡水 + 室外 0.2m 高差填实为一级实体台阶（踢面与门槛同色，顶面接后院卵石）',
+    sill: 'metalDoor', sillRise: 0.018, fillsOpening: true,
+    color: SILL_METAL, note: '北墙后门：仅一条与灰色金属门框同材质的 18mm 过门石挡水；外侧无台阶、无踏面与坡度，门洞由过门石下探填实',
   },
   '0:door-bed1': {
-    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.004, fillsOpening: false,
     color: SILL_BLACK, note: '卧室1：房门统一黑色大理石门槛',
   },
   '0:door-store': {
-    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.004, fillsOpening: false,
     color: SILL_BLACK, note: '杂物间：房门统一黑色大理石门槛',
   },
   '0:door-bath': {
-    sill: 'blackMarble', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.018, fillsOpening: false,
     color: SILL_BLACK, note: '卫生间：干湿分区，黑色大理石门槛抬高 18mm 挡水',
   },
   '0:door-kitchen': {
-    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.004, fillsOpening: false,
     color: SILL_BLACK, note: '厨房常开洞口：无门扇、永远可通行；过门石沿用房门黑色大理石，抬高 4mm 收边',
   },
   '1:sliding': {
-    sill: 'blackAluminum', inner: 'floorIndoor', outer: 'floor',
-    sillRise: 0.004, outerRise: 0, infillGeom: true, outerSign: 1,
-    color: SILL_ALUMINUM, note: '2F 阳台推拉门：门槛与黑色铝合金门框同材质；内外踏面用地砖并保持齐平、不绊脚',
+    sill: 'blackAluminum', sillRise: 0.004, fillsOpening: true,
+    color: SILL_ALUMINUM, note: '2F 阳台推拉门：仅一条与黑色铝合金门框同材质的 4mm 下轨，内外齐平、不绊脚；外侧无踏面与坡度，门洞由过门石下探填实',
   },
   '1:door-bed1': {
-    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.004, fillsOpening: false,
     color: SILL_BLACK, note: '2F 卧室1：房门统一黑色大理石门槛',
   },
   '1:door-store': {
-    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.004, fillsOpening: false,
     color: SILL_BLACK, note: '2F 后卧：房门统一黑色大理石门槛',
   },
   '1:door-bath': {
-    sill: 'blackMarble', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.018, fillsOpening: false,
     color: SILL_BLACK, note: '2F 卫生间：干湿分区，黑色大理石门槛抬高 18mm 挡水',
   },
   '2:front3f': {
-    sill: 'metalDoor', sillRise: 0.018, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'metalDoor', sillRise: 0.018, fillsOpening: false,
     color: SILL_METAL,
-    note: '3F 正面门：整扇（门扇 / 门框 / 门槛）统一灰色金属 metalDoor；阳台板已连续覆盖门洞故不补地面',
+    note: '3F 正面门：整扇（门扇 / 门框 / 门槛）统一灰色金属 metalDoor；阳台板连续覆盖门洞故不补地面，外侧本就无台阶与坡度',
   },
   '2:door-3f2': {
-    sill: 'blackMarble', sillRise: 0.004, outerRise: 0, infillGeom: false, outerSign: 0,
+    sill: 'blackMarble', sillRise: 0.004, fillsOpening: false,
     color: SILL_BLACK, note: '3F 内门：房门统一黑色大理石门槛',
   },
 };
 
 /**
- * 按楼层生成全部门槛 / 门洞补地面实体（**世界坐标**，不走 remapBox）。
+ * 按楼层生成全部门槛 / 过门石实体（**世界坐标**，不走 remapBox）。
  * 3D 装配、2D 图例、CAD 线框与第一人称脚下贴地共用这一份推导结果。
- * 沿墙厚方向以墙心为 0：门槛条固定占 [-SILL_DEPTH/2, +SILL_DEPTH/2]（与门框等宽）；
- * 外墙门的内 / 外踏面分别再向两侧延伸 TREAD_EXTEND；内门楼板连续，只生成门槛条。
- * 1F 两扇外墙门有 0.2m 内外高差（outerRise>0）：外侧踏面压入门框 2mm 并从楼板底填实为
- * 一级实体台阶，顶面接院子铺装、朝室内的踢面与门槛同色（由 3D 装配按 riserMaterial 分面），
- * 避免门洞里露出院子铺装的浅灰侧裙边；其余无高差门仍为 2cm 薄贴面。
+ * 沿墙厚方向以墙心为 0：过门石固定占 [-SILL_DEPTH/2, +SILL_DEPTH/2]（与门框等宽）。
+ * 门框两侧不再生成延伸踏面，也不再把室内外高差填实成一级实体台阶 / 坡度；
+ * 每处门只有一条过门石，因此四处消费端都只看到这一段完成面。
+ * 外墙门 `fillsOpening=true`：底面下探到楼板底 `baseY - SLAB_T`，把楼板止于 ±4.90 后
+ * 门洞墙厚内缺失的地面补齐；内门楼板连续，只嵌 2cm 薄贴面。
  *
  * 门位取 collectThresholdDoors()（含厨房常开洞口），而非 collectFloorDoors()：
  * 后者只描述「有门扇、需要门禁判定」的门，前者额外补无门扇洞口的过门石。
@@ -761,51 +757,15 @@ export function getThresholdSegments(floor: FloorConfig): ThresholdSegment[] {
     if (!style) continue;
     const alongX = Math.abs(door.rotY) < 0.01; // 墙沿 x 延展 → 墙厚在 z
     const center = alongX ? door.z : door.x;
-    const sign = style.outerSign || 1;
     const half = SILL_DEPTH / 2;
-    const parts: Array<{
-      a: number; b: number; rise: number; material: MaterialKey; kind: 'sill' | 'infill';
-      /** 实体台阶：把 outerRise 高差填实为一级台阶，而非压在院面上的 2cm 薄贴面 */
-      step?: boolean;
-    }> = [{ a: -half, b: half, rise: style.sillRise, material: style.sill, kind: 'sill' }];
-    if (style.infillGeom) {
-      // 踏面移到门框两侧：顶标高加 2mm 让缝，避免与楼板 / 院子铺装顶面共面 z-fighting
-      parts.unshift({
-        a: -half - TREAD_EXTEND, b: -half,
-        rise: TREAD_GUARD, material: style.inner ?? style.sill, kind: 'infill',
-      });
-      // 1F 两扇外墙门有 0.2m 内外高差：室外踏面向门框内压 2mm 并填实为实体台阶，
-      // 朝室内的踢面由渲染侧换成门槛同色，盖住院子铺装侧裙边（materials.wall 浅灰）在门洞处的裸露断面。
-      const isStep = style.outerRise > 0;
-      parts.push({
-        a: half - (isStep ? STEP_RISER_OVERLAP : 0), b: half + TREAD_EXTEND,
-        rise: style.outerRise + TREAD_GUARD, material: style.outer ?? style.sill, kind: 'infill',
-        step: isStep,
-      });
-    }
-    for (const p of parts) {
-      const c0 = center + sign * p.a;
-      const c1 = center + sign * p.b;
-      const lo = Math.min(c0, c1);
-      const hi = Math.max(c0, c1);
-      const topY = floor.baseY + p.rise;
-      // 门槛条：外门下探到楼板底以填实门洞缺口，内门只嵌 2cm；
-      // 实体台阶：从楼板底一直填到院面标高，0.2m 高差变成朝室内的一级踢面；
-      // 其余踏面：压在楼板 / 院子铺装之上的 2cm 薄贴面
-      const bottom = p.kind === 'sill'
-        ? floor.baseY - (style.infillGeom ? SLAB_T : 0.02)
-        : p.step
-          ? floor.baseY - SLAB_T
-          : topY - 0.02;
-      const spec: BoxSpec = alongX
-        ? box(door.w, topY - bottom, hi - lo, door.x, (topY + bottom) / 2, (lo + hi) / 2, p.material)
-        : box(hi - lo, topY - bottom, door.w, (lo + hi) / 2, (topY + bottom) / 2, door.z, p.material);
-      const color = p.kind === 'sill' ? style.color : p.material === 'paving' ? '#b7b0a4' : '#d8d8d4';
-      out.push({
-        id: door.id, kind: p.kind, spec, topY, color, note: style.note,
-        riserMaterial: p.step ? style.sill : undefined,
-      });
-    }
+    const lo = center - half;
+    const hi = center + half;
+    const topY = floor.baseY + style.sillRise;
+    const bottom = floor.baseY - (style.fillsOpening ? SLAB_T : 0.02);
+    const spec: BoxSpec = alongX
+      ? box(door.w, topY - bottom, hi - lo, door.x, (topY + bottom) / 2, (lo + hi) / 2, style.sill)
+      : box(hi - lo, topY - bottom, door.w, (lo + hi) / 2, (topY + bottom) / 2, door.z, style.sill);
+    out.push({ id: door.id, kind: 'sill', spec, topY, color: style.color, note: style.note });
   }
   return out;
 }
@@ -938,7 +898,7 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   const outside: WalkRect | undefined =
     floor.index === 0 ? { x0: -OUTER_BOUND, x1: OUTER_BOUND, z0: -OUTER_BOUND, z1: OUTER_BOUND } : undefined;
 
-  // 门槛 / 门洞台阶的局部完成面（与 3D 装配同源）：不阻挡通行，仅用于第一人称脚下贴地
+  // 过门石的局部完成面（与 3D 装配同源）：不阻挡通行，仅用于第一人称脚下贴地
   const thresholds = getThresholdSegments(floor).map((s) => ({
     x0: s.spec.x - s.spec.w / 2,
     x1: s.spec.x + s.spec.w / 2,

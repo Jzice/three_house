@@ -353,7 +353,7 @@ export function createFloorplan2D(
       );
     }
 
-    // ---- 门槛 / 过门石（过门石条实色，门洞补地面半透明，按各门实际做法区分材质） ----
+    // ---- 门槛 / 过门石（每处门只一条实色过门石条，按各门实际做法区分材质） ----
     for (const seg of getThresholdSegments(floor)) {
       const { x, z, w, d } = seg.spec;
       const px = getX(x - w / 2);

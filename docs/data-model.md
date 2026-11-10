@@ -26,7 +26,7 @@
 | --- | --- |
 | `FloorConfig.baseY` | 本层**室内地坪完成面**标高（楼板顶面 = 墙体底面 = 楼梯起步面） |
 | 楼板 | 顶面 = `baseY`，板底 = `baseY - SLAB_T`（向下生长，不侵占完成面标高） |
-| `FloorConfig.wallH` | 本层墙高（1F 3.5 / 2F 3.0 / 3F 2.5）；上层完成面 = 本层完成面 + 本层墙高（1F 0.30 → 2F 3.80 → 3F 6.80 → 屋面板底 9.30） |
+| `FloorConfig.wallH` | 本层墙高（1F 3.5 / 2F 3.0 / 3F 2.5）；上层完成面 = 本层完成面 + 本层墙高（1F 0.50 → 2F 4.00 → 3F 7.00 → 屋面板底 9.50）。1F 完成面由 `FIRST_FLOOR_Y` 给出，院子 `yard.paveH` 复用同一常量保持室内外齐平 |
 | `remapBox` | 只做 `baseY + spec.y` 的平移与到顶构件 2mm 让缝（`WALL_TOP_GUARD`），**不做任何层间缩放** |
 | `STAIR_EAST_OPENING` | 1F 楼梯间东墙通厨房的 `1.1m × 2.0m` 常开洞口（无门扇）；3D 墙段、2D 墙线、2F 封墙与 FPS `solids` 挖洞共用 |
 

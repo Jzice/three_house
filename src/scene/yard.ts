@@ -7,7 +7,8 @@ import { D, W } from '../config/houseConfig';
  * 西、北两侧为 2m 高围墙（后院斜边 + 后院西短墙 + 前院西墙），南、东为矮墙。
  * 后院（北侧）为梯形：西北角深 = extendNorth，东北角深 = rearEastDepth，斜围墙连向东北；
  * 各方向外扩独立：extendEast / extendSouth / extendNorth / extendWest（西院，0 表示到房屋西墙为止）。
- * 铺装顶面 = 抬高后的院子台面（离地 paveH，现 0.50m）。
+ * 铺装顶面 = 院子台面（离地 paveH，现 0.50m），与 1F 完成面 `FIRST_FLOOR_Y` 齐平，
+ * 因此两扇外门门洞处地面连续、无竖立断面。
  */
 export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Group {
   const group = new THREE.Group();
@@ -22,7 +23,7 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   const rearEastZ = -(D / 2 + (spec.rearEastDepth ?? spec.extendNorth)); // 斜边东北端 z
   const rearStraight = spec.rearStraight ?? 0; // 西北角直角段长度（沿北边直行后变斜）
   const diaStartX = xWest + rearStraight; // 斜边起点 x（直角段东端）
-  const paveH = spec.paveH; // 铺装面离地高度（抬高后的院子台面，0.50m）
+  const paveH = spec.paveH; // 铺装面离地高度（院子台面 0.50m，与 1F 完成面齐平）
   const t = spec.fenceT;
   const gateHalf = spec.gateW / 2;
   const gz = spec.gateZ ?? 0; // 院门中心 z
@@ -169,6 +170,9 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
     s.userData.weatherExposed = 'yard';
     group.add(s);
   }
+
+  // 1F 完成面与院面同为 0.50m，两扇外门门洞处地面连续：铺装侧裙边被室内楼板
+  // 与过门石遮住，不需要任何收口贴片 / 台阶 / 坡度。
 
   return group;
 }
