@@ -2,6 +2,23 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.13] - 2026-11-11
+
+### 改动
+- **按新参考图重新设计 1F 入户双开大门外观**（`builders.ts` 的 `createInteractiveMainDoor`）：由「近黑门体 + 金铜描线 / 四角回纹角饰 + 3 竖 2 横格棂亮窗 + 0.45m 金铜圆管长拉手 + 长方形智能锁面板」整体改为新中式枪灰单色系 —— 每扇中央内凹矩形装饰板 + 4 道竖向细凹槽（被门环打断、下方续一段中竖线）、细长内凹窄梃、横向水波压花玻璃亮窗 + 两端方形回纹花板、多层叠级门套（3 道台阶线、内外两面）、0.30m 银白扁方条短拉手（上下方底座 + 横向锁销 + 锁孔、内外双面）、每扇扇中线离地 `1.0m` 的圆形雕花门环 / 铺首（圆盘 + 2 道同心环 + 8 枚放射铆点 + 兽首钮 + 悬垂小圆环）。原贴中缝侧 `0.09×0.32×0.05` 长方形锁面板删除。
+- **配色全量替换**：`doorDark` 由 `#2c2c30`（`metalness 0.55`）改为枪灰 `#5b626b`（`roughness 0.68 / metalness 0.22`，压低金属度避免门洞背光下发黑）；新增 4 个 1F 大门专用材质键 `mainDoorTrim`（深灰凹槽 `#3d434a`）、`mainDoorEdge`（亮灰凸边 `#7c848f`）、`antiqueBronze`（做旧古铜 `#8a6c49`）、`transomGlass`（压花亮窗玻璃 `0xdce2e8`）；拉手复用银白缎面 `stainlessBrushed`，原金铜 `bronze` 键保留在字典中备用、不再被引用。
+- **新增几何工厂与程序化贴图**：`hardware.ts` 新增 `createFlatBarPullHandle` / `createDoorRingKnocker` 与 `torusZ()` 环形几何缓存，均沿用 `geoCache` 复用几何体；`materials.ts` 新增 `createTransomGlassTexture()`（横向长虹条纹 + 中央 5 道水波纹 + 磨砂噪点、`repeat(3,1)`），亮窗玻璃改为不透明，避免透明排序影响天空层。
+
+### 同步
+- **尺寸与安装位置零改动**（按需求确认）：洞口 `2.4×2.6`、分区 `0.25/0.95/0.95/0.25`、门扇高 `2.05`、亮窗高 `0.55`、扇厚 `0.05`、门位 `(-0.25,0,5.0)`、开合角 `±0.9×90°`、点击判定、FPS 通行 `id='main'` 全部保持；把手安装点仍为中缝侧 `±0.08m`、中心离地 `1.05m`，门套套线宽 `0.08m` 不变。
+- `houseConfig.ts` 的 `SILL_DOOR_DARK` 由 `#2c2c30` 同步为 `#5b626b`、`THRESHOLD_STYLES['0:main']` 的 `note` 改称枪灰门框，保证 2D 平面图门槛与 3D 门体同色（3D 门槛共用 `doorDark` 自动跟随）；注释中「深灰仿铜」同步为枪灰单色系描述。
+- 未改 `createDoorCasing()` 共用函数（3 道叠级线在主门内单独叠加）、其它门窗、材质字典其它键、灯光 / 天气 / 相机 / 交互阈值、`WALLS_2D` / `ROOMS_2D` / CAD；`createVerticalPullHandle` 仍供 2F 推拉门使用。
+
+### 验证
+- `npm run typecheck` 0 错误、`read_lints` 0 问题；`npm run build:all` 两种单文件产物生成成功（离线版 `1281.8 KB` / CDN 版 `402.8 KB`，`"abs" is imported ...` 为 metaverse-sky 既有告警）；产物自检 `dist/` 仅两个 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+- `npm run dev` + playwright-cli 目视复核前门正视图（机位 `(-0.25,1.8,8.2)`）：枪灰单色层次、装饰板竖纹、亮窗回纹端板、叠级门套、银白短拉手、古铜门环均到位，正午光照下配色一致；强制开门截图确认门环与拉手随门扇旋转、不悬空，亮窗 / 窄梃 / 门套固定不动；控制台除首屏既有 `favicon.ico` 404 外无错误。
+- 三处版本号（`package.json` / `package-lock.json` 顶层 / `packages[""].version`）统一 `2.0.13`；提交信息与附注标签注释统一 `v2.0.13：…`，按 `push origin main` → `push origin v2.0.13` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
 ## [2.0.12] - 2026-11-11
 
 ### 改动

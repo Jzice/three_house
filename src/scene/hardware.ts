@@ -184,6 +184,86 @@ export function createVerticalPullHandle(mat: THREE.Material, opts: PullHandleOp
   return g;
 }
 
+/** 圆环面朝 z（雕花门环 / 铺首底盘装饰环）：TorusGeometry 默认位于 xy 平面 */
+function torusZ(r: number, tube: number): THREE.TorusGeometry {
+  return cached(`tz/${r.toFixed(4)}/${tube.toFixed(4)}`,
+    () => new THREE.TorusGeometry(r, tube, 8, 32));
+}
+
+export interface FlatBarPullOptions extends HandlePlacement {
+  /** 装在 +z 面还是 -z 面 */
+  side: number;
+  /** 拉手总长（米），默认 0.30 */
+  length?: number;
+  /** 连接座 / 锁孔点缀材质，缺省与主材质相同 */
+  accent?: THREE.Material;
+}
+
+/**
+ * 新中式双开门扁条拉手（单面）：扁平矩形主杆 + 上下方形底座 + 上部一道横向锁销。
+ * 与 1F 大门 0.30m 短拉手对应；主杆离扇面约 4.5cm，底座落在扇面上。
+ */
+export function createFlatBarPullHandle(mat: THREE.Material, opts: FlatBarPullOptions): THREE.Group {
+  const g = hardwareGroup();
+  const L = opts.length ?? 0.30;
+  const accent = opts.accent ?? mat;
+  const sign = opts.side >= 0 ? 1 : -1;
+  const face = opts.leafT / 2;
+  const rodZ = sign * (face + 0.045);
+  const seatZ = sign * (face + 0.011);
+
+  // 上下方形底座 + 连接柱：把主杆架离扇面
+  for (const sy of [-1, 1]) {
+    const y = opts.y + sy * (L / 2 - 0.025);
+    putBox(g, mat, 0.044, 0.050, 0.022, opts.x, y, seatZ);
+    putBox(g, accent, 0.016, 0.012, 0.046, opts.x, y, sign * (face + 0.026));
+  }
+  // 扁条主杆：宽 28mm、厚 16mm 的方截面（区别于圆管长拉手）
+  putBox(g, mat, 0.028, L, 0.016, opts.x, opts.y, rodZ);
+  // 上部横向锁销 + 锁孔
+  const lockY = opts.y + L / 2 - 0.075;
+  putBox(g, mat, 0.082, 0.014, 0.014, opts.x, lockY, rodZ);
+  putCylZ(g, accent, 0.008, 0.004, opts.x, lockY, sign * (face + 0.055));
+  return g;
+}
+
+export interface DoorRingOptions extends HandlePlacement {
+  /** 圆盘半径（米），默认 0.085 */
+  radius?: number;
+  /** 雕花高光点缀材质，缺省与主材质相同 */
+  accent?: THREE.Material;
+}
+
+/**
+ * 圆形雕花门环 / 铺首（单面朝 +z）：圆盘 + 两道同心装饰环 + 8 枚放射铆点 +
+ * 中央兽首钮 + 下方悬垂小圆环。1F 大门按新中式样式替代原长方形智能锁面板。
+ */
+export function createDoorRingKnocker(mat: THREE.Material, opts: DoorRingOptions): THREE.Group {
+  const g = hardwareGroup();
+  const R = opts.radius ?? 0.085;
+  const accent = opts.accent ?? mat;
+  const face = opts.leafT / 2;
+
+  // 底盘圆盘：内表面贴扇面
+  putCylZ(g, mat, R, 0.012, opts.x, opts.y, face + FACE_GAP);
+  // 两道同心装饰环 + 8 枚放射铆点（简化雕花）
+  put(g, torusZ(R * 0.86, 0.005), accent, opts.x, opts.y, face + 0.014);
+  put(g, torusZ(R * 0.56, 0.004), mat, opts.x, opts.y, face + 0.016);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    put(g, ballGeo(0.006), accent,
+      opts.x + Math.cos(a) * R * 0.71, opts.y + Math.sin(a) * R * 0.71, face + 0.016);
+  }
+  // 中央兽首钮
+  putCylZ(g, mat, 0.018, 0.022, opts.x, opts.y, face + 0.020);
+  put(g, ballGeo(0.013), accent, opts.x, opts.y, face + 0.032);
+  // 悬垂小圆环：连接件 + 环（Torus 默认位于 xy 平面，法线朝 +z）
+  const ringY = opts.y - R - 0.028;
+  putBox(g, mat, 0.016, 0.030, 0.014, opts.x, opts.y - R - 0.006, face + 0.022);
+  put(g, torusZ(R * 0.38, 0.008), mat, opts.x, ringY, face + 0.028);
+  return g;
+}
+
 export interface CasementHandleOptions extends HandlePlacement {
   /** 拨杆伸出方向：+1 朝 +x、-1 朝 -x（指向扇内） */
   leverDir: number;

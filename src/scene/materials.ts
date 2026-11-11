@@ -401,6 +401,64 @@ function createFrostedRibTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** 程序化生成 1F 大门上亮窗的横向水波压花贴图：横向长虹条纹 + 中央水波纹 + 磨砂噪点。
+ *  浅灰白底，与 `transomGlass` 的浅灰基色相乘后只留下低对比的水平明暗起伏。 */
+function createTransomGlassTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const S = 512;
+  canvas.width = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建 2D 上下文，亮窗压花贴图生成失败');
+
+  let seed = 20261111;
+  const rand = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  ctx.fillStyle = '#eef1f3';
+  ctx.fillRect(0, 0, S, S);
+  // 横向长虹条纹：每 18px 一道，渐变边缘避免硬边
+  const pitch = 18;
+  for (let y = 0; y < S; y += pitch) {
+    const grad = ctx.createLinearGradient(0, y, 0, y + pitch);
+    grad.addColorStop(0, 'rgba(160,172,182,0)');
+    grad.addColorStop(0.35, 'rgba(160,172,182,0.26)');
+    grad.addColorStop(0.65, 'rgba(255,255,255,0.34)');
+    grad.addColorStop(1, 'rgba(160,172,182,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, S, pitch);
+  }
+  // 中央水波纹压花带：5 道相位错开的细波浪线
+  ctx.strokeStyle = 'rgba(150,164,176,0.35)';
+  ctx.lineWidth = 1.2;
+  for (let k = 0; k < 5; k++) {
+    ctx.beginPath();
+    const baseY = S * 0.40 + k * 9;
+    for (let x = 0; x <= S; x += 4) {
+      const y = baseY + Math.sin((x / S) * Math.PI * 6 + k * 0.7) * 5;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  // 细密磨砂颗粒打散条纹的规则感
+  for (let i = 0; i < 5000; i++) {
+    ctx.fillStyle = rand() > 0.5
+      ? `rgba(255,255,255,${0.08 + rand() * 0.16})`
+      : `rgba(140,152,162,${0.04 + rand() * 0.10})`;
+    const r = 0.6 + rand() * 1.6;
+    ctx.fillRect(rand() * S, rand() * S, r, r);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  // 亮窗面约 2.3m × 0.47m，横向重复 3 次让压花条纹不被拉宽
+  tex.repeat.set(3, 1);
+  return tex;
+}
+
 /** 程序化生成深色花岗岩过门石贴图（细密矿粒 + 少量浅色矿脉），整块石材无砖缝 */
 function createGraniteTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -625,10 +683,24 @@ export function createMaterials(): MaterialMap {
       roughness: 0.5,
       metalness: 0.35,
     }),
-    // 深灰仿铜门体/门框（一层入户门基底与套线）：沉稳炭灰带微铜，哑光金属感
-    doorDark: new THREE.MeshStandardMaterial({ color: 0x2c2c30, roughness: 0.5, metalness: 0.55 }),
-    // 金铜色装饰与五金（一层入户门描线/角饰/拉手/锁/格棂）：偏金，强反射
+    // 枪灰门体/门框/套线（1F 入户门基底 + 主门过门石）：哑光冷灰，替代原近黑仿铜。
+    // metalness 压到 0.28：过高会吃掉漫反射，背光门洞里基色发黑（同 gunmetal 的经验）
+    doorDark: new THREE.MeshStandardMaterial({ color: 0x5b626b, roughness: 0.68, metalness: 0.22 }),
+    // 金铜色装饰五金：1F 大门改枪灰单色系后不再引用，保留在字典中备用
     bronze: new THREE.MeshStandardMaterial({ color: 0xb8863b, roughness: 0.35, metalness: 0.7 }),
+    // 1F 大门专用：内凹装饰线 / 竖纹凹槽（比门体暗一档，靠明暗差做层次，无金铜色）
+    mainDoorTrim: new THREE.MeshStandardMaterial({ color: 0x3d434a, roughness: 0.72, metalness: 0.25 }),
+    // 1F 大门专用：凸起细边框 / 回纹花板 / 叠级套线高光（比门体亮一档）
+    mainDoorEdge: new THREE.MeshStandardMaterial({ color: 0x7c848f, roughness: 0.5, metalness: 0.38 }),
+    // 1F 大门专用：圆形雕花门环（做旧古铜，比门体略亮、低反射）
+    antiqueBronze: new THREE.MeshStandardMaterial({ color: 0x8a6c49, roughness: 0.55, metalness: 0.6 }),
+    // 1F 大门上亮窗：横向水波压花磨砂玻璃（程序化贴图，不透明，避免透明排序影响天空层）
+    transomGlass: new THREE.MeshStandardMaterial({
+      color: 0xdce2e8,
+      map: createTransomGlassTexture(),
+      roughness: 0.72,
+      metalness: 0.12,
+    }),
     // 磨砂玻璃（卫生间门专用）：竖向压花贴图，透明度 / 粗糙度沿用既有观感
     frostedGlass: new THREE.MeshStandardMaterial({
       color: 0xe8eef2,

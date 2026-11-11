@@ -13,6 +13,8 @@ import type {
 import { DOOR_INNER_H, FRONT_DOOR_H, T_EXT, T_INT } from '../config/houseConfig';
 import {
   createCasementHandle,
+  createDoorRingKnocker,
+  createFlatBarPullHandle,
   createLeverHandleSet,
   createSlidingLatch,
   createSlidingLatchStrike,
@@ -103,10 +105,12 @@ export interface InteractiveBuildResult {
 }
 
 /**
- * 一层入户双开大门（深灰仿铜中式门）：
- * 在 2.4×2.6 洞口内自下而上布局——门扇区（0→2.05m）+ 门上格棂亮窗（2.05→2.6m），
+ * 一层入户双开大门（枪灰单色系新中式门）：
+ * 在 2.4×2.6 洞口内自下而上布局——门扇区（0→2.05m）+ 门上横向压花亮窗（2.05→2.6m），
  * 横向分为左/右固定窄梃（各 0.25m）+ 中间双开活动门（各 0.95m 宽）。
- * 仅做外观翻新：中间两扇开合角度、点击判定、FPS 通行 id='main' 全部保持既有行为不变。
+ * 外观按新中式：枪灰门体 + 深灰内凹线 / 亮灰凸边（无金铜色）、中央内凹矩形板与竖纹、
+ * 两端方形回纹花板的亮窗、多层叠级门套、银白扁条短拉手、每扇中央古铜圆形雕花门环。
+ * 仅做外观翻新：洞口与分区尺寸、安装位置、开合角度、点击判定、FPS 通行 id='main' 全部不变。
  */
 export function createInteractiveMainDoor(
   spec: DoorSpec,
@@ -125,6 +129,13 @@ export function createInteractiveMainDoor(
   const frontZ = doorT / 2; // 门扇正面（朝室外 +z）
   // 门扇 / 固定窄梃的单件让缝：相邻两件合成一条 4mm 竖缝（真实双开门中缝 3~5mm）
   const leafGap = 0.004;
+  // 圆形雕花门环（替代原长方形锁面板）：装在各扇装饰板中下部，中心离地 1.0m
+  const RING_Y = 1.0;
+  const RING_R = 0.085;
+  // 枪灰单色系：靠明暗差做层次，门体 / 深灰内凹线 / 亮灰凸边
+  const body = materials.doorDark;
+  const trim = materials.mainDoorTrim;
+  const edge = materials.mainDoorEdge;
 
   const container = new THREE.Group();
 
@@ -146,98 +157,127 @@ export function createInteractiveMainDoor(
     group.add(m);
   };
 
-  // ---- 门扇正面描线边框（内缩 inset）+ 中部竖条 + 四角简化回纹角饰 ----
-  const addLeafTrim = (g: THREE.Object3D, cx: number): void => {
+  // ---- 门扇正面：中央内凹矩形装饰板 + 竖向细凹槽（新中式直角造型，无回纹角花）----
+  const addLeafPanel = (g: THREE.Object3D, cx: number): void => {
     const lw = swingW - leafGap;
-    const inset = 0.12;
-    const tT = 0.04;
-    const bw = lw - 2 * inset;
-    const bh = leafH - 2 * inset;
-    // 四周描线
-    addBox(g, bw, tT, doorT * 0.4, cx, inset + tT / 2, frontZ, materials.bronze);
-    addBox(g, bw, tT, doorT * 0.4, cx, leafH - inset - tT / 2, frontZ, materials.bronze);
-    addBox(g, tT, bh, doorT * 0.4, cx - bw / 2 + tT / 2, leafH / 2, frontZ, materials.bronze);
-    addBox(g, tT, bh, doorT * 0.4, cx + bw / 2 - tT / 2, leafH / 2, frontZ, materials.bronze);
-    // 中部竖向装饰条（双开中缝两侧的整高竖线）
-    addBox(g, tT, bh, doorT * 0.4, cx, leafH / 2, frontZ, materials.bronze);
-    // 四角简化回纹角饰：每角一横一竖小条
-    const cs = 0.16;
-    const horX = bw / 2 - cs - tT / 2;
-    const corners: Array<[number, number, number, number]> = [
-      [cx - horX, inset + cs / 2, 1, 1],
-      [cx + horX, inset + cs / 2, -1, 1],
-      [cx - horX, leafH - inset - cs / 2, 1, -1],
-      [cx + horX, leafH - inset - cs / 2, -1, -1],
-    ];
-    for (const [mx, my, sx, sy] of corners) {
-      addBox(g, cs, tT, doorT * 0.4, mx, my, frontZ, materials.bronze);
-      addBox(
-        g,
-        tT,
-        cs,
-        doorT * 0.4,
-        mx + (sx * (cs / 2 - tT / 2)),
-        my + (sy * (cs / 2 - tT / 2)),
-        frontZ,
-        materials.bronze,
-      );
+    const t = 0.010;
+    const panelW = lw - 0.30;
+    const panelH = leafH - 0.42;
+    const panelY = leafH / 2 + 0.03;
+    const x0 = cx - panelW / 2;
+    const x1 = cx + panelW / 2;
+    const y0 = panelY - panelH / 2;
+    const y1 = panelY + panelH / 2;
+
+    // 门扇外周一圈极细凸边，收住整扇轮廓
+    const ow = lw - 0.12;
+    const oh = leafH - 0.12;
+    addBox(g, ow, 0.008, 0.005, cx, 0.06, frontZ + 0.003, edge);
+    addBox(g, ow, 0.008, 0.005, cx, leafH - 0.06, frontZ + 0.003, edge);
+    addBox(g, 0.008, oh, 0.005, cx - ow / 2, leafH / 2, frontZ + 0.003, edge);
+    addBox(g, 0.008, oh, 0.005, cx + ow / 2, leafH / 2, frontZ + 0.003, edge);
+
+    // 内凹板底与门体同色（内凹感靠双层边框与薄板厚度表现），竖纹凹槽才显色
+    addBox(g, panelW, panelH, 0.004, cx, panelY, frontZ + 0.001, body);
+    const borders: Array<[number, THREE.Material]> = [[0, edge], [0.024, trim]];
+    for (const [ox, mat] of borders) {
+      const ax0 = x0 + ox;
+      const ax1 = x1 - ox;
+      const ay0 = y0 + ox;
+      const ay1 = y1 - ox;
+      addBox(g, ax1 - ax0, t, 0.006, (ax0 + ax1) / 2, ay0, frontZ + 0.004, mat);
+      addBox(g, ax1 - ax0, t, 0.006, (ax0 + ax1) / 2, ay1, frontZ + 0.004, mat);
+      addBox(g, t, ay1 - ay0, 0.006, ax0, (ay0 + ay1) / 2, frontZ + 0.004, mat);
+      addBox(g, t, ay1 - ay0, 0.006, ax1, (ay0 + ay1) / 2, frontZ + 0.004, mat);
     }
+
+    // 板内竖向细凹槽：4 道，自板顶向下止于门环上缘之上（竖纹被圆形门环打断）
+    const grooveTop = y1 - 0.045;
+    const grooveBottom = RING_Y + RING_R + 0.055;
+    for (const f of [-0.30, -0.10, 0.10, 0.30]) {
+      addBox(g, 0.007, grooveTop - grooveBottom, 0.004,
+        cx + panelW * f, (grooveTop + grooveBottom) / 2, frontZ + 0.005, trim);
+    }
+    // 门环下方到板底的一段短中竖线，延续装饰板中轴
+    const lowTop = RING_Y - RING_R - 0.065;
+    addBox(g, 0.007, lowTop - y0 - 0.045, 0.004,
+      cx, (lowTop + y0 + 0.045) / 2, frontZ + 0.005, trim);
   };
 
-  // ---- 门上格棂亮窗（固定）----
+  // ---- 门上横向压花亮窗（固定）：中间水波压花玻璃 + 两端方形回纹花板 ----
   const transom = new THREE.Group();
   const transomY0 = leafH;
   const tT = 0.04;
-  // 玻璃（陷在门扇厚度中部）
-  addBox(transom, doorW - 2 * tT, transomH - 2 * tT, 0.04, 0, transomY0 + transomH / 2, 0, materials.glass);
-  // 亮窗外框
-  addBox(transom, doorW, tT, doorT, 0, transomY0 + tT / 2, frontZ, materials.bronze);
-  addBox(transom, doorW, tT, doorT, 0, transomY0 + transomH - tT / 2, frontZ, materials.bronze);
-  addBox(transom, tT, transomH, doorT, -halfW + tT / 2, transomY0 + transomH / 2, frontZ, materials.bronze);
-  addBox(transom, tT, transomH, doorT, halfW - tT / 2, transomY0 + transomH / 2, frontZ, materials.bronze);
-  // 格棂：竖向 3 道 + 横向 2 道
-  for (let i = 1; i <= 3; i++) {
-    const x = -halfW + (doorW * i) / 4;
-    addBox(transom, tT * 0.7, transomH - 2 * tT, doorT * 0.9, x, transomY0 + transomH / 2, frontZ, materials.bronze);
+  const tcY = transomY0 + transomH / 2;
+  // 压花玻璃：不透明（避免透明排序影响天空层），陷在门扇厚度中部
+  addBox(transom, doorW - 2 * tT, transomH - 2 * tT, 0.04, 0, tcY, 0, materials.transomGlass);
+  // 亮窗外框（亮灰凸边）
+  addBox(transom, doorW, tT, doorT, 0, transomY0 + tT / 2, frontZ, edge);
+  addBox(transom, doorW, tT, doorT, 0, transomY0 + transomH - tT / 2, frontZ, edge);
+  addBox(transom, tT, transomH, doorT, -halfW + tT / 2, tcY, frontZ, edge);
+  addBox(transom, tT, transomH, doorT, halfW - tT / 2, tcY, frontZ, edge);
+  // 玻璃带上下两道横向细框（替换原 3 竖 2 横格棂）
+  for (const dy of [-1, 1]) {
+    addBox(transom, doorW - 2 * tT - 0.46, 0.012, doorT * 0.5,
+      0, tcY + dy * (transomH / 2 - 0.075), frontZ + 0.004, edge);
   }
-  for (let i = 1; i <= 2; i++) {
-    const y = transomY0 + (transomH * i) / 3;
-    addBox(transom, doorW - 2 * tT, tT * 0.7, doorT * 0.9, 0, y, frontZ, materials.bronze);
+  // 两端方形回纹花板：暗底 + 双层亮/暗回纹框 + 中央十字
+  const plateW = 0.22;
+  const plateH = transomH - 2 * tT - 0.06;
+  for (const s of [-1, 1]) {
+    const px = s * (halfW - tT - plateW / 2 - 0.01);
+    addBox(transom, plateW, plateH, 0.008, px, tcY, frontZ + 0.003, body);
+    for (const [ox, mat] of [[0.018, edge], [0.046, trim]] as Array<[number, THREE.Material]>) {
+      const w = plateW - 2 * ox;
+      const h = plateH - 2 * ox;
+      addBox(transom, w, 0.008, 0.006, px, tcY - h / 2, frontZ + 0.006, mat);
+      addBox(transom, w, 0.008, 0.006, px, tcY + h / 2, frontZ + 0.006, mat);
+      addBox(transom, 0.008, h, 0.006, px - w / 2, tcY, frontZ + 0.006, mat);
+      addBox(transom, 0.008, h, 0.006, px + w / 2, tcY, frontZ + 0.006, mat);
+    }
+    addBox(transom, plateW - 0.10, 0.008, 0.006, px, tcY, frontZ + 0.006, edge);
+    addBox(transom, 0.008, plateH - 0.10, 0.006, px, tcY, frontZ + 0.006, edge);
   }
   container.add(transom);
 
-  // ---- 两侧固定窄梃（非交互）----
+  // ---- 两侧固定窄梃（非交互）：细长竖向内凹线框 ----
   for (const s of [-1, 1]) {
     const px = s * (halfW - sideW / 2);
-    addBox(container, sideW - leafGap, leafH, doorT, px, leafH / 2, 0, materials.doorDark);
-    const inset = 0.08;
-    const bw = sideW - 2 * inset - leafGap;
-    const bh = leafH - 2 * inset;
-    addBox(container, bw, tT, doorT * 0.4, px, inset + tT / 2, frontZ, materials.bronze);
-    addBox(container, bw, tT, doorT * 0.4, px, leafH - inset - tT / 2, frontZ, materials.bronze);
-    addBox(container, tT, bh, doorT * 0.4, px - bw / 2 + tT / 2, leafH / 2, frontZ, materials.bronze);
-    addBox(container, tT, bh, doorT * 0.4, px + bw / 2 - tT / 2, leafH / 2, frontZ, materials.bronze);
+    addBox(container, sideW - leafGap, leafH, doorT, px, leafH / 2, 0, body);
+    const stileW = 0.10;
+    const stileH = leafH - 0.24;
+    addBox(container, stileW, stileH, 0.006, px, leafH / 2, frontZ + 0.002, trim);
+    for (const sx of [-1, 1]) {
+      addBox(container, 0.008, stileH, 0.006,
+        px + sx * stileW / 2, leafH / 2, frontZ + 0.005, edge);
+    }
+    for (const sy of [-1, 1]) {
+      addBox(container, stileW, 0.008, 0.006,
+        px, leafH / 2 + sy * stileH / 2, frontZ + 0.005, edge);
+    }
   }
 
   // ---- 中间双开活动门 ----
   const buildSwingLeaf = (centerOffsetX: number): THREE.Group => {
     const g = new THREE.Group();
     const lw = swingW - leafGap;
-    addBox(g, lw, leafH, doorT, centerOffsetX, leafH / 2, 0, materials.doorDark);
-    addLeafTrim(g, centerOffsetX);
-    // 内外双面竖向长拉手：装在门扇自由边（中缝侧，距边 0.08m），中心离地 1.05m；
-    // 相对铰链的力臂接近整扇宽度，开门省力；与铰链侧的智能锁面板水平错开，互不遮挡
+    addBox(g, lw, leafH, doorT, centerOffsetX, leafH / 2, 0, body);
+    addLeafPanel(g, centerOffsetX);
+    // 内外双面银白扁条短拉手：安装位置不变（中缝侧、距边 0.08m，中心离地 1.05m），
+    // 造型改为 0.30m 扁方条 + 上下方底座 + 上部横向锁销
     const handleX = Math.sign(centerOffsetX) * (swingW - 0.08);
     for (const side of [-1, 1]) {
-      g.add(createVerticalPullHandle(materials.bronze, {
-        x: handleX, y: 1.05, leafT: doorT, side, length: 0.45,
-        accent: materials.doorDark,
+      g.add(createFlatBarPullHandle(materials.stainlessBrushed, {
+        x: handleX, y: 1.05, leafT: doorT, side, length: 0.30,
+        accent: trim,
       }));
     }
-    // 智能锁面板：两扇各半、随门扇旋转（避免悬空）；贴中缝（门缝）侧、与竖拉手同竖边，
-    // 落在拉手正下方（中心离地 0.55m，跨 0.39~0.71m），像真实对开门的锁体位置
-    const lockX = handleX;
-    addBox(g, 0.09, 0.32, 0.05, lockX, 0.55, frontZ, materials.bronze);
+    // 圆形雕花门环（替代原长方形锁面板）：每扇装饰板中下部、扇中线，中心离地 1.0m，
+    // 随门扇旋转（避免悬空），左右对称各一
+    g.add(createDoorRingKnocker(materials.antiqueBronze, {
+      x: centerOffsetX, y: RING_Y, leafT: doorT, radius: RING_R,
+      accent: edge,
+    }));
     return g;
   };
 
@@ -256,8 +296,26 @@ export function createInteractiveMainDoor(
   for (const p of parts) p.userData.id = 'main';
 
   container.add(leftHinge, rightHinge);
-  // 前门门套：深灰仿铜（洞口内口包边 + 外沿套线）
-  container.add(createDoorCasing(doorW, totalH, T_EXT, materials.doorDark));
+  // 前门门套：共用函数生成内口包边 + 外沿套线基层，再叠 3 道台阶线（套线宽 0.08m 不变）
+  container.add(createDoorCasing(doorW, totalH, T_EXT, body));
+  const casingW = 0.08;
+  const casingZ = T_EXT / 2 + 0.015;
+  const steps: Array<{ inset: number; w: number; z: number; mat: THREE.Material }> = [
+    { inset: 0.006, w: 0.012, z: casingZ + 0.002, mat: edge },
+    { inset: 0.026, w: 0.010, z: casingZ + 0.005, mat: trim },
+    { inset: 0.046, w: 0.008, z: casingZ + 0.008, mat: edge },
+  ];
+  for (const st of steps) {
+    const ox = halfW + casingW - st.inset;
+    const oy = totalH + casingW - st.inset;
+    // 内外两面都做，保证第一人称进出时观感一致
+    for (const sz of [-1, 1]) {
+      for (const sx of [-1, 1]) {
+        addBox(container, st.w, oy, 0.006, sx * ox, oy / 2, sz * st.z, st.mat);
+      }
+      addBox(container, ox * 2 + st.w, st.w, 0.006, 0, oy, sz * st.z, st.mat);
+    }
+  }
   container.position.set(spec.x, spec.y, spec.z);
   // 竖向尺寸均为绝对米数：只把局部原点平移到本层完成面，不再按层高缩放
   if (floor) container.position.y = floor.baseY + spec.y;

@@ -671,7 +671,7 @@ interface ThresholdStyle {
 }
 
 const SILL_BLACK = '#2b2b30';
-const SILL_DOOR_DARK = '#2c2c30';
+const SILL_DOOR_DARK = '#5b626b'; // 与 materials.ts 的 doorDark 枪灰门体同色
 const SILL_METAL = '#707478';
 const SILL_ALUMINUM = '#2a2a2c';
 
@@ -690,7 +690,7 @@ const SILL_ALUMINUM = '#2a2a2c';
 export const THRESHOLD_STYLES: Record<string, ThresholdStyle> = {
   '0:main': {
     sill: 'doorDark', sillRise: 0.018, fillsOpening: true,
-    color: SILL_DOOR_DARK, note: '入户双开门：仅一条与深灰仿铜门框同材质的 18mm 过门石；外侧无台阶、无踏面与坡度，门洞由过门石下探填实',
+    color: SILL_DOOR_DARK, note: '入户双开门：仅一条与枪灰门框同材质的 18mm 过门石；外侧无台阶、无踏面与坡度，门洞由过门石下探填实',
   },
   '0:back': {
     sill: 'metalDoor', sillRise: 0.018, fillsOpening: true,
