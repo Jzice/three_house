@@ -234,11 +234,10 @@ export function createInteractiveMainDoor(
         accent: materials.doorDark,
       }));
     }
-    // 智能锁面板：两扇各半、随门扇旋转（避免悬空）；当前位于铰链侧（距铰链约 0.05m），
-    // 与自由侧拉手水平错开、互不遮挡
-    const innerEdgeX = centerOffsetX - Math.sign(centerOffsetX) * (lw / 2);
-    const lockX = innerEdgeX + Math.sign(centerOffsetX) * 0.045;
-    addBox(g, 0.09, 0.32, 0.05, lockX, 1.05, frontZ, materials.bronze);
+    // 智能锁面板：两扇各半、随门扇旋转（避免悬空）；贴中缝（门缝）侧、与竖拉手同竖边，
+    // 落在拉手正下方（中心离地 0.55m，跨 0.39~0.71m），像真实对开门的锁体位置
+    const lockX = handleX;
+    addBox(g, 0.09, 0.32, 0.05, lockX, 0.55, frontZ, materials.bronze);
     return g;
   };
 

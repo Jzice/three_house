@@ -353,6 +353,8 @@ export interface YardConfig {
   gateW: number;
   /** 院门中心 z（东南角附近，默认 6.68；相对前院南沿 ySouthZ 取位） */
   gateZ?: number;
+  /** 东围墙北端与后院斜围墙等高共角的加高段长度（米，默认 0.9；该段以南仍为 fenceH 矮墙） */
+  eastHighLen?: number;
 }
 
 /** 楼层配置：基础标高、层高与楼梯参数（楼梯按层独立配置） */

@@ -4,7 +4,7 @@ import { D, W } from '../config/houseConfig';
 
 /**
  * 1F 院子：环绕房屋的卵石铺装 + 实体围墙（无压顶），东面临街留院门（东南角）。
- * 西、北两侧为 2m 高围墙（后院斜边 + 后院西短墙 + 前院西墙），南、东为矮墙。
+ * 西、北两侧与东墙北端加高段为 2m 高围墙（北侧直角段 + 斜段 + 东墙加高段合成一块共角棱柱），南、东其余段为矮墙。
  * 后院（北侧）为梯形：西北角深 = extendNorth，东北角深 = rearEastDepth，斜围墙连向东北；
  * 各方向外扩独立：extendEast / extendSouth / extendNorth / extendWest（西院，0 表示到房屋西墙为止）。
  * 铺装顶面 = 院子台面（离地 paveH，现 0.50m），与 1F 完成面 `FIRST_FLOOR_Y` 齐平，
@@ -117,23 +117,56 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
   // 后院西短墙：z∈[-yNorthZ,-5.12]（北端接斜围墙西端），高 2m
   addFence(t, dBack, xWest + t / 2, -(yNorthZ + D / 2) / 2, hw);
 
-  // 斜围墙：直角段东端 → 东北（高 2m）
-  const diaDx = xEast - diaStartX;
-  const diaDz = rearEastZ + yNorthZ;
-  const diaLen = Math.hypot(diaDx, diaDz);
-  addFence(
-    diaLen,
-    t,
-    (diaStartX + xEast) / 2,
-    (rearEastZ - yNorthZ) / 2,
-    hn,
-    -Math.atan2(diaDz, diaDx),
-  );
+  // ---- 北侧 2m 高连续围墙：西北直角段 + 斜段 + 东墙北端加高段，合成一块共角棱柱 ----
+  // 斜段外皮与后院铺装斜边共线，墙身整段落在台面内：原先墙中心线压在斜边上，院外侧
+  // 半个墙厚整段悬空、两端旋转角点还越出院角，即"下端突出院子地基"的来源。
+  // 两端按外皮/内皮与相邻墙求交做斜切共角（miter），三段合成单一多边形棱柱，
+  // 因此接头处不再有楔形缝、重叠竖带或越界的悬空三角。
+  const diaAx = diaStartX; // 斜段外皮西端 = 直角段外皮东端
+  const diaAz = -yNorthZ;
+  const diaBx = xEast; // 斜段外皮东端 = 东墙外皮北端
+  const diaBz = rearEastZ;
+  const diaDx = diaBx - diaAx;
+  const diaDz = diaBz - diaAz;
+  const diaLen = Math.hypot(diaDx, diaDz) || 1;
+  const ux = diaDx / diaLen;
+  const uz = diaDz / diaLen;
+  const nx = -uz; // 指向院内的单位法向
+  const nz = ux;
+  const inAx = diaAx + t * nx; // 斜段内皮线 = 外皮线向院内平移一个墙厚
+  const inAz = diaAz + t * nz;
+  const northInnerZ = diaAz + t; // 直角段内皮线 z
+  const eastInnerX = xEast - t; // 东墙内皮线 x
+  // 西北共角点：斜段内皮线 ∩ 直角段内皮线
+  const westMiterX = Math.abs(uz) > 1e-6 ? inAx + ((northInnerZ - inAz) / uz) * ux : diaAx;
+  // 东北共角点：斜段内皮线 ∩ 东墙内皮线
+  const eastMiterZ = Math.abs(ux) > 1e-6 ? inAz + ((eastInnerX - inAx) / ux) * uz : diaBz;
+  const eastWallLen = gz - gateHalf - diaBz; // 东墙北端 → 院门北界总长
+  const eastHighLen = Math.min(Math.max(t, spec.eastHighLen ?? 0.9), eastWallLen);
+  const eastHighEndZ = diaBz + eastHighLen;
 
-  // 后院西北直角段墙（高 2m，与西、斜围墙成直角）
-  if (rearStraight > 0) {
-    addFence(rearStraight, t, xWest + rearStraight / 2, -yNorthZ + t / 2, hn);
-  }
+  // Shape 平面坐标 (x, -z)，挤出 hn 后绕 x 轴 -90° → 挤出方向为世界 +y，底面落在 paveH
+  const highWallShape = new THREE.Shape();
+  highWallShape.moveTo(xWest, yNorthZ); // 西北角外皮
+  highWallShape.lineTo(diaAx, yNorthZ); // 直角段外皮东端 A
+  highWallShape.lineTo(diaBx, -diaBz); // 斜段外皮东端 B
+  highWallShape.lineTo(diaBx, -eastHighEndZ); // 东墙加高段外皮南端
+  highWallShape.lineTo(eastInnerX, -eastHighEndZ); // 东墙加高段内皮南端
+  highWallShape.lineTo(eastInnerX, -eastMiterZ); // 东北共角点（内皮）
+  highWallShape.lineTo(westMiterX, -northInnerZ); // 西北共角点（内皮）
+  highWallShape.lineTo(xWest, -northInnerZ); // 西北角内皮
+  highWallShape.closePath();
+  const highWall = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(highWallShape, { depth: hn, bevelEnabled: false }),
+    materials.wall,
+  );
+  highWall.rotation.x = -Math.PI / 2;
+  highWall.position.y = paveH;
+  highWall.castShadow = true;
+  highWall.receiveShadow = true;
+  // 院子围墙（室外立面）：雪天被雪染白
+  highWall.userData.weatherExposed = 'wall';
+  group.add(highWall);
 
   // 前院西墙：z∈[D/2, ySouthZ]（房屋西墙以南、接南墙），高 2m，封闭西边界
   // 注：原「前西围墙」条件分支与本节重复（extendWest>0 时均落在西院外皮），已合并
@@ -144,9 +177,13 @@ export function createYard(spec: YardConfig, materials: MaterialMap): THREE.Grou
     addFence(t, D, xWest + t / 2, 0, hw);
   }
 
-  // ---- 东墙单段（斜边东北端 → 东南角院门）+ 压顶（矮） ----
-  const segLen = gz - gateHalf - rearEastZ;
-  addFence(t, segLen, xEast - t / 2, (gz - gateHalf + rearEastZ) / 2, hf);
+  // ---- 东墙剩余矮墙段（接 2m 加高段南端 → 院门北界）----
+  // 北端加高段与斜墙等高共角形成连续转角；此处才降回 0.5m 矮墙，墙头台阶落在东墙自身上，
+  // 不再出现在斜墙与东墙的接头处。
+  const eastLowLen = gz - gateHalf - eastHighEndZ;
+  if (eastLowLen > 0) {
+    addFence(t, eastLowLen, xEast - t / 2, (eastHighEndZ + gz - gateHalf) / 2, hf);
+  }
 
   // ---- 院门外踏步：街面（y=0）三级升至铺装面（y=paveH）----
   // 宽度 = 门洞通道净宽（东墙门垛 → 南围墙内皮，1.6m）；南边与南围墙内皮齐平

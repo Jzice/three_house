@@ -49,9 +49,10 @@ export const FLOORS: FloorConfig[] = [
     baseY: FIRST_FLOOR_Y,
     wallH: H,
     stair: { steps1: 14, steps2: 9, platformH: 2.2, run1Length: 4.4, run2Length: 2.4 },
-    // 1F 院子：东/南/北外扩 3m、西边到房屋西墙为止，卵石铺装（面高 0.50m，与室内齐平）+ 0.5m 实体矮围墙，
+    // 1F 院子：东/南外扩 2.2m、北 4.5m、西 1m，卵石铺装（面高 0.50m，与室内齐平）；
+    // 南/东为 0.5m 矮围墙，西/北斜段为 2m 高墙，东墙北端另有 eastHighLen 加高段与斜墙等高共角，
     // 东面临街开 2.4m 院门（位于东南角，贴南围墙）
-    yard: { extendEast: 2.2, extendSouth: 2.2, extendNorth: 4.5, extendWest: 1, rearEastDepth: 0.5, rearStraight: 3, paveH: FIRST_FLOOR_Y, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, gateW: 2.4, gateZ: 6.68 },
+    yard: { extendEast: 2.2, extendSouth: 2.2, extendNorth: 4.5, extendWest: 1, rearEastDepth: 0.5, rearStraight: 3, paveH: FIRST_FLOOR_Y, fenceH: 0.5, fenceHWest: 2, fenceHNorth: 2, fenceT: 0.24, gateW: 2.4, gateZ: 6.68, eastHighLen: 0.9 },
   },
   {
     index: 1,
@@ -958,10 +959,7 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
     { x0: xw, x1: -W / 2, z0: -D / 2, z1: D / 2 }, // 西院
   ];
   if (balconyRect) yard.push(balconyRect); // 1F 无阳台，通常为 null
-  // 东北斜围墙：西北角直角段东端 → 东北端，院内在其西南侧
-  const slope = { ax: xWest + rearStraight, az: zNorth, bx: xEast, bz: rearEastZ };
-
-  // 院子围墙碰撞足迹（与 yard.ts 的 addFence 中心/朝向完全一致）：
+  // 院子围墙碰撞足迹（与 yard.ts 的围墙中心线完全一致）：
   // 第一人称不可穿墙；仅东侧院门（z ∈ [gateNorth, …] 缺口）保留，可正常出院到 outside 地面。
   // 用 rails（线段缓冲带）表达，half = 玩家半径 + 墙厚半，使玩家恰好停在墙面、可贴墙滑动。
   const fenceT = y.fenceT;
@@ -969,14 +967,28 @@ export function getFpsWalkArea(floor: FloorConfig): FpsWalkArea {
   const gzGate = y.gateZ ?? 0;
   const gateHalfW = y.gateW / 2;
   const gateNorth = gzGate - gateHalfW; // 东墙北段南端 = 院门北界，其南为院门缺口
+  // 斜围墙外皮已与院子台面斜边齐平，墙身整段向院内内移半个墙厚；
+  // 碰撞线与院内半平面取同一条内移后的墙中心线，否则玩家会提前 0.12m 被"无形墙"挡住 / 贴墙穿模。
+  const diaDx = xEast - (xWest + rearStraight);
+  const diaDz = rearEastZ - zNorth;
+  const diaLen = Math.hypot(diaDx, diaDz) || 1;
+  const slideX = (-diaDz / diaLen) * (fenceT / 2);
+  const slideZ = (diaDx / diaLen) * (fenceT / 2);
+  // 东北斜围墙中心线（西北角直角段东端 → 东北端），院内在其西南侧
+  const slope = {
+    ax: xWest + rearStraight + slideX,
+    az: zNorth + slideZ,
+    bx: xEast + slideX,
+    bz: rearEastZ + slideZ,
+  };
   // 西墙（前/后院西墙与西院中段墙连成一线，整条）
   rails.push({ x0: xWest + fenceT / 2, z0: zNorth, x1: xWest + fenceT / 2, z1: zSouth - fenceT, half: fenceHalf });
   // 南墙（整条矮墙）
   rails.push({ x0: xWest, z0: zSouth - fenceT / 2, x1: xEast, z1: zSouth - fenceT / 2, half: fenceHalf });
   // 北墙直角段（西 → 斜边起点）
   rails.push({ x0: xWest, z0: zNorth + fenceT / 2, x1: xWest + rearStraight, z1: zNorth + fenceT / 2, half: fenceHalf });
-  // 北墙斜段（斜边东北端 → 东北角）
-  rails.push({ x0: xWest + rearStraight, z0: zNorth, x1: xEast, z1: rearEastZ, half: fenceHalf });
+  // 北墙斜段（与斜围墙中心线同源，同样内移半个墙厚）
+  rails.push({ x0: slope.ax, z0: slope.az, x1: slope.bx, z1: slope.bz, half: fenceHalf });
   // 东墙（院门北侧；院门缺口 z ∈ [gateNorth, …] 不布设，可通行）
   rails.push({ x0: xEast - fenceT / 2, z0: rearEastZ, x1: xEast - fenceT / 2, z1: gateNorth, half: fenceHalf });
 
