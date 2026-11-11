@@ -2,6 +2,23 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.14] - 2026-11-11
+
+### 改动
+- **1F 入户大厅新中式灯笼吊灯按参考图重做**（`scene/lightFixtures.ts` 的 `buildChandelier` + `lightingConfig.ts` 的 `LAMP_GEOMETRY.chandelier`）：黑布缠纹粗吊杆 + 锥斗形吸顶盘；金黑中心枢纽（金座 + 黑包环）；4 条三角撑加方形底框；中央金色半圆拱（拱端金帽 + 拱内梅花枝与 5 朵金花）；8 条黑色扁条灯臂（臂端金色端帽 + 双螺旋祥云卷饰）外挑 8 枚乳白直筒微鼓灯笼罩（顶部金色扁盘金领 + 底部金色细箍、素白无墨纹）；中央白葫芦珠 + 金托 + 红棕长流苏。位置 / 吊高 / 点光源 / 开关控制全部不变，仍纯程序化无外部资源。
+- **4 盏大厅主灯北移**（`lightingConfig.ts`，按需求）：1F 入户新中式吊灯、1F 西厅花灯、2F 左厅贝壳灯、2F 右厅方形回字灯 `z` 由 `3.60` 北移 `0.80m` 到 `2.80`（`x` 不变），1F/2F 上下仍垂直对齐；点光源参数、开关面板、2D 平面图均未涉及。
+
+### 同步
+- `package.json` / `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.14`；CHANGELOG 顶部新增本条目。
+- 配置顶部注释同步两处 `2.80` 坐标描述。
+
+### 验证
+- `npm run typecheck` 0 错误；`read_lints` 0 问题。
+- `npm run build:all` 两种单文件产物生成成功（离线版约 1282 KB / CDN 版约 403 KB；`"abs" is imported ...` 为 metaverse-sky 既有告警）；产物自检 `dist/` 仅两 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+- `npm run dev` + playwright-cli 固定机位（第一人称 `(-0.25,2.0,4.3)` 仰视）目视复核：8 盏灯笼均匀分布、金领 / 金箍贴合罩口、金拱与梅花居中、祥云卷饰与三角撑 / 底框清晰、流苏居中无穿插，造型比例与参考图一致。
+- 三处版本号（`package.json` / `package-lock.json` 顶层 / `packages[""].version`）统一 `2.0.14`；提交信息与附注标签注释统一 `v2.0.14`，按 `push origin main` → `push origin v2.0.14` 顺序发布；`dist/` 由 CI 构建，不进提交。
+
+- 本项目由单文件原型 `house.html` 重构而来，原型未纳入仓库（仅作为重构参照，不随源码发布）。
 ## [2.0.13] - 2026-11-11
 
 ### 改动

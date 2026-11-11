@@ -136,17 +136,42 @@ export const LIGHTS_PERSIST_MS = 300;
 export const LAMP_GEOMETRY = {
   /** 新中式多头吊灯：6 组挑臂 + 鼓形灯罩 + 金压环 + 中心荷叶 */
   chandelier: {
-    armCount: 6,
+    // 新中式灯笼吊灯：锥斗吸顶盘 + 缠纹吊杆 + 8 条黑色扁臂（臂端金色祥云双卷）
+    // + 8 枚乳白直筒灯笼罩（顶部金领 + 底部金箍）+ 中心金半圆拱与梅花枝 + 金黑三角撑
+    // + 中央白珠红流苏。全部尺寸沿 armRadius 等比缩放。
+    armCount: 8,
     armRadius: 0.44,
-    armTube: 0.012,
-    shadeR: 0.105,
-    shadeH: 0.26,
-    shadeTopY: -0.70,
+    /** 扁臂宽（水平切向）/ 厚（竖向） */
+    armW: 0.028,
+    armH: 0.012,
+    shadeR: 0.072,
+    shadeH: 0.24,
+    /** 锥斗吸顶盘：上口（贴顶）/ 下口 / 高 */
     canopyR: 0.10,
-    canopyH: 0.035,
-    stemR: 0.018,
-    goldRingH: 0.014,
-    centerLeafR: 0.11,
+    canopyBottomR: 0.032,
+    canopyH: 0.07,
+    stemR: 0.022,
+    /** 灯罩顶部金领（扁圆盘）高 / 底部金箍（细环）管径 */
+    collarH: 0.010,
+    hoopTube: 0.009,
+    /** 中心枢纽：金座半径 / 高 */
+    hubR: 0.05,
+    hubH: 0.05,
+    /** 金色半圆拱：半径 / 管径 */
+    archR: 0.30,
+    archTube: 0.013,
+    /** 梅花小花半径 */
+    blossomR: 0.016,
+    /** 祥云双卷：外径 / 管径 */
+    curlR: 0.030,
+    curlTube: 0.005,
+    /** 三角撑杆件管径 */
+    braceR: 0.006,
+    /** 中央流苏：白珠半径 / 穗底半径 / 穗长 / 吊绳长 */
+    tasselBeadR: 0.026,
+    tasselR: 0.022,
+    tasselH: 0.20,
+    cordLen: 0.18,
   },
   /** 花灯：青绿吸顶盘 + 链条 + 6 朵喇叭花罩 + 弯枝叶片 */
   flower: {
@@ -277,7 +302,7 @@ const CEILING_BASE = LAMP_LIGHT_DEFAULTS.ceiling;
 /**
  * 逐灯坐标表（共 23 盏）。
  * 1F：进门大厅吊灯(-0.25,3.60，吊杆 0.45)、西厅花灯(-2.60,3.60)、餐厅吊扇灯(-0.50,-1.01)；
- * 2F：大厅左厅贝壳灯(-2.60,3.60)、右厅方形回字灯(-0.25,3.60)，与 1F 两主灯上下垂直对齐；
+ * 2F：大厅左厅贝壳灯(-2.60,2.80)、右厅方形回字灯(-0.25,2.80)，与 1F 两主灯上下垂直对齐；
  * 其余房间 / 三层正门门廊均布圆形吸顶灯。
  * 三处楼梯休息台灯（同款 φ0.30m 圆形吸顶灯）：
  * - 1f-stair-a 贴 1F 休息平台板底（y 取 PLATFORM_SOFFIT_Y[0]=2.05），东移到后门中心
@@ -290,8 +315,8 @@ const CEILING_BASE = LAMP_LIGHT_DEFAULTS.ceiling;
  */
 export const LAMPS: LampSpec[] = [
   // ---------------- 1F ----------------
-  lamp('1f-foyer-chandelier', 0, '1f-foyer', '进门大厅 · 新中式吊灯', 'chandelier', -0.25, 3.60, 0.44, { drop: 0.45 }),
-  lamp('1f-living-flower', 0, '1f-living', '西厅 · 花灯', 'flower', -2.60, 3.60, 0.38, { drop: 0.52 }),
+  lamp('1f-foyer-chandelier', 0, '1f-foyer', '进门大厅 · 新中式吊灯', 'chandelier', -0.25, 2.80, 0.44, { drop: 0.45 }),
+  lamp('1f-living-flower', 0, '1f-living', '西厅 · 花灯', 'flower', -2.60, 2.80, 0.38, { drop: 0.52 }),
   lamp('1f-dining-fan', 0, '1f-dining', '餐厅 · 吊扇灯', 'ceilingFan', -0.50, -1.01, 0.30, { drop: 0.50 }),
   lamp('1f-kitchen', 0, '1f-service', '厨房 · 吸顶灯', 'ceiling', -0.50, -3.88, 0.225),
   lamp('1f-store', 0, '1f-service', '杂物间 · 吸顶灯', 'ceiling', 2.85, -3.25, 0.225),
@@ -312,8 +337,8 @@ export const LAMPS: LampSpec[] = [
   // ---------------- 2F ----------------
   // 圆形吸顶灯逐灯显式展开 CEILING_BASE：与 1F 普通吸顶灯同为 1.1 / 4.5m，
   // 消除小灯 0.72 折扣、门廊 0.9 / 3.6m 与休息台 2.0m 短半径的层间差。
-  lamp('2f-hall-left-shell', 1, '2f-living', '大厅·左厅 · 贝壳灯', 'shell', -2.60, 3.60, 0.30),
-  lamp('2f-hall-right-rect', 1, '2f-living', '大厅·右厅 · 方形回字灯', 'rectPanel', -0.25, 3.60, 0.50, { w: 1.00, d: 0.60 }),
+  lamp('2f-hall-left-shell', 1, '2f-living', '大厅·左厅 · 贝壳灯', 'shell', -2.60, 2.80, 0.30),
+  lamp('2f-hall-right-rect', 1, '2f-living', '大厅·右厅 · 方形回字灯', 'rectPanel', -0.25, 2.80, 0.50, { w: 1.00, d: 0.60 }),
   lamp('2f-backbed', 1, '2f-bed', '2层后卧 · 吸顶灯', 'ceiling', 1.25, -3.25, 0.225, { ...CEILING_BASE }),
   lamp('2f-wash', 1, '2f-service', '洗漱过道 · 吸顶灯', 'ceiling', 1.75, -0.50, 0.15, { ...CEILING_BASE }),
   lamp('2f-bath', 1, '2f-service', '卫生间 · 防潮吸顶灯', 'ceiling', 3.50, -0.50, 0.225, { ...CEILING_BASE, damp: true }),

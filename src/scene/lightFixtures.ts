@@ -62,6 +62,14 @@ const MAT = {
   key: new THREE.MeshStandardMaterial({
     color: 0x585f69, emissive: 0x96a1b2, emissiveIntensity: 0.2, metalness: 0.25, roughness: 0.5,
   }),
+  /** 吊杆缠绕布纹（新中式吊灯的黑布缠杆） */
+  stemWrap: new THREE.MeshStandardMaterial({
+    color: 0x33343a, map: twistTexture(), metalness: 0.2, roughness: 0.72,
+  }),
+  /** 流苏穗：红棕丝线 */
+  tasselRed: new THREE.MeshStandardMaterial({
+    color: 0x8a3b2e, metalness: 0.05, roughness: 0.85,
+  }),
   /** 射线拾取用的透明放大命中盒 */
   hit: new THREE.MeshBasicMaterial({
     transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
@@ -72,7 +80,6 @@ const MAT = {
 // 程序化贴图（Canvas，无外部资源）
 // ==========================================================
 let woodTexCache: THREE.CanvasTexture | null = null;
-let inkTexCache: THREE.CanvasTexture | null = null;
 
 /** 原木纹：暖棕底 + 细密波纹年轮 */
 function woodTexture(): THREE.CanvasTexture {
@@ -106,42 +113,28 @@ function woodTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** 淡墨山水纹：乳白底 + 远山淡影与水波细线（新中式灯罩） */
-function inkTexture(): THREE.CanvasTexture {
-  if (inkTexCache) return inkTexCache;
+/** 吊杆斜缠布纹：深灰底 + 斜向缠绕亮线（让黑杆呈布缠质感） */
+function twistTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 128;
+  c.width = 64;
+  c.height = 64;
   const g = c.getContext('2d');
   if (g) {
-    g.fillStyle = '#f7f2e6';
-    g.fillRect(0, 0, 256, 128);
-    g.fillStyle = 'rgba(96,112,118,0.13)';
-    for (let k = 0; k < 3; k++) {
+    g.fillStyle = '#33343a';
+    g.fillRect(0, 0, 64, 64);
+    g.strokeStyle = 'rgba(150,150,160,0.22)';
+    g.lineWidth = 2;
+    for (let i = -64; i < 64; i += 5) {
       g.beginPath();
-      g.moveTo(0, 84 + k * 8);
-      for (let x = 0; x <= 256; x += 6) {
-        const y = 78 + k * 9 - Math.abs(Math.sin(x * 0.018 + k * 1.7)) * (26 - k * 5);
-        g.lineTo(x, y);
-      }
-      g.lineTo(256, 128);
-      g.lineTo(0, 128);
-      g.closePath();
-      g.fill();
-    }
-    g.strokeStyle = 'rgba(90,104,110,0.10)';
-    g.lineWidth = 1;
-    for (let i = 0; i < 8; i++) {
-      const y = 100 + i * 3.5;
-      g.beginPath();
-      g.moveTo(0, y);
-      g.lineTo(256, y + Math.sin(i) * 1.5);
+      g.moveTo(i, 0);
+      g.lineTo(i + 64, 64);
       g.stroke();
     }
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  inkTexCache = tex;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
 
@@ -248,52 +241,186 @@ function buildCeiling(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent
   }
 }
 
-/** 新中式多头吊灯：黑金挑臂放射 + 6 枚鼓形乳白罩（淡墨山水纹、上下金压环）+ 中心荷叶 */
+/** 祥云卷：由外向内收拢的阿基米德螺旋管（XY 平面，法向 +Z） */
+function spiralGeometry(size: number, tube: number): THREE.BufferGeometry {
+  const pts: THREE.Vector3[] = [];
+  const N = 30;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const a = t * 1.25 * Math.PI * 2 + Math.PI / 2;
+    const r = size * (1 - 0.68 * t);
+    pts.push(new THREE.Vector3(Math.cos(a) * r, Math.sin(a) * r, 0));
+  }
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N * 2, tube, 5, false);
+}
+
+/**
+ * 新中式灯笼吊灯：锥斗吸顶盘 + 缠纹吊杆 + 金黑枢纽（含三角撑与底环）
+ * + 中心金半圆拱（拱端金帽 + 拱内梅花枝）+ 8 条黑色扁臂（臂端金色祥云双卷）
+ * + 8 枚乳白直筒灯笼罩（顶部金领 + 底部金箍）+ 中央白珠金托红流苏。
+ * 位置 / 吊高由 spec 控制，几何一律向 -y 悬挂。
+ */
 function buildChandelier(spec: LampSpec, glow: THREE.MeshStandardMaterial[], parent: THREE.Group): void {
   const cfg = LAMP_GEOMETRY.chandelier;
-  const scale = spec.radius / cfg.armRadius;
   const armR = spec.radius;
+  const scale = armR / cfg.armRadius;
   const shadeR = cfg.shadeR * scale;
   const shadeH = cfg.shadeH * scale;
   const stemTop = -spec.drop;
 
-  const canopy = cached('chand-canopy', () => new THREE.CylinderGeometry(cfg.canopyR, cfg.canopyR, cfg.canopyH, 24));
+  // 1) 锥斗形吸顶盘（贴顶宽口、向下收细）+ 粗缠绕吊杆
+  const canopy = cached('chand-canopy', () =>
+    new THREE.CylinderGeometry(cfg.canopyR, cfg.canopyBottomR, cfg.canopyH, 28));
   add(parent, canopy, MAT.dark, 0, -cfg.canopyH / 2, 0);
-  const stem = cached(`chand-stem-${spec.drop}`, () => new THREE.CylinderGeometry(cfg.stemR, cfg.stemR, spec.drop, 12));
-  add(parent, stem, MAT.dark, 0, -spec.drop / 2, 0);
+  const stem = cached(`chand-stem-${spec.drop}-${cfg.stemR}`, () =>
+    new THREE.CylinderGeometry(cfg.stemR, cfg.stemR, spec.drop, 20));
+  add(parent, stem, MAT.stemWrap, 0, -spec.drop / 2, 0);
 
-  const shadeProfile = [
-    new THREE.Vector2(shadeR * 0.78, 0),
-    new THREE.Vector2(shadeR, shadeH * 0.5),
-    new THREE.Vector2(shadeR * 0.78, shadeH),
+  // 2) 中心枢纽：金色主座 + 深色包环
+  const hub = cached('chand-hub', () =>
+    new THREE.CylinderGeometry(cfg.hubR, cfg.hubR * 1.15, cfg.hubH, 24));
+  add(parent, hub, MAT.gold, 0, stemTop, 0);
+  const hubRing = cached('chand-hubring', () =>
+    new THREE.TorusGeometry(cfg.hubR * 0.92, cfg.hubH * 0.14, 8, 24));
+  const hubRingMesh = add(parent, hubRing, MAT.dark, 0, stemTop + cfg.hubH * 0.1, 0);
+  hubRingMesh.rotation.x = Math.PI / 2;
+
+  // 3) 三角撑：4 条金杆由枢纽下沿斜撑到底部环框
+  const braceTopY = stemTop - cfg.hubH * 0.5;
+  const braceFootY = stemTop - 0.10 * scale;
+  const braceFootR = armR * 0.20;
+  const braceGeo = cached(`chand-brace-${scale}`, () => new THREE.TubeGeometry(
+    new THREE.LineCurve3(
+      new THREE.Vector3(cfg.hubR * 0.55, braceTopY, 0),
+      new THREE.Vector3(braceFootR, braceFootY, 0),
+    ), 1, cfg.braceR * scale, 6, false,
+  ));
+  for (let i = 0; i < 4; i++) {
+    const b = add(parent, braceGeo, MAT.gold, 0, 0, 0);
+    b.rotation.y = (i / 4) * Math.PI * 2;
+  }
+  // 底框：四角落在 45° 方向的方框，撑杆正对边中点（方框比方环更贴合参考图，也不易看成光圈）
+  const frameCorners: THREE.Vector3[] = [];
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    frameCorners.push(new THREE.Vector3(Math.cos(a) * braceFootR, braceFootY, Math.sin(a) * braceFootR));
+  }
+  const frame = cached(`chand-frame-${braceFootR}`, () => new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3(frameCorners, true), 32, cfg.braceR * scale * 0.9, 5, true,
+  ));
+  add(parent, frame, MAT.gold);
+
+  // 4) 金色半圆拱（XY 平面，正面可见）+ 拱端金帽 + 拱内梅花枝
+  const archR = cfg.archR * scale;
+  const archBaseY = stemTop - 0.01;
+  const arch = cached(`chand-arch-${archR}`, () =>
+    new THREE.TorusGeometry(archR, cfg.archTube * scale, 8, 56, Math.PI));
+  add(parent, arch, MAT.gold, 0, archBaseY, 0);
+  const archCapGeo = cached(`chand-archcap-${scale}`, () =>
+    new THREE.CylinderGeometry(cfg.archTube * 1.9, cfg.archTube * 1.9, 0.05 * scale, 12));
+  for (const sx of [-1, 1]) {
+    const cap = add(parent, archCapGeo, MAT.gold, sx * archR, archBaseY, 0);
+    cap.rotation.z = Math.PI / 2;
+  }
+  const branch = cached(`chand-branch-${archR}`, () => new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-archR * 0.60, archBaseY + archR * 0.28, 0.004),
+      new THREE.Vector3(-archR * 0.20, archBaseY + archR * 0.50, 0.004),
+      new THREE.Vector3(0.03 * scale, archBaseY + archR * 0.38, 0.004),
+      new THREE.Vector3(archR * 0.26, archBaseY + archR * 0.56, 0.004),
+      new THREE.Vector3(archR * 0.56, archBaseY + archR * 0.32, 0.004),
+    ]), 28, 0.004 * scale, 5, false,
+  ));
+  add(parent, branch, MAT.gold);
+  const blossomGeo = cached(`chand-blossom-${cfg.blossomR * scale}`, () =>
+    new THREE.SphereGeometry(cfg.blossomR * scale, 8, 6));
+  const blossomSpots: [number, number][] = [
+    [-0.52, 0.30], [-0.24, 0.46], [0.04, 0.40], [0.30, 0.52], [0.56, 0.34],
   ];
-  const shadeGeo = cached(`chand-shade-${shadeR}`, () => new THREE.LatheGeometry(shadeProfile, 20));
-  const ringGeo = cached(`chand-ring-${shadeR}`, () => new THREE.TorusGeometry(shadeR * 0.99, cfg.goldRingH, 8, 20));
-  const gm = glowMaterial(spec, inkTexture());
+  for (const [bx, by] of blossomSpots) {
+    add(parent, blossomGeo, MAT.gold, archR * bx, archBaseY + archR * by, 0.004);
+  }
+
+  // 5) 灯笼罩：乳白直筒微鼓（顶部穹盖收口），罩口金领、罩底金箍
+  const shadeProfile = [
+    new THREE.Vector2(shadeR * 0.90, 0),
+    new THREE.Vector2(shadeR * 1.00, 0.02 * scale),
+    new THREE.Vector2(shadeR * 1.00, shadeH * 0.82),
+    new THREE.Vector2(shadeR * 0.96, shadeH * 0.93),
+    new THREE.Vector2(shadeR * 0.78, shadeH * 0.99),
+    new THREE.Vector2(shadeR * 0.42, shadeH * 1.02),
+    new THREE.Vector2(0.001, shadeH * 1.03),
+  ];
+  const shadeGeo = cached(`chand-shade-${shadeR}-${shadeH}`, () =>
+    new THREE.LatheGeometry(shadeProfile, 28));
+  // 金领：扁圆盘（有上下端面，读作金属箍）
+  const collarGeo = cached(`chand-collar-${shadeR}`, () =>
+    new THREE.CylinderGeometry(shadeR * 1.04, shadeR * 1.04, cfg.collarH * scale, 28));
+  // 金箍：细环（中空，下方能看到罩内暖光）
+  const hoopGeo = cached(`chand-hoop-${shadeR}`, () =>
+    new THREE.TorusGeometry(shadeR * 1.02, cfg.hoopTube * scale, 8, 28));
+  const gm = glowMaterial(spec); // 素白，无墨纹
   glow.push(gm);
+
+  // 6) 扁臂 + 臂端祥云双卷
+  const armY = stemTop - 0.005;
+  const shadeTopY = stemTop - 0.10 * scale;
+  const cordH = armY - shadeTopY;
+  const armGeo = cached(`chand-arm-${armR}`, () =>
+    new THREE.BoxGeometry(armR, cfg.armH * scale, cfg.armW * scale));
+  const cordGeo = cached(`chand-cord-${cordH}`, () =>
+    new THREE.CylinderGeometry(0.006 * scale, 0.006 * scale, cordH, 6));
+  const curlGeo = cached(`chand-curl-${cfg.curlR * scale}`, () =>
+    spiralGeometry(cfg.curlR * scale, cfg.curlTube * scale));
+  const tipCapGeo = cached(`chand-tipcap-${scale}`, () =>
+    new THREE.CylinderGeometry(cfg.armW * 0.85, cfg.armW * 0.85, 0.03 * scale, 12));
 
   for (let i = 0; i < cfg.armCount; i++) {
     const th = (i / cfg.armCount) * Math.PI * 2;
     const cx = Math.cos(th);
     const cz = Math.sin(th);
-    const shadeY = stemTop - 0.06;
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, stemTop, 0),
-      new THREE.Vector3(cx * armR * 0.55, stemTop - 0.08, cz * armR * 0.55),
-      new THREE.Vector3(cx * armR, shadeY, cz * armR),
-    ]);
-    add(parent, new THREE.TubeGeometry(curve, 10, cfg.armTube, 6, false), MAT.dark);
-    add(parent, shadeGeo, gm, cx * armR, shadeY - shadeH, cz * armR);
-    const top = add(parent, ringGeo, MAT.gold, cx * armR, shadeY, cz * armR);
-    top.rotation.x = Math.PI / 2;
-    const bottom = add(parent, ringGeo, MAT.gold, cx * armR, shadeY - shadeH, cz * armR);
-    bottom.rotation.x = Math.PI / 2;
+
+    // 黑色扁臂：自枢纽水平外挑，臂端微微下垂
+    const arm = add(parent, armGeo, MAT.dark, cx * armR * 0.5, armY, cz * armR * 0.5);
+    arm.rotation.set(0, -th, -0.05);
+
+    // 臂端金帽 + 祥云双卷（卷面朝外，双瓣沿切向并列）
+    const tip = new THREE.Group();
+    tip.position.set(cx * armR, armY - 0.012 * scale, cz * armR);
+    tip.rotation.y = Math.PI / 2 - th;
+    parent.add(tip);
+    const cap = add(tip, tipCapGeo, MAT.gold, 0, 0, 0);
+    cap.rotation.x = Math.PI / 2;
+    for (const sx of [-1, 1]) {
+      add(tip, curlGeo, MAT.gold, sx * cfg.curlR * 0.62, cfg.curlR * 0.9, 0);
+    }
+
+    // 短吊链 + 灯笼罩（金领在罩口、金箍在罩底）
+    add(parent, cordGeo, MAT.gold, cx * armR, (armY + shadeTopY) / 2, cz * armR);
+    add(parent, shadeGeo, gm, cx * armR, shadeTopY - shadeH, cz * armR);
+    add(parent, collarGeo, MAT.gold, cx * armR, shadeTopY - cfg.collarH * scale * 0.5, cz * armR);
+    const hoop = add(parent, hoopGeo, MAT.gold, cx * armR, shadeTopY - shadeH, cz * armR);
+    hoop.rotation.x = Math.PI / 2;
   }
 
-  // 中心荷叶：压扁球 + 金色花心
-  const leaf = cached('chand-leaf', () => new THREE.SphereGeometry(cfg.centerLeafR, 16, 10));
-  const lm = add(parent, leaf, MAT.gold, 0, stemTop - 0.02, 0);
-  lm.scale.set(1, 0.24, 1);
+  // 7) 中央流苏：吊绳 + 白珠 + 金托 + 红棕长穗
+  const cordTop = stemTop - cfg.hubH * 0.5;
+  const cordLen = cfg.cordLen * scale;
+  const tasselCord = cached(`chand-tassel-cord-${cordLen}`, () =>
+    new THREE.CylinderGeometry(0.005 * scale, 0.005 * scale, cordLen, 6));
+  add(parent, tasselCord, MAT.dark, 0, cordTop - cordLen / 2, 0);
+  const beadY = cordTop - cordLen - cfg.tasselBeadR * scale;
+  const bead = cached(`chand-bead-${cfg.tasselBeadR * scale}`, () =>
+    new THREE.SphereGeometry(cfg.tasselBeadR * scale, 14, 12));
+  add(parent, bead, MAT.white, 0, beadY, 0);
+  const knot = cached(`chand-knot-${scale}`, () =>
+    new THREE.TorusGeometry(cfg.tasselR * scale * 0.55, cfg.tasselR * scale * 0.18, 6, 16));
+  const knotMesh = add(parent, knot, MAT.gold, 0, beadY - cfg.tasselBeadR * scale, 0);
+  knotMesh.rotation.x = Math.PI / 2;
+  const tasselH = cfg.tasselH * scale;
+  const tassel = cached(`chand-tassel-${tasselH}-${cfg.tasselR * scale}`, () =>
+    new THREE.ConeGeometry(cfg.tasselR * scale, tasselH, 14));
+  add(parent, tassel, MAT.tasselRed, 0, beadY - cfg.tasselBeadR * scale - tasselH / 2, 0);
 }
 
 /** 花灯：青绿吸顶盘 + 链条 + 6 朵喇叭花罩 + 弯枝与叶片 */
