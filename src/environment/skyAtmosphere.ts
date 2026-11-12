@@ -172,12 +172,11 @@ function skyLinear(
   const twiT = mix(0.9, 0.22, horizon);
   const twiG = mix(0.28, 0.16, horizon);
   const twiB = mix(0.18, 0.42, horizon);
-  const nightPow = Math.pow(horizon, 0.7);
-  const night = [
-    mix(0.008, 0.025, nightPow),
-    mix(0.014, 0.04, nightPow),
-    mix(0.035, 0.09, nightPow),
-  ];
+  // 夜间穹顶色：对齐 metaverse-sky 注释中确证的夜色 #2f3c58（线性 ≈ [0.0284,0.0451,0.0975]）。
+  // 旧上限 [0.025,0.04,0.09] 低估了该值，使 CPU 接缝雾色比真实夜空更暗 → 地平线深色带；
+  // 抬到此值后，GPU(真实穹顶) 与 CPU(雾色) 在地平线处共用同一 0.765 夜空罩压暗，接缝不再偏暗。
+  // 取为天顶/地平均匀常量（与库一致），避免地平额外变暗。
+  const night = [0.0284, 0.0451, 0.0975];
   const dayMix = smoothstep(-0.18, 0.02, sunY);
 
   for (let k = 0; k < 3; k++) {
@@ -231,8 +230,9 @@ export const CLOUD_RENDER_NIGHT_DARKNESS = 0.6;
  * 真实天空的近地平线是灰白的，故用霾色把低仰角天空向中性收敛。
  */
 export const HAZE_DAY_COLOR = 0xd5e6ff;
-/** 夜间霾色：近黑蓝，与夜空基调一致；晨昏亮带仍由 hazeDayFactor 的颜色收敛解决 */
-export const HAZE_NIGHT_COLOR = 0x0b1120;
+/** 夜间霾色：由近黑蓝 #0b1120 提亮到 #1d2c4a，给低空接缝一点自然辉光（非近黑），
+ *  与夜空罩共同消除地平线深色带；昼/金色时段不走此色（hazeColorAt 仅在夜间收敛到此），白天零回归。 */
+export const HAZE_NIGHT_COLOR = 0x1d2c4a;
 /**
  * 金色时段（日出 / 日落）霾色：太阳贴近地平线时，近地平线天空本应是暖橘霞色。
  * 旧实现白天恒定 `HAZE_DAY_COLOR`（浅蓝白）+ 0.9 不透明度，会把 0~30° 低空整片刷白，
@@ -279,7 +279,10 @@ export const NIGHT_DOME_ALPHA = 0.9;
  * 罩在视平线处的 alphaMap 取值：不归零，否则低仰角天穹会露出固有亮蓝灰、形成横贯的
  * 地平亮带。CPU 雾色按 {@link nightDomeHorizonMix} 用同一有效不透明度收敛，天地仍同色。
  */
-export const NIGHT_DOME_HORIZON_ALPHA = 0.85;
+/** 夜空罩在视平线处的 alphaMap 取值：0.85→0.78。配合 CPU 雾色同源的 nightDomeHorizonMix，
+ *  让地平接缝（天空/裙板/远景地面）整体少压一档、从近黑提亮到微弱辉光，消除深色带；
+ *  仍远高于 0，metaverse-sky 固有亮蓝灰不会因此露出成横贯亮带。 */
+export const NIGHT_DOME_HORIZON_ALPHA = 0.78;
 
 /**
  * 霾色昼夜因子（驱动霾色/雾色在昼夜间的明暗），比整体 daylightFactor 更陡：

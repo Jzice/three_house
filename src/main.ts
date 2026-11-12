@@ -1,11 +1,11 @@
 import './style.css';
 
 import * as THREE from 'three';
-import { FLOORS, SLIDING_DOOR } from './config/houseConfig';
+import { FLOORS, SLIDING_DOOR, VIEW } from './config/houseConfig';
 import { WEATHER_ENABLED_DEFAULT } from './config/siteConfig';
 import { buildHouse } from './scene/buildHouse';
 import { createMaterials } from './scene/materials';
-import { createSceneContext, createLights, handleResize } from './scene/sceneSetup';
+import { createSceneContext, createLights, handleResize, clampTpsCamera } from './scene/sceneSetup';
 import { createEnvironment } from './environment/environment';
 import { createWeatherFx } from './environment/weatherFx';
 import { createFloorplan2D } from './floorplan/floorplan2d';
@@ -411,6 +411,8 @@ function bootstrap(): void {
 
     if (mode === 'tps') {
       ctx.controls.update();
+      // 地图边界隐形钳制：焦点/相机不允许平移飞出 ±mapBound 范围
+      clampTpsCamera(ctx.controls, VIEW.mapBound);
       // 持续记录当前上帝视角到全局视角状态（切层时相机保持不动、整栋居中，仅切换可见楼层）
       view.saveTpsView();
     } else if (mode === 'fps' && !(gameActive && gamePaused)) {

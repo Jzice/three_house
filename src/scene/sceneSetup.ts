@@ -39,9 +39,10 @@ export function createSceneContext(): SceneContext {
   // "房屋悬空"问题从根本上消除；仰视 / 贴地取景交给第一人称模式（fps）。minPolarAngle 用默认 0，
   // 即允许一路俯视到正上方。仅 tps 模式 controls.enabled=true，fps/2d 不受影响。
   controls.maxPolarAngle = Math.PI / 2;
-  // 缩放距离：近距避免穿入房屋，远距小于 far(1000) 以保证天穹(半径≤882m)不被远裁剪面裁出圆洞。
-  controls.minDistance = 4;
-  controls.maxDistance = 800;
+  // 缩放距离：近距避免穿入房屋（minDistance），远距小于 far(1000) 以保证天穹(半径≤882m)
+  // 不被远裁剪面裁出圆洞，同时收紧到与地图范围匹配（maxDistance），保持关卡整体感。
+  controls.minDistance = VIEW.minDistance;
+  controls.maxDistance = VIEW.maxDistance;
   // 平移：仅沿世界水平面移动（screenSpacePanning=false），目标点的 y 恒为整栋中心，
   // 不会被右键拖拽拽到地下（否则即便 maxPolarAngle=90° 相机仍会随之下沉悬空）；
   // "看更多天空"的意图改用俯仰取景实现，而非把焦点沉到地下。
@@ -49,6 +50,28 @@ export function createSceneContext(): SceneContext {
   controls.screenSpacePanning = false;
 
   return { scene, camera, renderer, controls };
+}
+
+/**
+ * 上帝视角地图边界钳制：把轨道控制器焦点(target)限制在围绕房屋中心的矩形 mapBound 内；
+ * 焦点被拉回时，相机同步平移相同偏移量（保持 dolly 距离不变、无抖动），实现"不能无限平移飞出地图"。
+ * 只钳制水平 x/z，target.y（整栋竖向中心）保持不动。仅在 tps 模式（controls 启用时）调用。
+ * @param controls 上帝视角的 OrbitControls 实例
+ * @param bound 地图边界半边长（米），围绕房屋中心 [0,0]
+ */
+export function clampTpsCamera(controls: OrbitControls, bound: { x: number; z: number }): void {
+  const t = controls.target;
+  const cx = THREE.MathUtils.clamp(t.x, -bound.x, bound.x);
+  const cz = THREE.MathUtils.clamp(t.z, -bound.z, bound.z);
+  const dx = cx - t.x;
+  const dz = cz - t.z;
+  if (dx === 0 && dz === 0) return;
+  t.x = cx;
+  t.z = cz;
+  // 相机随焦点同步平移，保持看向房屋的构图不变（dolly 距离由 OrbitControls 维持）
+  controls.object.position.x += dx;
+  controls.object.position.z += dz;
+  controls.update();
 }
 
 /**

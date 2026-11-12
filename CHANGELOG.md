@@ -2,6 +2,20 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.15] - 2026-11-12
+
+### 改动
+- **上帝视角地图边界与缩放钳制**（`config/houseConfig.ts` 的 `VIEW` 新增 `minDistance`/`maxDistance`/`mapBound` + `scene/sceneSetup.ts` 导出 `clampTpsCamera` + `main.ts` 渲染循环 `tps` 分支挂接）：平移焦点被钳制进以房屋中心为原点的 ±`mapBound`（默认 `{x:20,z:20}` 米）矩形，焦点回拉时相机同步平移相同偏移（保持 dolly 距离、无抖动），实现"地图范围限制，不能无限延伸"；`maxDistance` 由 `800` 收紧到 `60`（保持关卡整体感、不拉成小点），`minDistance` 保持 `4`（不穿墙）；仅 `tps` 模式生效，`fps`/`2d` 零影响、无新增可见元素；旧存档超界 `tpsTarget` 首帧自动钳回，无需迁移。
+- **修复夜景地平线深色不自然带**（`environment/skyAtmosphere.ts`）：CPU 复算夜色上限由 `#28334c` 量级对齐 metaverse-sky 注释确证的夜色 `#2f3c58`（线性 `[0.0284,0.0451,0.0975]`），修正其对真实夜空亮度的低估——此前接缝雾色被夜空罩 + 霾墙双重压到近黑（`#0d1220`），比上侧真实夜空与下侧微光草地都暗，形成一圈深色带。同步提亮夜间霾色 `HAZE_NIGHT_COLOR` `#0b1120 → #1d2c4a`、并将夜空罩视平线不透明度 `NIGHT_DOME_HORIZON_ALPHA` `0.85 → 0.78`，使地平接缝整体少压一档、从近黑提亮到微弱辉光；GPU（`createNightDomeAlphaTexture` 视平线停值）与 CPU（`nightDomeHorizonMix`）共用同一常量，天地仍严格同源、不引入新接缝，昼/金色时段零回归。附离线校准脚本 `scripts/measure-night-sky.mjs`，复现天色数学、打印接缝雾色与各仰角亮度，便于后续微调量化。
+
+### 同步
+- `package.json` / `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.15`；CHANGELOG 顶部新增本条目。
+
+### 验证
+- `npm run typecheck` 0 错误；`read_lints` 0 问题。
+- `npm run build:all` 两种单文件产物生成成功；产物自检 `dist/` 仅两 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+- 交互/视觉改动建议 `npm run dev` 目视确认：上帝视角平移到边界被拦住、拉远/缩放下限生效、三模式与门窗开合不变；深夜地平线深色带消失、白天地平与朝霞（07:00 / 18:00）零回归。注：本环境无法跑浏览器截图，夜景接缝亮度已离线数值复现确认 GPU/CPU 同源匹配，最终观感需目视复核。
+
 ## [2.0.14] - 2026-11-11
 
 ### 改动
