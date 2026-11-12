@@ -182,8 +182,8 @@ export class Game {
     canvas.addEventListener('wheel', this.boundWheel, { passive: false });
     document.addEventListener('pointerlockchange', this.boundLockChange);
 
-    // 指针锁定（需用户手势，enable 由按钮点击触发）
-    this.requestLock();
+    // 指针锁定（桌面端需要用户手势；移动端不可用，跳过，改用虚拟按钮 + 右半屏拖动转头）
+    if (!this.hooks.isTouch) this.requestLock();
 
     this.emit();
   }
@@ -230,7 +230,8 @@ export class Game {
 
   private resume(): void {
     this.paused = false;
-    this.requestLock();
+    // 移动端无指针锁定，跳过
+    if (!this.hooks.isTouch) this.requestLock();
     this.emit();
   }
 
@@ -238,7 +239,8 @@ export class Game {
     this.paused = !this.paused;
     if (this.paused && this.locked) {
       document.exitPointerLock();
-    } else if (!this.paused && !this.locked) {
+    } else if (!this.paused && !this.locked && !this.hooks.isTouch) {
+      // 仅桌面端：失锁（Esc）恢复时重新请求锁定
       this.requestLock();
     }
     this.emit();
@@ -255,6 +257,8 @@ export class Game {
   }
 
   private onLockChange(): void {
+    // 移动端不依赖指针锁定，失锁事件一律忽略，避免"反复强制暂停"死循环
+    if (this.hooks.isTouch) return;
     this.locked = document.pointerLockElement === this.hooks.canvas;
     if (this.active && !this.locked && !this.paused) {
       // 失去锁定（Esc）→ 暂停
@@ -280,12 +284,16 @@ export class Game {
   private onKeyDown(e: KeyboardEvent): void {
     if (!this.active) return;
     const k = e.key.toLowerCase();
-    if (k >= '1' && k <= '7') {
+    if (k >= '1' && k <= '9') {
       this.selectItem(parseInt(k, 10) - 1);
       return;
     }
     if (k === 'r') {
       this.startReload();
+      return;
+    }
+    if (e.key === ' ' || k === 'spacebar') {
+      this.hooks.requestJump?.();
       return;
     }
     if (e.key === 'Escape') {
@@ -441,14 +449,25 @@ export class Game {
 
     st.mag -= 1;
     if (item.audio === 'pistol') this.audio.pistol();
+    else if (item.audio === 'shotgun') this.audio.shotgun();
+    else if (item.audio === 'sniper') this.audio.sniper();
     else this.audio.rifle();
     this.viewmodel.fire(item.recoil);
     this.hud.crosshairKick();
-    const result = this.ballistics.fire(this.hooks.camera, item.spread);
 
-    if (result.hit && result.targetId) {
-      const target = this.props.targets.find((t) => t.def.id === result.targetId);
-      if (target) this.scoreTarget(target, result.point);
+    // 霰弹枪一次发射多枚弹丸（各自带散布锥），仅首枚命中目标计入得分，避免多倍刷分
+    const pellets = item.pellets ?? 1;
+    const cone = item.coneSpread ?? 0;
+    let scored = false;
+    for (let i = 0; i < pellets; i++) {
+      const result = this.ballistics.fire(this.hooks.camera, item.spread, cone);
+      if (!scored && result.hit && result.targetId) {
+        const target = this.props.targets.find((t) => t.def.id === result.targetId);
+        if (target) {
+          this.scoreTarget(target, result.point);
+          scored = true;
+        }
+      }
     }
     this.emit();
   }
@@ -550,7 +569,8 @@ export class Game {
     this.audio.score();
   }
 
-  private startReload(): void {
+  /** 开始换弹（触屏按钮 / 键盘 R 共用） */
+  startReload(): void {
     const item = this.current();
     if (item.kind !== 'gun' || this.reloading) return;
     const st = this.gunState.get(item.id)!;

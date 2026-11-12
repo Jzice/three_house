@@ -55,10 +55,15 @@ export interface ViewManager {
   getState(): ViewState;
   /** 当前 UI 指示楼层（按钮 / 小地图所用：按完成面判定"已到达楼层"，与可见层解耦） */
   getUiFloor(): number;
+  /** 跳跃（空格 / 移动端跳跃键）：仅第一人称生效，落地后才能再次起跳 */
+  requestJump(): void;
 }
 
 const FPS_SPEED = 0.08;
 const FPS_EYE_Y = 1.6;
+/** 跳跃初速度（m/s）与重力（m/s²）：约可跃过 0.5m 半高台 */
+const JUMP_V = 3.4;
+const GRAVITY = 12;
 /** 前进脉冲累加器（米，正=前进）：滚轮 / 双指捏合等离散事件写入，每帧由 updateFpsMovement 消费 */
 let fpsMoveImpulse = 0;
 /** 俯仰角限位，避免翻转 */
@@ -323,6 +328,9 @@ export function createViewManager(
   }
   /** 第一人称脚下标高（当前所踩踏面/完成面的绝对高度） */
   let groundY = FLOORS[0].baseY;
+  /** 跳跃垂直速度（m/s）与是否在地面（用于起跳判定） */
+  let velY = 0;
+  let onGround = true;
   /** 第一人称所属楼层（人在哪一层：楼梯半层归属下层楼层；离开楼梯后保持） */
   let levelFloor = 0;
   /** 第一人称 UI 指示楼层（按钮 / 小地图）：按完成面判定"已到达楼层"，与可见层（休息台即切上层）解耦 */
@@ -378,6 +386,8 @@ export function createViewManager(
         // 刷新恢复：沿用保存的第一人称位置与朝向，不重置到出生点
         camera.position.copy(state.fpsPos);
         groundY = state.fpsPos.y - FPS_EYE_Y;
+        velY = 0;
+        onGround = true;
         levelFloor = activeFloor;
         uiFloor = activeFloor;
         tmpEuler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
@@ -395,6 +405,8 @@ export function createViewManager(
           FLOORS[activeFloor].baseY,
         ).step;
         camera.position.y = groundY + FPS_EYE_Y;
+        velY = 0;
+        onGround = true;
         lastMoveTime = performance.now();
         // 保持既有行为：进入第一人称朝向复位
         state.fpsYaw = 0;
@@ -447,6 +459,8 @@ export function createViewManager(
       levelFloor = floor;
       groundY = resolveGround(walkAreas[floor], px, pz, FLOORS[floor].baseY).step;
       camera.position.y = groundY + FPS_EYE_Y;
+      velY = 0;
+      onGround = true;
       lastMoveTime = performance.now();
       // 朝向沿用（不归零）：按保存的 yaw/pitch 重建相机四元数
       tmpEuler.set(state.fpsPitch, state.fpsYaw, 0, 'YXZ');
@@ -734,15 +748,28 @@ export function createViewManager(
       fpsMoveImpulse = 0;
     }
 
-    // 眼高：跟随脚下标高（平层为完成面、楼梯为踏步面），按时间常数做插值过渡
+    // 眼高：跟随脚下标高（平层为完成面、楼梯为踏步面），按时间常数做插值过渡；
+    // 跳跃时改用抛物运动，落地吸附到地面。
     const now = performance.now();
     const dt = Math.min((now - lastMoveTime) / 1000, 0.1);
     lastMoveTime = now;
     const ground = resolveGround(area, camera.position.x, camera.position.z, groundY);
-    groundY = ground.step;
-    const targetEye = ground.step + FPS_EYE_Y;
+    if (!onGround) {
+      velY -= GRAVITY * dt;
+      let foot = camera.position.y - FPS_EYE_Y + velY * dt;
+      if (foot <= ground.step) {
+        foot = ground.step;
+        velY = 0;
+        onGround = true;
+      }
+      groundY = foot;
+    } else {
+      groundY = ground.step;
+    }
+    const targetEye = groundY + FPS_EYE_Y;
     const alpha = 1 - Math.exp(-dt / EYE_SMOOTH_TAU);
-    camera.position.y += (targetEye - camera.position.y) * alpha;
+    // 空中不做眼高平滑，避免起跳/落地被插值拖慢；落地后恢复平滑以衔接台阶
+    camera.position.y += (targetEye - camera.position.y) * (onGround ? alpha : 1);
 
     // 上下楼：可见层按"越过中段休息台即进入上层"加载（1F→2F 脚高 2.5m、2F→3F 5.3m），
     // 使上层图层在上梯口之前就加载，避免透过楼梯洞口看到空房间；下楼对称。
@@ -790,6 +817,13 @@ export function createViewManager(
     getMode: () => state.mode,
     getState: () => state,
     getUiFloor: () => uiFloor,
+    requestJump: () => {
+      if (state.mode !== 'fps') return;
+      if (onGround) {
+        velY = JUMP_V;
+        onGround = false;
+      }
+    },
   };
 }
 

@@ -120,37 +120,8 @@ export class GameHud {
     this.buildPause();
     this.root.append(this.pause);
 
-    // 触屏虚拟按钮层（仅触屏设备构建；桌面端不显示，保持鼠标+键盘原行为）
-    if (isTouch) {
-      this.root.classList.add('touch');
-      const touchLayer = el('div', 'gh-touch');
-      const fireBtn = el('button', 'gh-btn-fire');
-      fireBtn.append(el('span', 'gh-fire-label', HUD_TEXT.fire));
-      fireBtn.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        try {
-          fireBtn.setPointerCapture(e.pointerId);
-        } catch {
-          /* 不支持指针捕获则忽略 */
-        }
-        this.cb.onFireDown();
-      });
-      const releaseFire = (e: Event) => {
-        e.stopPropagation();
-        this.cb.onFireUp();
-      };
-      fireBtn.addEventListener('pointerup', releaseFire);
-      fireBtn.addEventListener('pointercancel', releaseFire);
-      const reloadBtn = el('button', 'gh-btn-reload', HUD_TEXT.reload);
-      reloadBtn.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.cb.onReload();
-      });
-      touchLayer.append(fireBtn, reloadBtn);
-      this.root.append(touchLayer);
-    }
+    // 触屏标记（射击/换弹/切枪/跳跃等虚拟按钮由全局感应簇接管，见 index.html + touchControls）
+    if (isTouch) this.root.classList.add('touch');
 
     // 按钮
     this.muteBtn.addEventListener('click', () => this.cb.onMute());

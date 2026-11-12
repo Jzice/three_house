@@ -49,6 +49,8 @@ const POSES: Record<string, Pose> = {
   wrench: { pos: [0.16, -0.11, -0.37], rot: [0.05, 0.85, -1.45] },
   drill: { pos: [0.3, -0.24, -0.75], rot: [0.06, 0.6, 0.05] },
   light: { pos: [0.19, -0.13, -0.37], rot: [0.02, 0.62, 0] },
+  shotgun: { pos: [0.18, -0.2, -0.72], rot: [-0.02, 0.2, 0.02] },
+  sniper: { pos: [0.14, -0.22, -0.86], rot: [-0.03, 0.17, 0.02] },
 };
 
 // 模块级临时量（避免每次切换道具都新建对象）
@@ -398,6 +400,8 @@ export class ViewModel {
   private build(item: ItemDef): Built {
     if (item.kind === 'gun' && item.model === 'pistol') return this.buildPistol();
     if (item.kind === 'gun' && item.model === 'rifle') return this.buildRifle();
+    if (item.kind === 'gun' && item.model === 'shotgun') return this.buildShotgun();
+    if (item.kind === 'gun' && item.model === 'sniper') return this.buildSniper();
     if (item.kind === 'melee') return this.buildKnife();
     if (item.kind === 'tool') {
       if (item.model === 'screw') return this.buildScrewdriver();
@@ -593,6 +597,145 @@ export class ViewModel {
       gripR: { pos: [0.004, -0.078, 0.05], rot: [0.32, 0, 0.05] },
       // 支持手托住护木：掌心朝上、手指绕向近侧，从右侧能看清指节与拇指
       gripL: { pos: [0.004, -0.045, -0.262], rot: [Math.PI, -Math.PI / 2, Math.PI / 2] },
+    };
+  }
+
+  /** 霰弹枪：泵动护木（可动画）/ 双管短枪管 / 管式弹仓 / 木质枪托 */
+  private buildShotgun(): Built {
+    const a = this.assets;
+    const m = a.mat;
+
+    const receiver = bevelBox(0.054, 0.07, 0.16, m.gunSteel, 0.008, 0.003);
+    at(receiver, 0, 0, -0.02);
+    this.itemRoot.add(receiver);
+    // 顶部导轨缺口（简易照门）
+    const rail = box(0.03, 0.008, 0.14, m.gunAccent);
+    at(rail, 0, 0.04, -0.02);
+    this.itemRoot.add(rail);
+    const rearSight = box(0.022, 0.012, 0.008, m.gunAccent);
+    at(rearSight, 0, 0.05, 0.04);
+    const frontSight = box(0.006, 0.014, 0.008, m.gunAccent);
+    at(frontSight, 0, 0.052, -0.34);
+    this.itemRoot.add(rearSight, frontSight);
+    // 双管短枪管 + 散热环
+    for (const sx of [-1, 1]) {
+      const barrel = cyl(0.013, 0.013, 0.26, m.gunSteel, 14);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(sx * 0.012, 0.006, -0.3);
+      this.itemRoot.add(barrel);
+      for (let i = 0; i < 4; i++) {
+        const ring = torus(0.0145, 0.0022, m.gunAccent);
+        ring.rotation.y = Math.PI / 2;
+        ring.position.set(sx * 0.012, 0.006, -0.18 - i * 0.03);
+        this.itemRoot.add(ring);
+      }
+    }
+    // 管式弹仓（枪管下方）
+    const tube = cyl(0.011, 0.011, 0.3, m.gunAccent, 14);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(0, -0.012, -0.26);
+    this.itemRoot.add(tube);
+    // 泵动护木（可动画 slide）
+    const pump = bevelBox(0.046, 0.05, 0.12, m.gunPolymer, 0.01, 0.003);
+    at(pump, 0, -0.022, -0.2);
+    const pumpFore = bevelBox(0.05, 0.054, 0.13, m.gunGripWood, 0.01, 0.003);
+    at(pumpFore, 0, -0.022, -0.2);
+    this.itemRoot.add(pump, pumpFore);
+    // 扳机护圈 / 扳机
+    const guard = torus(0.02, 0.0032, m.gunPolymer);
+    guard.rotation.y = Math.PI / 2;
+    guard.position.set(0, -0.04, -0.002);
+    const trigger = box(0.006, 0.016, 0.006, m.gunAccent);
+    at(trigger, 0, -0.036, 0.006, 0.2);
+    this.itemRoot.add(guard, trigger);
+    // 握把
+    const grip = bevelBox(0.036, 0.094, 0.044, m.gunPolymer, 0.008, 0.003);
+    at(grip, 0, -0.07, 0.032, 0.3);
+    this.itemRoot.add(grip);
+    // 木质枪托
+    const stock = bevelBox(0.046, 0.062, 0.2, m.gunGripWood, 0.012, 0.004);
+    at(stock, 0, -0.018, 0.13, -0.06);
+    const butt = bevelBox(0.05, 0.08, 0.022, m.rubber, 0.012, 0.004);
+    at(butt, 0, -0.022, 0.235, -0.06);
+    this.itemRoot.add(stock, butt);
+
+    this.slidePart = pump;
+    this.slideHomeZ = pump.position.z;
+    this.magPart = null;
+
+    return {
+      muzzle: new THREE.Vector3(0, 0.006, -0.432),
+      muzzleScale: 0.22,
+      gripR: { pos: [0.004, -0.066, 0.04], rot: [0.3, 0, 0.05] },
+      gripL: { pos: [0.004, -0.03, -0.2], rot: [Math.PI, -Math.PI / 2, Math.PI / 2] },
+    };
+  }
+
+  /** 狙击枪：长枪管 / 重型枪机 / 可调枪托 / 大倍率镜 */
+  private buildSniper(): Built {
+    const a = this.assets;
+    const m = a.mat;
+
+    const receiver = bevelBox(0.05, 0.07, 0.2, m.gunSteel, 0.008, 0.003);
+    at(receiver, 0, 0, -0.02);
+    this.itemRoot.add(receiver);
+    // 长枪管 + 制退器
+    const barrel = cyl(0.012, 0.012, 0.42, m.gunSteel, 14);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.006, -0.36);
+    const brake = cyl(0.018, 0.019, 0.05, m.gunAccent, 14);
+    brake.rotation.x = Math.PI / 2;
+    brake.position.set(0, 0.006, -0.58);
+    this.itemRoot.add(barrel, brake);
+    // 枪机拉柄（右侧）
+    const bolt = box(0.01, 0.01, 0.05, m.gunAccent);
+    at(bolt, 0.03, 0.018, 0.08);
+    this.itemRoot.add(bolt);
+    // 护木
+    const handguard = bevelBox(0.05, 0.055, 0.16, m.gunPolymer, 0.01, 0.003);
+    at(handguard, 0, 0.002, -0.26);
+    this.itemRoot.add(handguard);
+    // 扳机 / 护圈
+    const guard = torus(0.019, 0.003, m.gunPolymer);
+    guard.rotation.y = Math.PI / 2;
+    guard.position.set(0, -0.042, 0.0);
+    const trigger = box(0.006, 0.016, 0.006, m.gunAccent);
+    at(trigger, 0, -0.038, 0.008, 0.2);
+    this.itemRoot.add(guard, trigger);
+    // 握把
+    const grip = bevelBox(0.034, 0.094, 0.042, m.gunPolymer, 0.008, 0.003);
+    at(grip, 0, -0.07, 0.034, 0.3);
+    this.itemRoot.add(grip);
+    // 可调枪托 + 贴腮 + 缓冲垫
+    const stock = bevelBox(0.046, 0.06, 0.18, m.gunPolymer, 0.012, 0.004);
+    at(stock, 0, -0.012, 0.16, -0.05);
+    const cheek = bevelBox(0.04, 0.018, 0.12, m.gunPolymer, 0.008, 0.003);
+    at(cheek, 0, 0.04, 0.14);
+    const butt = bevelBox(0.052, 0.082, 0.022, m.rubber, 0.012, 0.004);
+    at(butt, 0, -0.016, 0.255, -0.05);
+    this.itemRoot.add(stock, cheek, butt);
+    // 大倍率瞄准镜（镜身 + 物镜 + 目镜）
+    const scopeBody = cyl(0.02, 0.02, 0.2, m.gunAccent, 16);
+    scopeBody.rotation.x = Math.PI / 2;
+    scopeBody.position.set(0, 0.062, -0.02);
+    const scopeObj = cyl(0.024, 0.02, 0.03, m.gunAccent, 16);
+    scopeObj.rotation.x = Math.PI / 2;
+    scopeObj.position.set(0, 0.062, -0.12);
+    const scopeEye = cyl(0.02, 0.024, 0.03, m.gunAccent, 16);
+    scopeEye.rotation.x = Math.PI / 2;
+    scopeEye.position.set(0, 0.062, 0.09);
+    const scopeMount = box(0.016, 0.022, 0.04, m.gunAccent);
+    at(scopeMount, 0, 0.04, -0.02);
+    this.itemRoot.add(scopeBody, scopeObj, scopeEye, scopeMount);
+
+    this.slidePart = null;
+    this.magPart = null;
+
+    return {
+      muzzle: new THREE.Vector3(0, 0.006, -0.604),
+      muzzleScale: 0.24,
+      gripR: { pos: [0.004, -0.07, 0.05], rot: [0.32, 0, 0.05] },
+      gripL: { pos: [0.004, -0.04, -0.2], rot: [Math.PI, -Math.PI / 2, Math.PI / 2] },
     };
   }
 

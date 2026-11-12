@@ -4,7 +4,7 @@ import type * as THREE from 'three';
 export type ItemKind = 'gun' | 'melee' | 'tool';
 
 /** 枪械外观变体 */
-export type GunModel = 'pistol' | 'rifle';
+export type GunModel = 'pistol' | 'rifle' | 'shotgun' | 'sniper';
 
 /** 工具技能（决定能完成的任务类型） */
 export type ToolSkill = 'screw' | 'wrench' | 'drill' | 'light' | 'blade';
@@ -37,10 +37,14 @@ export interface GunDef {
   recoil: { pitch: number; yaw: number; recover: number };
   /** 基础准星扩散角（弧度） */
   spread: number;
+  /** 霰弹枪弹丸数（>1 时一次发射多枚，各自带 coneSpread 散布） */
+  pellets?: number;
+  /** 霰弹枪散布锥半角（弧度）：每枚弹丸在瞄准方向周围随机偏移 */
+  coneSpread?: number;
   /** 换弹时长（秒） */
   reload: number;
   /** 音效类型 */
-  audio: 'pistol' | 'rifle';
+  audio: 'pistol' | 'rifle' | 'shotgun' | 'sniper';
   /** 枪身主色（十六进制） */
   color: number;
 }
@@ -195,4 +199,6 @@ export interface GameHooks {
   onExit: () => void;
   /** 当前设备是否触屏：决定是否启用游戏内虚拟按钮与右半屏转头（仅触屏设备，桌面端保持鼠标+键盘原行为） */
   isTouch: boolean;
+  /** 跳跃（空格 / 移动端跳跃键），由 view 提供（游戏模式叠加在 fps 之上，跳跃复用同一套物理） */
+  requestJump?: () => void;
 }

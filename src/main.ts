@@ -12,7 +12,7 @@ import { createFloorplan2D } from './floorplan/floorplan2d';
 import { createUI } from './ui/ui';
 import { attachKeyboard, attachPointerInteraction, createKeyState } from './view/interaction';
 import { createViewManager, updateInteractables } from './view/viewState';
-import { createTouchControls } from './view/touchControls';
+import { createFpsTouch } from './view/touchControls';
 import { createEnvPanel } from './ui/envPanel';
 import { createLightController } from './lighting/lightController';
 import { createLightPanel } from './ui/lightPanel';
@@ -220,7 +220,6 @@ function bootstrap(): void {
       ui.setActiveMode(mode);
       // 进入第一人称需绘制右下角小地图（2D 由 setMode 内 onEnter2D 重绘）
       if (mode === 'fps') floorplan.draw();
-      syncJoystick(mode);
       syncMinimapBtn();
     },
     onSwitchFloor: (floor) => {
@@ -243,13 +242,13 @@ function bootstrap(): void {
       if (game.isActive()) {
         game.disable();
         ui.setGameActive(false);
+        document.body.classList.remove('tc-game');
         return;
       }
       // 进入游戏：确保在第一人称
       if (view.getMode() !== 'fps') {
         view.setMode('fps');
         ui.setActiveMode('fps');
-        syncJoystick('fps');
       }
       // 隐藏小地图与底部提示，记住之前状态以便恢复
       prevMinimap = view.getMinimapVisible();
@@ -258,13 +257,18 @@ function bootstrap(): void {
       prevInfo = getInfoDisplay();
       setInfoDisplay('none');
       ui.setGameActive(true);
+      document.body.classList.add('tc-game');
       game.enable();
     },
   });
 
+  // ---- 触屏能力检测（游戏内虚拟按钮与右半屏转头依赖此标志） ----
+  const isTouchDevice =
+    (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+    'ontouchstart' in window ||
+    navigator.maxTouchPoints > 0;
+
   // ---- 游戏模式（叠加在 fps 之上的子系统） ----
-  // 触屏能力检测需在 Game 之前就绪：游戏内虚拟按钮与右半屏转头依赖此标志
-  const touch = createTouchControls();
   const game = new Game({
     scene: ctx.scene,
     camera: ctx.camera,
@@ -272,14 +276,34 @@ function bootstrap(): void {
     getStaticRoots: () => floors.map((f) => f.root),
     getViewState: () => view.getState(),
     applyLook: (dx, dy) => view.applyLook(dx, dy),
-    isTouch: touch.isTouch,
+    isTouch: isTouchDevice,
+    requestJump: () => view.requestJump(),
     onExit: () => {
       ui.setGameActive(false);
+      document.body.classList.remove('tc-game');
       view.setMinimapVisible(prevMinimap);
       setInfoDisplay(prevInfo);
       syncMinimapBtn();
       // 恢复小地图后立即重绘一次，避免显示退出前的旧内容
       if (view.getMode() === 'fps' && prevMinimap) floorplan.draw();
+    },
+  });
+
+  // ---- 第一人称统一触控（游戏 + 漫游通用）：感应式自动隐藏摇杆 + 动作簇 ----
+  const touch = createFpsTouch({
+    onJump: () => view.requestJump(),
+    onAction: (id, down) => {
+      if (!game.isActive()) return;
+      if (id === 'fire') {
+        if (down) game.inputFireDown();
+        else game.inputFireUp();
+      } else if (id === 'reload') {
+        game.startReload();
+      } else if (id === 'cyclePrev') {
+        game.inputCycle(-1);
+      } else if (id === 'cycleNext') {
+        game.inputCycle(1);
+      }
     },
   });
 
@@ -303,6 +327,14 @@ function bootstrap(): void {
   // ---- 输入 ----
   const keys = createKeyState();
   attachKeyboard(keys, () => view.getState());
+  // 空格跳跃（第一人称漫游 / 游戏通用）：游戏模式由 game 自身处理，这里只管非游戏的第一人称
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== ' ' && e.key !== 'Spacebar') return;
+    if (game.isActive()) return;
+    if (view.getMode() !== 'fps') return;
+    e.preventDefault();
+    view.requestJump();
+  });
   attachPointerInteraction(
     ctx,
     () => view.getState(),
@@ -338,12 +370,6 @@ function bootstrap(): void {
       // 窄屏但无触屏（如笔记本小屏）：触摸板捏合缩放视野
       info.textContent = '拖拽鼠标看四周 | 双指捏合缩放视野 | 点击门窗开关';
     }
-  }
-
-  // 第一人称 + 触屏时显示摇杆，其余模式隐藏
-  function syncJoystick(mode: string): void {
-    const joy = document.getElementById('joystick');
-    if (joy) joy.style.display = mode === 'fps' && touch.isTouch ? 'block' : 'none';
   }
 
   // 进入第一人称后同步小地图按钮高亮（与 view 内部可见状态一致）

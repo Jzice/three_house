@@ -2,6 +2,23 @@
 
 本项目所有值得记录的变更都会写到这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.16] - 2026-11-13
+
+### 改动
+- **修复移动端游戏模式反复弹出"重置/暂停"对话框（根因）**（`game.ts`）：触屏设备（`isTouch`）完全跳过 `requestPointerLock`，`onLockChange` 在触屏下忽略失锁事件，不再"失锁即强制暂停"，根除"继续→再次请求锁定→再次失锁→再次暂停"死循环；桌面端指针锁定 / Esc 暂停行为保持不变。游戏内 `enable` / `resume` / `togglePause` 均按 `isTouch` 跳过锁定。
+- **第一人称跳跃机制**（`viewState.ts`）：新增垂直速度 + 重力 + 落地吸附 + 半高台 step-up；暴露 `requestJump()`；空格（桌面/游戏/漫游）与移动端跳跃键均可触发；切层 / 进出 FPS 时重置落地状态。可单跳踩上门院高差（0.5m）、台阶与低台，矮墙不可站立。
+- **移动端感应式自动隐藏触控（游戏 + 漫游通用）**（`touchControls.ts` + `index.html` + `style.css`）：左半屏按下即在触点唤出虚拟摇杆、松手淡出；右半屏仍由 `interaction`/`game` 接管转头。动作簇含"跳"（漫游/游戏都有）与"射击/换弹/切枪"（仅游戏模式，靠 `body.tc-game` 显隐）。桌面端不会触发（`tc-active` 仅在 touch 时添加）。`hud.ts` 移除游戏内自带触屏射击/换弹按钮（改由全局感应簇接管）。
+- **武器体系重做**（`gameConfig.ts` / `gameTypes.ts` / `game.ts` / `viewmodel.ts` / `assets.ts` / `audio.ts` / `ballistics.ts`）：快捷栏扩为 9 槽、数字键 `1~9`。新增**霰弹枪**（9 弹丸、散布锥、多曳光、单发计一击）与**狙击枪**（长枪管/制退器/大倍率镜、高伤低射速）；战斗（手枪/步枪/霰弹枪/狙击枪）+ 近战（匕首）在前，维修工具（螺丝刀/扳手/电钻/手电）在后，区分更清晰。`GunDef` 新增 `pellets`/`coneSpread`；`ballistics.fire` 增加散布锥参数；`audio` 新增 `shotgun`/`sniper` 合成音效；`viewmodel` 新增霰弹枪（泵动护木可动画）/狙击枪（镜身+物镜+目镜+贴腮+缓冲垫）建模。
+- **多楼层任务 / 靶位重设计**（`gameConfig.ts`）：保留 1F 原有 5 个维修任务；新增 2F（换顶灯、修栏杆）、3F（换灯、修栏板）共 4 个跨层任务；靶位新增 2F 南阳台靶纸、3F 大阳台钢靶与易拉罐。自由沙盒玩法形态与计分规则不变。
+
+### 同步
+- `package.json` / `package-lock.json`（顶层 + `packages[""].version`）版本号统一为 `2.0.16`；CHANGELOG 顶部新增本条目。
+
+### 验证
+- `npm run typecheck` 0 错误；`read_lints` 0 问题。
+- `npm run build:all` 两种单文件产物生成成功（离线版 / CDN 版）；产物自检 `dist/` 仅两 html、离线版 `unpkg|importmap|src="/assets"` 命中 `0` 条、CDN 版 importmap 恰好 `1` 条。
+- 涉及交互/视觉的改动（移动端弹窗修复、感应按钮、跳跃、新武器手感、多楼层任务/靶位坐标）建议 `npm run dev` 在触屏/真机目视复核：① 进入游戏不再弹暂停卡；② 左屏触控浮现摇杆+按钮、松手隐藏；③ 跳跃与射击/换弹/切枪手感；④ 2F/3F 任务与靶位位置（坐标基于户型锚点推算，可能需微调）。
+
 ## [2.0.15] - 2026-11-12
 
 ### 改动

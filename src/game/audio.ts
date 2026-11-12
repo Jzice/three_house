@@ -6,6 +6,8 @@
 type Sfx =
   | 'pistol'
   | 'rifle'
+  | 'shotgun'
+  | 'sniper'
   | 'empty'
   | 'reload'
   | 'melee'
@@ -111,6 +113,45 @@ export class GameAudio {
   }
   rifle(): void {
     this.gun('rifle');
+  }
+  /** 霰弹枪：宽频噪声爆响 + 更低沉的“砰” */
+  shotgun(): void {
+    this.boom(0.26, 1600, 260, 90, 1.0);
+  }
+  /** 狙击枪：更长的爆响 + 高频穿透感 */
+  sniper(): void {
+    this.boom(0.34, 3400, 320, 70, 1.15);
+  }
+
+  /** 通用枪声（噪声脉冲 + 低通扫频 + 低频“砰”），参数化用于霰弹/狙击 */
+  private boom(dur: number, lpStart: number, lpEnd: number, bassF: number, vol: number): void {
+    if (!this.gate('shotgun') || !this.ctx || !this.master || !this.noiseBuf) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(lpStart, t);
+    lp.frequency.exponentialRampToValueAtTime(lpEnd, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(lp).connect(g).connect(this.master);
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(bassF, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + dur * 0.8);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(vol * 0.6, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(og).connect(this.master);
+    src.start(t);
+    osc.start(t);
+    src.stop(t + dur);
+    osc.stop(t + dur);
+    const tag = 'shotgun' as Sfx;
+    src.onended = () => this.release(tag);
   }
 
   /** 空仓咔哒 */

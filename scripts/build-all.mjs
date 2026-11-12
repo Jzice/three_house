@@ -13,6 +13,20 @@ import { build } from 'vite';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
+/**
+ * 容错删除：本地 IDE 的 safe-delete shim 在删除目录时会调用 trash 二进制，
+ * 偶发超时抛错导致构建中断；而 `force:true` 本就语义上可忽略缺失/失败，
+ * 这里统一吞掉异常，CI 环境（无 shim）则正常删除。
+ */
+async function safeRm(p) {
+  try {
+    await rm(p, { recursive: true, force: true });
+  } catch {
+    /* 忽略删除失败，不影响产物 */
+  }
+}
+
+
 const ROOT = process.cwd();
 const DIST = path.join(ROOT, 'dist');
 
@@ -40,7 +54,7 @@ async function buildVariant(variant) {
   const tmpAbs = path.join(ROOT, tmpDir);
 
   // 清掉上一次可能残留的临时目录
-  await rm(tmpAbs, { recursive: true, force: true });
+  await safeRm(tmpAbs);
 
   await build({
     mode: variant.mode,
@@ -49,9 +63,9 @@ async function buildVariant(variant) {
 
   await mkdir(DIST, { recursive: true });
   const dest = path.join(DIST, variant.outFile);
-  await rm(dest, { force: true });
+  await safeRm(dest);
   await rename(path.join(tmpAbs, 'index.html'), dest);
-  await rm(tmpAbs, { recursive: true, force: true });
+  await safeRm(tmpAbs);
 
   const info = await stat(dest);
   console.log(`  ✓ ${variant.desc}\n    -> dist/${variant.outFile}  (${formatSize(info.size)})`);
@@ -71,7 +85,7 @@ async function main() {
 
   // 只有全量构建时才清空 dist，单目标构建保留另一个产物
   if (selected.length === VARIANTS.length) {
-    await rm(DIST, { recursive: true, force: true });
+    await safeRm(DIST);
   }
 
   console.log(`\n开始构建 ${selected.length} 个单文件产物...\n`);

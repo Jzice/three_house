@@ -107,9 +107,14 @@
     <div id="measure-tip">请在画布上点击两个点进行测量...</div>
     <div id="info">WASD移动 | 拖拽鼠标看四周 | 点击门窗开关 | 滚轮缩放(上帝视角)</div>
 
-    <!-- 触屏虚拟摇杆：仅第一人称 + 触屏设备显示（由 main.ts 控制显隐） -->
-    <div id="joystick" class="touch-only">
-        <div id="joystick-base"><div id="joystick-knob"></div></div>
+    <!-- 第一人称虚拟操作簇：左半屏触控自动显现、松手隐藏（游戏 + 漫游通用） -->
+    <div id="touch-cluster">
+      <div id="joystick"><div id="joystick-base"><div id="joystick-knob"></div></div></div>
+      <button id="btn-jump" class="tc-btn tc-jump" type="button">跳</button>
+      <button id="btn-fire" class="tc-btn tc-game-only tc-fire" type="button">射击</button>
+      <button id="btn-reload" class="tc-btn tc-game-only tc-reload" type="button">换弹</button>
+      <button id="btn-cycle-prev" class="tc-btn tc-game-only tc-cycle" type="button">◀</button>
+      <button id="btn-cycle-next" class="tc-btn tc-game-only tc-cycle" type="button">▶</button>
     </div>
 
     <canvas id="floorplan-canvas"></canvas>

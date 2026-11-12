@@ -107,16 +107,26 @@ export class Ballistics {
   }
 
   /**
-   * 从相机中心发射（带 spread 扩散角）。
+   * 从相机中心发射（带 spread 扩散角与 coneSpread 散布锥）。
    * 返回命中信息；命中盒优先于环境；环境命中落弹孔（玻璃走裂纹）。
+   * @param spread 每发基础扩散角（弧度）
+   * @param cone 散布锥半角（弧度）：在瞄准方向周围随机偏移，用于霰弹枪多弹丸
    */
-  fire(camera: THREE.PerspectiveCamera, spread: number): ShotResult {
+  fire(camera: THREE.PerspectiveCamera, spread: number, cone = 0): ShotResult {
     camera.getWorldPosition(_origin);
     _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
     if (spread > 0) {
       _dir.x += (Math.random() - 0.5) * spread * 2;
       _dir.y += (Math.random() - 0.5) * spread * 2;
       _dir.z += (Math.random() - 0.5) * spread * 2;
+      _dir.normalize();
+    }
+    if (cone > 0) {
+      // 在瞄准方向周围按散布锥随机偏转（保证弹丸簇而非单点）
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * cone;
+      _dir.x += Math.cos(a) * r;
+      _dir.y += Math.sin(a) * r;
       _dir.normalize();
     }
     this.raycaster.set(_origin, _dir);

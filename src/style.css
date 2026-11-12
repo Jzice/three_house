@@ -132,50 +132,74 @@ body { margin: 0; overflow: hidden; background-color: #555; font-family: sans-se
     .btn svg { width: 24px; height: 24px; }
 }
 
-/* ---- 触屏虚拟摇杆（第一人称模式下由 JS 显示） ---- */
+/* ---- 第一人称虚拟操作簇（游戏 + 漫游通用，左半屏触控感应式自动隐藏） ---- */
+#touch-cluster { position: fixed; inset: 0; pointer-events: none; z-index: 55; }
 .touch-only { display: none; }
 
 #joystick {
-    position: absolute;
-    left: 24px; bottom: 90px;
-    z-index: 110;
+    position: fixed; left: 0; top: 0; width: 0; height: 0;
+    pointer-events: none; z-index: 55;
     -webkit-tap-highlight-color: transparent;
-    touch-action: none;  /* 阻止浏览器默认的滚动/缩放手势 */
 }
-
 #joystick-base {
-    width: 128px; height: 128px;
+    position: fixed; width: 120px; height: 120px; margin-left: -60px; margin-top: -60px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.1);
     border: 2px solid rgba(255, 255, 255, 0.35);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-    position: relative;
-    touch-action: none;
+    visibility: hidden; /* JS 在左半屏触控时显隐 */
+    pointer-events: none;
 }
-
 #joystick-knob {
-    width: 56px; height: 56px;
+    position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin-left: -26px; margin-top: -26px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.6);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    position: absolute;
-    left: 50%; top: 50%;
-    margin-left: -28px; margin-top: -28px;  /* 居中后由 JS 用 transform 偏移 */
     transform: translate(0, 0);
+    pointer-events: none;
 }
 
-/* 小屏：摇杆略小，避免遮挡过多画面 */
+/* 虚拟按钮：默认隐藏，左半屏触控（body.tc-active）时显现；游戏专属按钮另需 body.tc-game */
+.tc-btn {
+    position: fixed; display: none;
+    width: 76px; height: 76px; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff; font-size: 15px; font-weight: 700;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    align-items: center; justify-content: center; z-index: 60;
+}
+.tc-btn:active { transform: scale(0.94); filter: brightness(1.2); }
+body.tc-active .tc-btn:not(.tc-game-only) { display: flex; }
+.tc-game-only { display: none; }
+body.tc-active.tc-game .tc-game-only { display: flex; }
+
+.tc-jump { left: 22px; bottom: 120px; width: 84px; height: 84px;
+    background: rgba(46, 125, 50, 0.4); border-color: rgba(46, 125, 50, 0.75); }
+.tc-fire { left: 120px; bottom: 64px; width: 92px; height: 92px;
+    background: rgba(234, 67, 53, 0.35); border-color: rgba(234, 67, 53, 0.6); }
+.tc-reload { left: 226px; bottom: 118px; width: 66px; height: 66px; font-size: 13px;
+    background: rgba(41, 128, 185, 0.35); border-color: rgba(41, 128, 185, 0.6); }
+.tc-cycle { left: 226px; bottom: 42px; width: 54px; height: 54px; font-size: 18px;
+    background: rgba(120, 90, 40, 0.35); border-color: rgba(160, 120, 60, 0.6); }
+
+/* 小屏：按钮略小，避免遮挡过多画面 */
 @media (max-width: 640px) {
-    #joystick { left: 16px; bottom: 60px; }
-    #joystick-base { width: 110px; height: 110px; }
-    #joystick-knob { width: 48px; height: 48px; margin-left: -24px; margin-top: -24px; }
+    #joystick-base { width: 104px; height: 104px; margin-left: -52px; margin-top: -52px; }
+    #joystick-knob { width: 46px; height: 46px; margin-left: -23px; margin-top: -23px; }
+    .tc-jump { left: 14px; bottom: 96px; width: 72px; height: 72px; }
+    .tc-fire { left: 96px; bottom: 52px; width: 80px; height: 80px; }
+    .tc-reload { left: 188px; bottom: 96px; width: 56px; height: 56px; }
+    .tc-cycle { left: 188px; bottom: 34px; width: 46px; height: 46px; }
 }
 
 /* 横屏高度受限：进一步缩小并贴底 */
 @media (max-height: 480px) {
-    #joystick { left: 14px; bottom: 14px; }
-    #joystick-base { width: 96px; height: 96px; }
-    #joystick-knob { width: 42px; height: 42px; margin-left: -21px; margin-top: -21px; }
+    .tc-jump { left: 12px; bottom: 70px; width: 64px; height: 64px; }
+    .tc-fire { left: 86px; bottom: 40px; width: 72px; height: 72px; }
+    .tc-reload { left: 168px; bottom: 70px; width: 50px; height: 50px; }
+    .tc-cycle { left: 168px; bottom: 26px; width: 42px; height: 42px; }
 }
 
 /* ---- 环境面板（地点 / 日照 / 天气） ---- */

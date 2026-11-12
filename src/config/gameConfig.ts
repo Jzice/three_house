@@ -9,7 +9,10 @@ import type { ItemDef, TaskDef, TargetDef } from '../game/gameTypes';
  * -z 为设计「北/楼梯间侧」、+z 为「南/入户门侧」，+z 也是 1F 院子方向。
  */
 
-/** 快捷栏道具（slot 1~7），数字键 / 滚轮切换 */
+/**
+ * 快捷栏道具（slot 1~9），数字键 / 滚轮切换。
+ * 重做后的体系：战斗（手枪/步枪/霰弹枪/狙击枪）+ 近战（匕首）在前，维修工具在后，区分更清晰。
+ */
 export const ITEMS: ItemDef[] = [
   {
     kind: 'gun',
@@ -46,9 +49,45 @@ export const ITEMS: ItemDef[] = [
     color: 0x33343a,
   },
   {
+    kind: 'gun',
+    id: 'shotgun',
+    slot: 3,
+    name: '霰弹枪',
+    model: 'shotgun',
+    mag: 6,
+    reserve: 30,
+    damage: { body: 11, head: 14, limb: 9 },
+    rpm: 80,
+    auto: false,
+    recoil: { pitch: 0.05, yaw: 0.01, recover: 6 },
+    spread: 0.012,
+    pellets: 9,
+    coneSpread: 0.09,
+    reload: 2.8,
+    audio: 'shotgun',
+    color: 0x2f2a26,
+  },
+  {
+    kind: 'gun',
+    id: 'sniper',
+    slot: 4,
+    name: '狙击枪',
+    model: 'sniper',
+    mag: 5,
+    reserve: 25,
+    damage: { body: 90, head: 220, limb: 70 },
+    rpm: 45,
+    auto: false,
+    recoil: { pitch: 0.06, yaw: 0.003, recover: 5 },
+    spread: 0.0008,
+    reload: 3.2,
+    audio: 'sniper',
+    color: 0x1f2329,
+  },
+  {
     kind: 'melee',
     id: 'blade',
-    slot: 3,
+    slot: 5,
     name: '匕首',
     model: 'blade',
     range: 2.2,
@@ -59,7 +98,7 @@ export const ITEMS: ItemDef[] = [
   {
     kind: 'tool',
     id: 'screw',
-    slot: 4,
+    slot: 6,
     name: '螺丝刀',
     model: 'screw',
     skill: 'screw',
@@ -67,7 +106,7 @@ export const ITEMS: ItemDef[] = [
   {
     kind: 'tool',
     id: 'wrench',
-    slot: 5,
+    slot: 7,
     name: '扳手',
     model: 'wrench',
     skill: 'wrench',
@@ -75,7 +114,7 @@ export const ITEMS: ItemDef[] = [
   {
     kind: 'tool',
     id: 'drill',
-    slot: 6,
+    slot: 8,
     name: '电钻',
     model: 'drill',
     skill: 'drill',
@@ -83,7 +122,7 @@ export const ITEMS: ItemDef[] = [
   {
     kind: 'tool',
     id: 'light',
-    slot: 7,
+    slot: 9,
     name: '手电',
     model: 'light',
     skill: 'light',
@@ -157,6 +196,56 @@ export const TASKS: TaskDef[] = [
     score: 120,
     effect: 'cut',
     label: '拆封箱',
+  },
+  // —— 2F（index 1）任务 ——
+  {
+    id: 't-2f-light',
+    name: '换 2F 顶灯',
+    floor: 1,
+    pos: [0, 6.8, -0.5], // 2F 客厅天花板灯具（顶面 7.0）
+    size: [0.6, 0.6, 0.6],
+    requiredItem: 'screw',
+    requiredSkill: 'screw',
+    score: 100,
+    effect: 'light',
+    label: '换顶灯',
+  },
+  {
+    id: 't-2f-rail',
+    name: '修 2F 栏杆',
+    floor: 1,
+    pos: [2.5, 4.6, 6.0], // 2F 南阳台栏杆
+    size: [0.5, 0.5, 0.5],
+    requiredItem: 'wrench',
+    requiredSkill: 'wrench',
+    score: 100,
+    effect: 'tighten',
+    label: '修栏杆',
+  },
+  // —— 3F（index 2）任务 ——
+  {
+    id: 't-3f-light',
+    name: '换 3F 顶灯',
+    floor: 2,
+    pos: [0, 9.3, -0.5], // 3F 客厅天花板灯具（顶面 9.5）
+    size: [0.6, 0.6, 0.6],
+    requiredItem: 'screw',
+    requiredSkill: 'screw',
+    score: 120,
+    effect: 'light',
+    label: '换灯',
+  },
+  {
+    id: 't-3f-rail',
+    name: '修 3F 栏板',
+    floor: 2,
+    pos: [0, 8.4, 6.0], // 3F 大阳台栏板
+    size: [0.5, 0.5, 0.5],
+    requiredItem: 'drill',
+    requiredSkill: 'drill',
+    score: 120,
+    effect: 'tighten',
+    label: '修栏板',
   },
 ];
 
@@ -242,9 +331,49 @@ export const TARGETS: TargetDef[] = [
     ],
     bodyScore: 20,
   },
+  // —— 2F（index 1）阳台靶纸 ——
+  {
+    id: 'paper-2f',
+    kind: 'paper',
+    floor: 1,
+    pos: [0, 5.0, 6.2], // 2F 南阳台靶纸，面向 +z（阳台外侧）
+    rotY: Math.PI,
+    width: 0.6,
+    height: 0.9,
+    stand: false,
+    rings: [
+      { r: 1.0, score: 30 },
+      { r: 0.6, score: 50 },
+      { r: 0.3, score: 100 },
+    ],
+    bodyScore: 20,
+  },
+  // —— 3F（index 2）阳台钢靶 / 易拉罐 ——
+  {
+    id: 'steel-3f',
+    kind: 'steel',
+    floor: 2,
+    pos: [3.0, 7.6, 6.5],
+    rotY: Math.PI,
+    width: 0.5,
+    height: 0.8,
+    stand: true,
+    rings: [{ r: 1.0, score: 50 }],
+    bodyScore: 50,
+  },
+  {
+    id: 'can-3f',
+    kind: 'can',
+    floor: 2,
+    pos: [1.5, 7.3, 6.8],
+    rotY: Math.PI,
+    width: 0.16,
+    height: 0.32,
+    stand: true,
+    rings: [],
+    bodyScore: 20,
+  },
 ];
-
-/** 计分与连击 */
 export const SCORING = {
   /** 连击窗口（秒）：超过则连击清零 */
   comboWindow: 3,
@@ -308,7 +437,7 @@ export const HUD_TEXT = {
   helpLines: [
     '鼠标：锁定后转动视角，点击射击',
     'WASD / 方向键：移动，滚轮：前进后退',
-    '1~7：切换武器 / 工具，R：换弹',
+    '1~9：切换武器 / 工具，R：换弹',
     '维修：手持匹配工具，瞄准任务点点击',
     'Esc：暂停 / 退出锁定',
   ],
